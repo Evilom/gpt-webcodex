@@ -40,6 +40,8 @@ class ContextUsageTracker extends EventEmitter {
     this.totalBytes = 0;
     this.totalTokens = 0;
     this.callCount = 0;
+    this.requestBytes = 0;
+    this.responseBytes = 0;
     this.lastCall = null;
     this.maxCall = null;
     this.tools = {};
@@ -71,6 +73,8 @@ class ContextUsageTracker extends EventEmitter {
     this.totalBytes += callBytes;
     this.totalTokens += callTokens;
     this.callCount += 1;
+    this.requestBytes += reqBytes;
+    this.responseBytes += resBytes;
     this.updatedAt = new Date().toISOString();
 
     const callRecord = {
@@ -174,17 +178,28 @@ class ContextUsageTracker extends EventEmitter {
     let finalBytes = extBytes > 0 ? extBytes : this.localCalls.reduce((s, c) => s + c.bytes, 0);
     let finalTokens = calculatedTokens > 0 ? calculatedTokens : this.localCalls.reduce((s, c) => s + c.tokens, 0);
     let finalCalls = extCalls > 0 ? extCalls : this.localCalls.length;
+    let finalReqBytes = extBytes > 0 ? reqBytes : this.localCalls.reduce((s, c) => s + c.bytes, 0);
+    let finalResBytes = extBytes > 0 ? resBytes : 0;
+    if (extBytes === 0) {
+      // Local-only fallback: keep request/response unknown as 0/total
+      finalReqBytes = 0;
+      finalResBytes = finalBytes;
+    }
 
     if (this.sessionBaseline) {
       finalBytes = Math.max(0, finalBytes - (this.sessionBaseline.bytes || 0));
       finalTokens = Math.max(0, finalTokens - (this.sessionBaseline.tokens || 0));
       finalCalls = Math.max(0, finalCalls - (this.sessionBaseline.calls || 0));
+      finalReqBytes = Math.max(0, finalReqBytes - (this.sessionBaseline.requestBytes || 0));
+      finalResBytes = Math.max(0, finalResBytes - (this.sessionBaseline.responseBytes || 0));
     }
 
     const previousTokens = this.totalTokens;
     this.totalBytes = finalBytes;
     this.totalTokens = finalTokens;
     this.callCount = finalCalls;
+    this.requestBytes = finalReqBytes;
+    this.responseBytes = finalResBytes;
     this.tools = toolsMap;
     if (maxExtCall) this.maxCall = maxExtCall;
     if (lastExtCall) this.lastCall = lastExtCall;
@@ -201,10 +216,12 @@ class ContextUsageTracker extends EventEmitter {
     if (!performanceTrace) {
       this.sessionBaseline = null;
     } else {
-      const extBytes = Math.max(0, Number(performanceTrace.request_bytes || 0)) + Math.max(0, Number(performanceTrace.response_bytes || 0));
+      const reqBytes = Math.max(0, Number(performanceTrace.request_bytes || 0));
+      const resBytes = Math.max(0, Number(performanceTrace.response_bytes || 0));
+      const extBytes = reqBytes + resBytes;
       const extCalls = Math.max(0, Number(performanceTrace.tool_calls || 0));
       const estimatedTokens = Math.round(extBytes / 3.2);
-      this.sessionBaseline = { bytes: extBytes, calls: extCalls, tokens: estimatedTokens };
+      this.sessionBaseline = { bytes: extBytes, calls: extCalls, tokens: estimatedTokens, requestBytes: reqBytes, responseBytes: resBytes };
     }
     return this.reset();
   }
@@ -219,13 +236,26 @@ class ContextUsageTracker extends EventEmitter {
   snapshot() {
     const level = this.pressureLevel();
     const percent = Math.min(100, Math.round((this.totalTokens / this.contextBudget) * 100));
+    const topTools = Object.entries(this.tools || {})
+      .map(([tool, stats]) => ({
+        tool,
+        calls: stats.calls || 0,
+        bytes: stats.bytes || 0,
+        tokens: stats.tokens || 0
+      }))
+      .sort((a, b) => b.bytes - a.bytes)
+      .slice(0, 8);
     return {
       totalBytes: this.totalBytes,
+      requestBytes: this.requestBytes || 0,
+      responseBytes: this.responseBytes || 0,
       totalTokens: this.totalTokens,
       callCount: this.callCount,
       lastCall: this.lastCall,
       maxCall: this.maxCall,
       tools: { ...this.tools },
+      topTools,
+      sessionId: this.syncedSessionId || '',
       contextBudget: this.contextBudget,
       pressureLevel: level,
       percent,

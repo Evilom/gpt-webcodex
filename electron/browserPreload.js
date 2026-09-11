@@ -26,7 +26,13 @@ contextBridge.exposeInMainWorld('browserAssistant', {
     ipcRenderer.on('chat:download', wrapped);
     return () => ipcRenderer.removeListener('chat:download', wrapped);
   },
+  onThemeChanged: (listener) => {
+    const wrapped = (_event, payload) => listener(payload);
+    ipcRenderer.on('theme:changed', wrapped);
+    return () => ipcRenderer.removeListener('theme:changed', wrapped);
+  },
   taskState: () => ipcRenderer.invoke('task-state:read'),
+  taskHistory: () => ipcRenderer.invoke('task-state:history'),
   taskRuntime: (options = {}) => ipcRenderer.invoke('mcp:task-runtime', options),
   performanceTrace: () => ipcRenderer.invoke('performance:read'),
   pauseTask: () => ipcRenderer.invoke('task-state:pause'),

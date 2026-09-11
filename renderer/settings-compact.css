@@ -4,13 +4,13 @@
   --manager-main:#fff;
 }
 body[data-theme="dark"]{
-  --manager-bg:#181818;
-  --manager-sidebar:#171717;
-  --manager-main:#212121;
+  --manager-bg:#000000;
+  --manager-sidebar:#000000;
+  --manager-main:#000000;
 }
 html,body{background:var(--manager-bg)!important}
 .manager-window-bar{top:0!important;left:0!important;right:0!important;height:42px!important;padding:0 10px 0 14px!important;border:0!important;border-bottom:1px solid #e7e7e7!important;border-radius:0!important;background:var(--manager-main)!important;box-shadow:none!important}
-body[data-theme="dark"] .manager-window-bar{border-color:#303030!important}
+body[data-theme="dark"] .manager-window-bar{border-color:#ffffff0d!important}
 .app-shell{inset:42px 0 0!important;border:0!important;border-radius:0!important;box-shadow:none!important;grid-template-columns:220px minmax(0,1fr)!important;background:var(--manager-main)!important}
 .sidebar{padding:18px 12px 14px!important;background:var(--manager-sidebar)!important}
 .main-area{background:var(--manager-main)!important}
@@ -22,7 +22,7 @@ body[data-theme="dark"] .manager-window-bar{border-color:#303030!important}
 .nav-group-label{display:block;margin:8px 10px 1px;color:var(--muted-2);font-size:8px;font-weight:800;letter-spacing:1.25px}
 .nav-group-label:first-child{margin-top:0}
 .nav-item.active{color:#202123!important;background:#ececec!important;box-shadow:none!important}
-body[data-theme="dark"] .nav-item.active{color:#fff!important;background:#303030!important}
+body[data-theme="dark"] .nav-item.active{color:#fff!important;background:#212121!important}
 .sidebar-runtime{padding:13px!important;border-radius:12px!important;background:var(--surface)!important}
 .sidebar-runtime p{height:28px!important;margin:7px 0!important;font-size:10px!important}
 .topbar{height:80px!important;flex-basis:80px!important;padding:14px 30px!important}
@@ -44,7 +44,7 @@ body[data-theme="dark"] .nav-item.active{color:#fff!important;background:#303030
 .two-column{gap:14px!important}
 .about-panel{margin-top:14px!important}
 .busy-overlay{background:rgba(247,247,248,.72)!important}
-body[data-theme="dark"] .busy-overlay{background:rgba(20,20,20,.72)!important}
+body[data-theme="dark"] .busy-overlay{background:rgba(0,0,0,.72)!important}
 .boot-screen{display:none!important}
 @media (max-width:900px){.app-shell{grid-template-columns:186px minmax(0,1fr)!important}.connection-visual{display:none!important}}
 

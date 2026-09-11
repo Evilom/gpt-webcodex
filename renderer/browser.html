@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="browser.css">
 </head>
 <body>
+  <script src="theme-bootstrap.js"></script>
   <header class="browser-toolbar">
     <div class="toolbar-main">
       <div class="nav-actions">
@@ -22,12 +23,12 @@
         <span id="mcpState" title="Coding Tools MCP 本地服务状态"><i></i>本地工具</span>
         <span id="tunnelState" title="OpenAI Tunnel 连接状态"><i></i><em id="connectionStateLabel">连接通道</em></span>
         <div class="context-usage-wrap" id="contextUsageWrap">
-          <button id="contextUsageButton" class="context-usage-button" type="button" title="点击查看当前会话上下文容量与工具调用负载" aria-expanded="false">
-            <i class="context-dot safe"></i><span id="contextUsageSummary">上下文 0k</span>
+          <button id="contextUsageButton" class="context-usage-button" type="button" title="点击查看本地 MCP 工具调用流量（累计字节估算，不等于 ChatGPT 上下文窗口占用）" aria-expanded="false">
+            <i class="context-dot safe"></i><span id="contextUsageSummary">MCP 负载 0k</span>
           </button>
           <div id="contextUsagePopover" class="context-usage-popover" hidden>
             <div class="popover-header">
-              <b>会话上下文容量负载</b>
+              <b>MCP 工具调用流量</b>
               <div class="popover-actions">
                 <button id="continueContextUsage" type="button" class="btn-continue" title="生成当前任务记忆快照并在新会话中自动断点续接">续接新会话</button>
                 <button id="resetContextUsage" type="button" title="在网页端开启新对话并清空当前会话容量统计">新对话</button>
@@ -38,14 +39,21 @@
               <small id="contextUsagePercent">0% / 128k</small>
             </div>
             <div class="popover-grid">
-              <div><span>工具调用累计</span><strong id="contextTotalTokens">0 Tokens</strong></div>
-              <div><span>传输数据体积</span><strong id="contextTotalBytes">0 KB</strong></div>
-              <div><span>工具调用次数</span><strong id="contextCallCount">0 次</strong></div>
-              <div><span>最大单次输出</span><strong id="contextMaxCall">-</strong></div>
-              <div><span>最新调用消耗</span><strong id="contextLastCall">-</strong></div>
+              <div><span>调用次数</span><strong id="contextCallCount">0 次</strong></div>
+              <div><span>请求上行</span><strong id="contextRequestBytes">0 KB</strong></div>
+              <div><span>响应下行</span><strong id="contextResponseBytes">0 KB</strong></div>
+              <div><span>合计体积</span><strong id="contextTotalBytes">0 KB</strong></div>
+              <div><span>体积估算 Tokens</span><strong id="contextTotalTokens">0</strong></div>
+              <div><span>会话 ID</span><strong id="contextSessionId">-</strong></div>
+              <div><span>最大单次调用</span><strong id="contextMaxCall">-</strong></div>
+              <div><span>最新调用</span><strong id="contextLastCall">-</strong></div>
+            </div>
+            <div class="popover-tools" id="contextTopTools" hidden>
+              <b>工具流量排行</b>
+              <div id="contextTopToolsList"></div>
             </div>
             <div class="popover-tip" id="contextUsageTip">
-              当前会话工具调用负载极低，模型注意力良好。
+              请求/响应体积来自本地 MCP performance.json；Tokens 为体积粗估，不等于 ChatGPT 上下文窗口占用。
             </div>
           </div>
         </div>
@@ -73,6 +81,21 @@
         <button id="pauseTask">暂停</button><button id="resumeTask">继续</button><button id="stopTask">停止</button>
         <button id="taskChangesBtn" class="terminal-toggle-btn changes-btn" type="button" title="查看本次任务修改的文件" hidden>📝 0 文件</button>
         <button id="openTerminalButton" class="terminal-toggle-btn" type="button" title="打开任务实时输出控制台">控制台</button>
+        <div class="task-history-wrap">
+          <button id="openTaskHistoryButton" class="terminal-toggle-btn" type="button" title="查看最近任务历史（读取工作区 .coding-tools/task-history.json）" aria-expanded="false">历史</button>
+          <div id="taskHistoryPopover" class="task-history-popover" hidden>
+            <div class="popover-header">
+              <b>最近任务历史</b>
+              <div class="popover-actions">
+                <button id="refreshTaskHistoryBtn" type="button" class="btn-continue">刷新</button>
+              </div>
+            </div>
+            <p class="task-history-note" id="taskHistoryNote">来自当前工作区 .coding-tools/task-history.json（最近 50 条）</p>
+            <div id="taskHistoryList" class="task-history-list">
+              <div class="task-history-empty">加载中…</div>
+            </div>
+          </div>
+        </div>
       </div>
       <select id="workspaceSelect" class="workspace-select" aria-label="全部工作区"><option value="">全部工作区</option></select>
       <div class="workspace-clean-wrap">

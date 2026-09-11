@@ -212,6 +212,14 @@ function baseName(value) {
   return String(value || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || value || '未选择';
 }
 
+function formatBytes(bytes) {
+  const n = Math.max(0, Number(bytes || 0));
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
 function formatDuration(milliseconds) {
   const seconds = Math.max(0, Math.floor(Number(milliseconds || 0) / 1000));
   if (seconds < 60) return `${seconds}秒`;
@@ -338,12 +346,12 @@ function renderContextUsage(usage) {
   }
   const tokenK = (usage.totalTokens / 1000).toFixed(1);
   if (summary) {
-    summary.textContent = `上下文 ${tokenK}k`;
+    summary.textContent = `MCP 负载 ${tokenK}k`;
   }
   const button = $('#contextUsageButton');
   if (button) {
-    const levelZh = { safe: '负载轻微', moderate: '负载适中', heavy: '高负荷预警' }[level] || '正常';
-    button.title = `会话上下文负载: ${usage.totalTokens} Tokens (~${Math.round(usage.totalBytes / 1024)} KB, ${levelZh})，点击查看详情`;
+    const levelZh = { safe: '流量较小', moderate: '流量中等', heavy: '流量偏大' }[level] || '正常';
+    button.title = `本地 MCP 工具流量估算: ${usage.totalTokens} tokens (~${Math.round(usage.totalBytes / 1024)} KB, ${levelZh})。这是累计请求/响应体积，不等于 ChatGPT 上下文占用。`;
   }
 
   const progress = $('#contextUsageProgress');
@@ -357,38 +365,173 @@ function renderContextUsage(usage) {
     percentLabel.textContent = `${usage.percent}% / ${budgetK}k`;
   }
 
-  if ($('#contextTotalTokens')) $('#contextTotalTokens').textContent = `${usage.totalTokens.toLocaleString()} Tokens`;
-  if ($('#contextTotalBytes')) $('#contextTotalBytes').textContent = `${(usage.totalBytes / 1024).toFixed(1)} KB`;
+  if ($('#contextTotalTokens')) $('#contextTotalTokens').textContent = `${usage.totalTokens.toLocaleString()} 估 tokens`;
+  if ($('#contextTotalBytes')) $('#contextTotalBytes').textContent = formatBytes(usage.totalBytes);
+  if ($('#contextRequestBytes')) $('#contextRequestBytes').textContent = formatBytes(usage.requestBytes || 0);
+  if ($('#contextResponseBytes')) $('#contextResponseBytes').textContent = formatBytes(usage.responseBytes || 0);
   if ($('#contextCallCount')) $('#contextCallCount').textContent = `${usage.callCount || 0} 次`;
+  if ($('#contextSessionId')) {
+    const sid = String(usage.sessionId || '');
+    $('#contextSessionId').textContent = sid ? sid : '未同步';
+    $('#contextSessionId').title = sid || 'Runtime 未上报 session_id';
+  }
 
   if ($('#contextMaxCall')) {
     if (usage.maxCall) {
-      $('#contextMaxCall').textContent = `${usage.maxCall.tool} (+${usage.maxCall.tokens.toLocaleString()})`;
+      $('#contextMaxCall').textContent = `${usage.maxCall.tool} ${formatBytes(usage.maxCall.bytes)}`;
     } else {
       $('#contextMaxCall').textContent = '-';
     }
   }
   if ($('#contextLastCall')) {
     if (usage.lastCall) {
-      $('#contextLastCall').textContent = `${usage.lastCall.tool} (+${usage.lastCall.tokens.toLocaleString()})`;
+      $('#contextLastCall').textContent = `${usage.lastCall.tool} ${formatBytes(usage.lastCall.bytes)}`;
     } else {
       $('#contextLastCall').textContent = '-';
+    }
+  }
+
+  const toolsWrap = $('#contextTopTools');
+  const toolsList = $('#contextTopToolsList');
+  if (toolsWrap && toolsList) {
+    const topTools = Array.isArray(usage.topTools) ? usage.topTools : [];
+    if (!topTools.length) {
+      toolsWrap.hidden = true;
+      toolsList.replaceChildren();
+    } else {
+      toolsWrap.hidden = false;
+      toolsList.replaceChildren();
+      for (const item of topTools) {
+        const row = document.createElement('div');
+        row.className = 'popover-tool-row';
+        const name = document.createElement('strong');
+        name.textContent = item.tool;
+        const bytes = document.createElement('span');
+        bytes.textContent = formatBytes(item.bytes);
+        const calls = document.createElement('span');
+        calls.textContent = `${item.calls} 次`;
+        row.append(name, bytes, calls);
+        toolsList.appendChild(row);
+      }
     }
   }
 
   const tip = $('#contextUsageTip');
   if (tip) {
     if (level === 'heavy') {
-      tip.textContent = '当前会话工具调用数据较大，可能影响模型响应速度或前文记忆，建议开启新对话。';
+      tip.textContent = '本地 MCP 工具累计流量较大（多次大文件/大 diff 返回）。这是流量估算，不是 ChatGPT 上下文窗口；若模型变慢，可点「新对话」清空会话。';
       tip.style.color = 'var(--red)';
     } else if (level === 'moderate') {
-      tip.textContent = '当前会话处于适中负荷，建议留意工具输出量。';
+      tip.textContent = '本地 MCP 工具累计流量中等。数字来自 performance.json 的 request/response 字节估算。';
       tip.style.color = '#b37700';
     } else {
-      tip.textContent = '当前会话工具调用负载极低，模型注意力良好。';
+      tip.textContent = '本地 MCP 工具流量较低。该数字是请求/响应体积估算，不等于 ChatGPT 上下文占用。';
       tip.style.color = 'var(--muted)';
     }
   }
+}
+
+function statusBadgeClass(status) {
+  if (status === 'completed') return 'completed';
+  if (status === 'failed' || status === 'stopped') return 'failed';
+  return 'other';
+}
+
+async function refreshTaskHistoryList() {
+  const list = $('#taskHistoryList');
+  if (!list) return;
+  if (!api.taskHistory) {
+    list.innerHTML = '<div class="task-history-empty">当前环境不支持任务历史接口。</div>';
+    return;
+  }
+  list.innerHTML = '<div class="task-history-empty">加载中…</div>';
+  try {
+    const items = unwrap(await api.taskHistory());
+    if (!Array.isArray(items) || items.length === 0) {
+      list.innerHTML = '<div class="task-history-empty">暂无历史任务。任务完成后会归档到工作区 .coding-tools/task-history.json。</div>';
+      return;
+    }
+    list.replaceChildren();
+    for (const task of items) {
+      const row = document.createElement('div');
+      row.className = `task-history-row ${statusBadgeClass(task.status)}`;
+      const header = document.createElement('header');
+      const title = document.createElement('b');
+      title.textContent = task.objective || '未命名任务';
+      title.title = task.objective || '';
+      const badge = document.createElement('span');
+      badge.className = `status ${statusBadgeClass(task.status)}`;
+      badge.textContent = task.status || 'unknown';
+      header.append(title, badge);
+      const meta = document.createElement('small');
+      const when = new Date(task.archived_at || task.updated_at || task.created_at || Date.now());
+      const metaBits = [when.toLocaleString('zh-CN'), String(task.task_id || '').slice(0, 8)];
+      if (task.current_step) metaBits.push(task.current_step);
+      meta.textContent = metaBits.join(' · ');
+      row.append(header, meta);
+
+      const failureText = String(task.failure || '').trim();
+      const isFailed = task.status === 'failed' || task.status === 'stopped';
+      if (isFailed || failureText) {
+        const failure = document.createElement('div');
+        failure.className = 'failure';
+        const reason = failureText && !/^agent_workflow:\s*completed\.?$/i.test(failureText)
+          ? failureText
+          : (failureText
+            ? `失败（Runtime 未写入具体原因）：${failureText}`
+            : '失败，但未记录 failure 字段');
+        failure.textContent = `失败原因：${reason}`;
+        row.appendChild(failure);
+      }
+
+      const lastCmd = task.last_command || null;
+      if (lastCmd && (isFailed || lastCmd.status === 'failed')) {
+        const cmdLine = document.createElement('div');
+        cmdLine.className = 'last-cmd';
+        cmdLine.title = String(lastCmd.command || '');
+        const label = document.createElement('span');
+        label.textContent = '最后命令：';
+        const code = document.createElement('code');
+        code.textContent = String(lastCmd.command || '-');
+        cmdLine.append(label, code);
+        row.appendChild(cmdLine);
+        if (lastCmd.workdir) {
+          const wd = document.createElement('div');
+          wd.className = 'last-cmd';
+          wd.textContent = `工作目录：${lastCmd.workdir}`;
+          row.appendChild(wd);
+        }
+      }
+
+      const failedStep = Array.isArray(task.steps)
+        ? task.steps.find((s) => s?.status === 'failed')
+        : null;
+      if (failedStep) {
+        const stepLine = document.createElement('div');
+        stepLine.className = 'last-cmd';
+        stepLine.textContent = `失败步骤：${failedStep.id || ''} ${failedStep.text || ''}`.trim();
+        row.appendChild(stepLine);
+      }
+
+      list.appendChild(row);
+    }
+  } catch (error) {
+    list.innerHTML = '';
+    const empty = document.createElement('div');
+    empty.className = 'task-history-empty';
+    empty.textContent = `读取失败：${error.message || error}`;
+    list.appendChild(empty);
+  }
+}
+
+function toggleTaskHistory(force) {
+  const popover = $('#taskHistoryPopover');
+  const btn = $('#openTaskHistoryButton');
+  if (!popover || !btn) return;
+  const nextHidden = typeof force === 'boolean' ? !force : !popover.hidden;
+  popover.hidden = nextHidden;
+  btn.setAttribute('aria-expanded', String(!nextHidden));
+  if (!nextHidden) refreshTaskHistoryList();
 }
 
 async function refreshContextUsage() {
@@ -423,7 +566,7 @@ async function refreshTask() {
     let status = String(task?.status || (runningOperation ? 'active' : 'idle'));
     if (task && ['completed', 'failed', 'stopped'].includes(status) && !runningOperation && !activeWorktree) {
       const terminalUpdatedAt = Date.parse(task.updated_at || task.created_at || '') || now;
-      const keepVisibleMs = status === 'completed' ? 30000 : 120000;
+      const keepVisibleMs = status === 'completed' ? 30000 : status === 'failed' ? 600000 : 120000;
       if (now - terminalUpdatedAt > keepVisibleMs) {
         task = null;
         status = 'idle';
@@ -465,10 +608,19 @@ async function refreshTask() {
     if (['active', 'paused'].includes(status)) parts.push(`已运行 ${elapsed}`);
     if (status === 'active' && idleFor >= 30000 && !runningOperation) parts.push(`最近活动 ${formatDuration(idleFor)}前`);
     if (status === 'active' && idleFor >= 120000 && !runningOperation) parts.push('较长时间没有新的任务状态，正在等待下一次更新');
+    const failureText = String(task?.failure || '').trim();
+    if (status === 'failed' || status === 'stopped' || failureText) {
+      const reason = failureText && !/^agent_workflow:\s*completed\.?$/i.test(failureText)
+        ? failureText
+        : (failureText ? `Runtime 未写入具体原因（${failureText}）` : '未记录 failure 字段');
+      parts.push(`失败原因：${reason}`);
+      const failedCmd = task?.last_command;
+      if (failedCmd?.command) parts.push(`最后命令：${failedCmd.command}`);
+    }
     $('#taskStep').textContent = parts.filter(Boolean).join(' · ');
     $('#taskProgressBar').style.width = `${progress}%`;
     $('#taskProgressText').textContent = progressLabelForTask(task, status, runningOperation, command);
-    strip.title = `状态：${status}；阶段进度：${progress}%；最后更新：${new Date(updatedAt).toLocaleString('zh-CN')}`;
+    strip.title = `状态：${status}；阶段进度：${progress}%；最后更新：${new Date(updatedAt).toLocaleString('zh-CN')}${failureText ? `\n失败原因：${failureText}` : ''}`;
 
     const modifiedFiles = Array.isArray(task?.modified_files) ? task.modified_files : [];
     const changesBtn = $('#taskChangesBtn');
@@ -691,6 +843,12 @@ document.addEventListener('click', (event) => {
   const popover = $('#workspaceCleanPopover');
   if (popover && !popover.hidden) toggleWorkspaceCleanPopover(false);
 });
+document.addEventListener('click', (event) => {
+  const wrap = $('.task-history-wrap');
+  if (wrap?.contains(event.target)) return;
+  const popover = $('#taskHistoryPopover');
+  if (popover && !popover.hidden) toggleTaskHistory(false);
+});
 $('#workspaceCleanActive').onclick = () => handleClearActiveWorkspace();
 $('#workspaceCleanAll').onclick = async () => {
   const entries = ((recentWorkspaceHub?.recentWorkspaces) || [])
@@ -902,6 +1060,14 @@ $('#openTerminalButton').onclick = (event) => {
   event.stopPropagation();
   toggleTaskConsole();
 };
+$('#openTaskHistoryButton').onclick = (event) => {
+  event.stopPropagation();
+  toggleTaskHistory();
+};
+$('#refreshTaskHistoryBtn').onclick = async (event) => {
+  event.stopPropagation();
+  await refreshTaskHistoryList();
+};
 $('#closeConsoleBtn').onclick = () => toggleTaskConsole(false);
 $('#clearConsoleBtn').onclick = () => {
   lastConsoleLogText = '';
@@ -969,6 +1135,13 @@ api.onChatState(renderChatState);
 api.onHeartbeat(renderServiceState);
 if (api.onContextUsage) {
   api.onContextUsage((usage) => renderContextUsage(usage));
+}
+if (api.onThemeChanged) {
+  api.onThemeChanged((theme) => {
+    const next = theme === 'light' ? 'light' : 'dark';
+    document.body.dataset.theme = next;
+    document.documentElement.dataset.theme = next;
+  });
 }
 api.onDownload((item) => {
   const node = $('#downloadState');

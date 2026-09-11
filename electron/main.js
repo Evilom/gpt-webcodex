@@ -181,13 +181,14 @@ function createChatWindow() {
     return chatWindow;
   }
 
+  const initialTheme = settings.load().theme === 'light' ? 'light' : 'dark';
   chatWindow = new BrowserWindow({
     width: 1360,
     height: 900,
     minWidth: 960,
     minHeight: 640,
     show: false,
-    backgroundColor: '#f7f7f8',
+    backgroundColor: initialTheme === 'dark' ? '#000000' : '#f7f7f8',
     title: '网页 MCP 助手',
     icon: appIconPath(),
     webPreferences: {
@@ -198,7 +199,7 @@ function createChatWindow() {
     }
   });
   chatWindow.removeMenu();
-  chatWindow.loadFile(path.join(__dirname, '..', 'renderer', 'browser.html'));
+  chatWindow.loadFile(path.join(__dirname, '..', 'renderer', 'browser.html'), { query: { theme: initialTheme } });
 
   chatController = new ChatViewController({
     window: chatWindow,
@@ -864,6 +865,11 @@ function registerIpc() {
       app.setLoginItemSettings({ openAtLogin: Boolean(saved.startWithWindows), path: process.execPath });
     }
     if (Object.hasOwn(clean, 'mcpPort')) taskNotificationService?.restartStream();
+    if (Object.hasOwn(clean, 'theme') && chatWindow && !chatWindow.isDestroyed()) {
+      const nextTheme = saved.theme === 'light' ? 'light' : 'dark';
+      chatWindow.webContents.send('theme:changed', nextTheme);
+      chatWindow.setBackgroundColor(nextTheme === 'dark' ? '#000000' : '#f7f7f8');
+    }
     clearProxyCache();
     return saved;
   }));
