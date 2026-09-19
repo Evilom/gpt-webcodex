@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import time
@@ -477,6 +478,32 @@ class BuildVerificationTests(unittest.TestCase):
             self.assertEqual(artifacts[0]["path"], "dist/demo.exe")
             self.assertEqual(len(artifacts[0]["sha256"]), 64)
 
+    def test_collect_artifacts_normalizes_windows_path_aliases(self) -> None:
+        """ADMINI~1 vs Administrator must not break relative_to in collect_artifacts."""
+        with tempfile.TemporaryDirectory() as temp:
+            long_root = Path(temp).resolve()
+            short_alias = None
+            if os.name == "nt":
+                try:
+                    import ctypes
+                    buf = ctypes.create_unicode_buffer(260)
+                    if ctypes.windll.kernel32.GetShortPathNameW(str(long_root), buf, 260):
+                        short_candidate = Path(buf.value)
+                        if short_candidate.exists() and short_candidate != long_root:
+                            short_alias = short_candidate
+                except Exception:
+                    short_alias = None
+            (long_root / "dist").mkdir()
+            (long_root / "dist" / "demo.exe").write_bytes(b"artifact")
+            roots_to_try = [long_root]
+            if short_alias is not None:
+                roots_to_try.append(short_alias)
+            for root in roots_to_try:
+                artifacts = collect_artifacts(root, ["dist"], "sha256", 0)
+                self.assertEqual(len(artifacts), 1, msg=f"failed for root={root}")
+                self.assertEqual(artifacts[0]["path"], "dist/demo.exe")
+                self.assertEqual(len(artifacts[0]["sha256"]), 64)
+
     def test_infers_npm_prefix_subproject(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -840,6 +867,56 @@ class ToolModeTests(unittest.TestCase):
             })
             self.assertTrue(report["ok"])
             self.assertTrue((extra / "dist" / "result.txt").exists())
+            runtime.close()
+
+    def test_prepare_and_workspace_do_not_mix_default_workspace_task_into_other_root(self) -> None:
+        with tempfile.TemporaryDirectory() as main_temp, tempfile.TemporaryDirectory() as extra_temp:
+            main = Path(main_temp)
+            extra = Path(extra_temp)
+            (main / "AGENTS.md").write_text("# main workspace instructions\n", encoding="utf-8")
+            (extra / "AGENTS.md").write_text("# authorized project instructions only\n", encoding="utf-8")
+            (extra / "app.js").write_text("export const marker = 'other-project';\n", encoding="utf-8")
+
+            runtime = Runtime(main, permission_mode="dangerous")
+            runtime.task_state.ensure_started("MAIN-WORKSPACE-TASK-OBJECTIVE")
+            runtime.set_authorized_roots([str(extra)])
+
+            prepared = runtime.prepare_coding_context({
+                "path": str(extra),
+                "objective": "inspect other project",
+                "queries": ["marker"],
+                "paths": [str(extra / "app.js")],
+                "force_refresh": True,
+            })
+            self.assertFalse(prepared["scope_binding"]["bound_default_workspace"])
+            self.assertEqual(prepared["scope_binding"]["scope_root"], str(extra.resolve()))
+            resume = prepared["task_resume"]
+            self.assertNotEqual(resume.get("objective", ""), "MAIN-WORKSPACE-TASK-OBJECTIVE")
+            instruction_text = json.dumps(prepared["instructions"], ensure_ascii=False)
+            self.assertIn("authorized project instructions only", instruction_text)
+            self.assertNotIn("main workspace instructions", instruction_text)
+
+            workspace = runtime.workspace_context({"path": str(extra)})
+            self.assertFalse(workspace["scope_binding"]["bound_default_workspace"])
+            self.assertNotEqual(workspace["task"].get("objective", ""), "MAIN-WORKSPACE-TASK-OBJECTIVE")
+
+            default_workspace = runtime.workspace_context({"path": "."})
+            self.assertTrue(default_workspace["scope_binding"]["bound_default_workspace"])
+            self.assertEqual(default_workspace["task"].get("objective", ""), "MAIN-WORKSPACE-TASK-OBJECTIVE")
+            runtime.close()
+
+    def test_authorized_root_own_task_is_returned_when_present(self) -> None:
+        with tempfile.TemporaryDirectory() as main_temp, tempfile.TemporaryDirectory() as extra_temp:
+            main = Path(main_temp)
+            extra = Path(extra_temp)
+            store = TaskStateStore(extra)
+            store.ensure_started("OTHER-ROOT-TASK")
+            runtime = Runtime(main, permission_mode="dangerous")
+            runtime.task_state.ensure_started("MAIN-WORKSPACE-TASK-OBJECTIVE")
+            runtime.set_authorized_roots([str(extra)])
+            workspace = runtime.workspace_context({"path": str(extra), "detail": "full"})
+            self.assertFalse(workspace["scope_binding"]["bound_default_workspace"])
+            self.assertEqual(workspace["task"].get("objective", ""), "OTHER-ROOT-TASK")
             runtime.close()
 
     def test_search_text_handles_utf8_content(self) -> None:

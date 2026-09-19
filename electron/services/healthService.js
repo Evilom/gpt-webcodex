@@ -40,8 +40,9 @@ class HealthService {
 
   async ownership(current) {
     const runtimeOwned = await this.orchestrator.native.status(current).catch(() => false);
-    const tunnelOwned = await this.orchestrator.tunnel.status(current).catch(() => false);
-    return { runtimeOwned, tunnelOwned };
+    const tunnelStatus = await this.orchestrator.tunnel.status(current).catch(() => false);
+    const tunnelOwned = typeof tunnelStatus === 'object' ? Boolean(tunnelStatus?.ok) : Boolean(tunnelStatus);
+    return { runtimeOwned, tunnelOwned, tunnelDetail: typeof tunnelStatus === 'object' ? tunnelStatus : null };
   }
 
   async inspectMcpIdentity(current, runtimeOwned) {

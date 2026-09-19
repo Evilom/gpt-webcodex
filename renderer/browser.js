@@ -7,6 +7,63 @@ let lastRuntimeState = null;
 let lastRuntimeCheckAt = 0;
 let lastTaskStatus = null;
 
+// WebContentsView (ChatGPT) is a native layer above HTML overlays.
+// Tell main process how much room console drawer / hanging popovers need.
+function hangOverlaySelectors() {
+  return ['#taskHistoryPopover', '#contextUsagePopover', '#workspaceHealthPopover', '#workspaceCleanPopover'];
+}
+
+function hangOverlaysOpen() {
+  return hangOverlaySelectors().some((selector) => {
+    const el = $(selector);
+    return el && !el.hidden;
+  });
+}
+
+function closeHangOverlays(exceptSelector = '') {
+  const map = {
+    '#taskHistoryPopover': () => toggleTaskHistory(false),
+    '#contextUsagePopover': () => {
+      const popover = $('#contextUsagePopover');
+      if (popover) popover.hidden = true;
+      $('#contextUsageButton')?.setAttribute('aria-expanded', 'false');
+    },
+    '#workspaceHealthPopover': () => {
+      const popover = $('#workspaceHealthPopover');
+      if (popover) popover.hidden = true;
+      $('#workspaceHealthButton')?.setAttribute('aria-expanded', 'false');
+    },
+    '#workspaceCleanPopover': () => toggleWorkspaceCleanPopover(false),
+  };
+  for (const selector of Object.keys(map)) {
+    if (selector === exceptSelector) continue;
+    try { map[selector](); } catch { /* ignore */ }
+  }
+}
+
+function syncChatContentInsets() {
+  if (!api?.setContentInsets) return;
+  const drawer = $('#taskConsoleDrawer');
+  let bottom = 0;
+  if (drawer && !drawer.hidden) {
+    const rect = drawer.getBoundingClientRect();
+    // Clamp so a short window cannot get an inset larger than the content area.
+    bottom = Math.round(Math.min(rect.height || 320, window.innerHeight * 0.55));
+  }
+  const toolbar = $('.browser-toolbar');
+  const toolbarHeight = toolbar ? Math.round(toolbar.getBoundingClientRect().height) : 112;
+  let overlayBottom = 0;
+  for (const selector of hangOverlaySelectors()) {
+    const el = $(selector);
+    if (!el || el.hidden) continue;
+    const rect = el.getBoundingClientRect();
+    overlayBottom = Math.max(overlayBottom, Math.ceil(rect.bottom));
+  }
+  // top overlay is measured from below the toolbar (content area origin)
+  const top = Math.max(0, Math.min(overlayBottom - toolbarHeight, Math.round(window.innerHeight * 0.4)));
+  Promise.resolve(api.setContentInsets({ top, bottom })).catch(() => {});
+}
+
 function playTaskCompletionSound() {
   try {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -132,8 +189,9 @@ async function handleCreateCheckpoint() {
   try {
     if (!api.createCheckpoint) return;
     const res = unwrap(await api.createCheckpoint({ manual: true }));
-    $('#switchState').textContent = '✅ 已成功创建时间胶囊检查点！';
-    setTimeout(() => { $('#switchState').textContent = ''; }, 3000);
+    const count = Object.keys(res?.fileSnapshots || {}).length;
+    $('#switchState').textContent = `✅ 已创建安全基线检查点（记录 ${count} 个脏文件）`;
+    setTimeout(() => { $('#switchState').textContent = ''; }, 4000);
     await Promise.all([refreshTask(), refreshTaskConsole()]);
   } catch (err) {
     alert(`创建检查点失败: ${err.message}`);
@@ -144,23 +202,72 @@ async function handleCreateCheckpoint() {
 
 async function handleRollbackCheckpoint() {
   const rollbackBtn = $('#rollbackCapsuleBtn');
+  let status = null;
+  try {
+    if (api.getCheckpointStatus) status = unwrap(await api.getCheckpointStatus());
+  } catch { status = null; }
+
+  if (!status?.canRollback) {
+    alert(
+      (status?.rollbackDisabledReason || '当前没有可用的安全检查点。')
+      + '\n\n请先点击「创建检查点」生成任务前基线，再执行回滚。'
+      + '\n安全回滚只恢复基线内文件，不会执行 git checkout HEAD，也不会重置暂存区。'
+    );
+    return;
+  }
+
   const confirmed = window.confirm(
-    '⚠️ 确定要回滚到时间胶囊吗？\n\n' +
-    '此操作将安全撤销本次任务产生的所有文件修改，将代码精准恢复到任务执行前的纯净状态。\n\n' +
-    '此操作不可逆，请确认是否立即回滚？'
+    '⚠️ 安全回滚（three-way-baseline）\n\n'
+    + '将把任务修改文件恢复到检查点基线内容。\n'
+    + '· 不会执行 git checkout HEAD\n'
+    + '· 不会重置暂存区\n'
+    + '· 未记入基线/任务列表的用户修改将被保留\n'
+    + '· 若文件在检查点后被人工改动且不在任务列表中，将记为冲突并跳过\n\n'
+    + '确定立即回滚？'
   );
   if (!confirmed) return;
 
   if (rollbackBtn) rollbackBtn.disabled = true;
   try {
     if (!api.rollbackCheckpoint) return;
-    const res = unwrap(await api.rollbackCheckpoint());
+    // Optional one-shot approval, then execute with confirm=true.
+    let approvalId = '';
+    if (api.issueApproval) {
+      try {
+        const issued = unwrap(await api.issueApproval({ action: 'checkpoint:rollback' }));
+        approvalId = issued?.id || '';
+      } catch { /* fall back to confirm-only */ }
+    }
+    const res = unwrap(await api.rollbackCheckpoint({
+      approvalId,
+      confirm: true,
+      requireApproval: Boolean(approvalId),
+    }));
     const diffCol = $('#consoleDiffColumn');
     if (diffCol) diffCol.hidden = true;
     activeDiffFile = null;
 
-    $('#switchState').textContent = `✅ ${res?.message || '代码已成功回滚到时间胶囊！'}`;
-    setTimeout(() => { $('#switchState').textContent = ''; }, 4000);
+    const conflicts = Array.isArray(res?.conflicts) ? res.conflicts : [];
+    const errors = Array.isArray(res?.errors) ? res.errors : [];
+    if (res?.success) {
+      $('#switchState').textContent = `✅ ${res?.message || '安全回滚完成'}`;
+    } else {
+      const detail = [
+        res?.message || '安全回滚部分完成',
+        conflicts.length ? `冲突 ${conflicts.length} 个` : '',
+        errors.length ? `错误 ${errors.length} 个` : '',
+      ].filter(Boolean).join('；');
+      $('#switchState').textContent = `⚠️ ${detail}`;
+      if (conflicts.length || errors.length) {
+        alert(
+          '回滚未完全成功：\n'
+          + conflicts.map((c) => `冲突: ${c.path} — ${c.reason}`).join('\n')
+          + (errors.length ? '\n' : '')
+          + errors.map((e) => `错误: ${e}`).join('\n')
+        );
+      }
+    }
+    setTimeout(() => { $('#switchState').textContent = ''; }, 6000);
     await Promise.all([refreshTask(), refreshTaskConsole()]);
   } catch (err) {
     alert(`回滚失败: ${err.message}`);
@@ -529,9 +636,11 @@ function toggleTaskHistory(force) {
   const btn = $('#openTaskHistoryButton');
   if (!popover || !btn) return;
   const nextHidden = typeof force === 'boolean' ? !force : !popover.hidden;
+  if (!nextHidden) closeHangOverlays('#taskHistoryPopover');
   popover.hidden = nextHidden;
   btn.setAttribute('aria-expanded', String(!nextHidden));
   if (!nextHidden) refreshTaskHistoryList();
+  requestAnimationFrame(syncChatContentInsets);
 }
 
 async function refreshContextUsage() {
@@ -639,23 +748,33 @@ async function refreshTask() {
     const rollbackBtn = $('#rollbackCapsuleBtn');
     const capsuleBadge = $('#capsuleStatusBadge');
     if (rollbackBtn) {
-      const count = modifiedFiles.length;
-      rollbackBtn.disabled = count === 0;
-      rollbackBtn.textContent = count > 0 ? `⏪ 回滚 (${count} 文件)` : '⏪ 一键时间胶囊回滚';
-      rollbackBtn.title = count > 0 ? `一键撤销本次任务对 ${count} 个文件的所有修改，恢复到时间胶囊状态` : '暂无可回滚的修改文件';
+      // Enabled only when a three-way-baseline capsule exists (checked below).
+      rollbackBtn.disabled = true;
+      rollbackBtn.textContent = '⏪ 安全回滚';
+      rollbackBtn.title = '基于任务前基线安全回滚；不会 git checkout HEAD，不会重置暂存区';
     }
     if (api.getCheckpointStatus) {
       api.getCheckpointStatus().then((res) => {
-        if (res?.ok && res.data && capsuleBadge) {
-          if (res.data.hasCapsule) {
-            const time = res.data.capsule?.createdAt ? new Date(res.data.capsule.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-            capsuleBadge.textContent = time ? `💾 胶囊已就绪 (${time})` : '💾 胶囊已就绪';
-            capsuleBadge.classList.add('ready');
-            capsuleBadge.title = `时间胶囊基线已建立：${res.data.capsule?.description || ''}`;
-          } else {
-            capsuleBadge.textContent = '胶囊未创建';
-            capsuleBadge.classList.remove('ready');
-            capsuleBadge.title = '尚未为当前工作区创建时间胶囊快照';
+        if (res?.ok && res.data) {
+          if (capsuleBadge) {
+            if (res.data.hasCapsule) {
+              const time = res.data.capsule?.createdAt ? new Date(res.data.capsule.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+              capsuleBadge.textContent = time ? `💾 胶囊已就绪 (${time})` : '💾 胶囊已就绪';
+              capsuleBadge.classList.add('ready');
+              capsuleBadge.title = `安全基线已建立：${res.data.capsule?.description || ''}`;
+            } else {
+              capsuleBadge.textContent = '胶囊未创建';
+              capsuleBadge.classList.remove('ready');
+              capsuleBadge.title = '尚未为当前工作区创建任务前安全基线';
+            }
+          }
+          if (rollbackBtn) {
+            const can = Boolean(res.data.canRollback);
+            rollbackBtn.disabled = !can;
+            rollbackBtn.textContent = can ? '⏪ 安全回滚' : '⏪ 回滚（先建基线）';
+            rollbackBtn.title = can
+              ? '基于任务前基线安全回滚；不会 git checkout HEAD，不会重置暂存区'
+              : (res.data.rollbackDisabledReason || '请先创建安全基线检查点');
           }
         }
       }).catch(() => {});
@@ -752,6 +871,7 @@ function toggleWorkspaceCleanPopover(show) {
   const nextHidden = typeof show === 'boolean' ? !show : !popover.hidden;
   popover.hidden = nextHidden;
   $('#workspaceCleanButton').setAttribute('aria-expanded', String(!nextHidden));
+  requestAnimationFrame(syncChatContentInsets);
 }
 
 async function handleClearActiveWorkspace() {
@@ -824,6 +944,7 @@ $('#workspaceHealthButton').onclick = (event) => {
   const nextHidden = !popover.hidden;
   popover.hidden = nextHidden;
   $('#workspaceHealthButton').setAttribute('aria-expanded', String(!nextHidden));
+  requestAnimationFrame(syncChatContentInsets);
 };
 document.addEventListener('click', (event) => {
   const label = $('#workspaceLabel');
@@ -832,6 +953,7 @@ document.addEventListener('click', (event) => {
   if (popover && !popover.hidden) {
     popover.hidden = true;
     $('#workspaceHealthButton').setAttribute('aria-expanded', 'false');
+    requestAnimationFrame(syncChatContentInsets);
   }
 });
 $('#managerButton').onclick = () => api.openManager();
@@ -904,6 +1026,7 @@ $('#contextUsageButton').onclick = (event) => {
   popover.hidden = nextHidden;
   $('#contextUsageButton').setAttribute('aria-expanded', String(!nextHidden));
   if (!nextHidden) refreshContextUsage();
+  requestAnimationFrame(syncChatContentInsets);
 };
 $('#resetContextUsage').onclick = async (event) => {
   event.stopPropagation();
@@ -973,6 +1096,7 @@ document.addEventListener('click', (event) => {
   if (popover && !popover.hidden) {
     popover.hidden = true;
     $('#contextUsageButton')?.setAttribute('aria-expanded', 'false');
+    requestAnimationFrame(syncChatContentInsets);
   }
 });
 
@@ -1042,6 +1166,10 @@ function toggleTaskConsole(forceOpen) {
   const drawer = $('#taskConsoleDrawer');
   if (!drawer) return;
   const nextOpen = typeof forceOpen === 'boolean' ? forceOpen : drawer.hidden;
+  if (nextOpen) {
+    // Drawer + hanging popovers together double-inset the ChatGPT view and look "deformed".
+    closeHangOverlays();
+  }
   drawer.hidden = !nextOpen;
   if (nextOpen) {
     refreshTaskConsole();
@@ -1054,6 +1182,10 @@ function toggleTaskConsole(forceOpen) {
       consolePollTimer = null;
     }
   }
+  // Double rAF: wait one paint for drawer layout before measuring height.
+  requestAnimationFrame(() => {
+    requestAnimationFrame(syncChatContentInsets);
+  });
 }
 
 $('#openTerminalButton').onclick = (event) => {
@@ -1157,3 +1289,11 @@ refreshContextUsage();
 setInterval(refreshWorkspace, 15000);
 setInterval(refreshTask, 3000);
 setInterval(refreshContextUsage, 10000);
+window.addEventListener('resize', () => {
+  if (!$('#taskConsoleDrawer')?.hidden || hangOverlaysOpen()) requestAnimationFrame(syncChatContentInsets);
+});
+// Recompute insets after first layout and when toolbar metrics change.
+window.addEventListener('load', () => requestAnimationFrame(syncChatContentInsets));
+if (document.fonts?.ready) {
+  document.fonts.ready.then(() => requestAnimationFrame(syncChatContentInsets)).catch(() => {});
+}

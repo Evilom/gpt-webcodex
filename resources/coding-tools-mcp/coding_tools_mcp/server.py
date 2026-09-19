@@ -1818,6 +1818,49 @@ class Runtime:
             "relative": resolved.relative_to(root).as_posix() or ".",
         }
 
+    def _scope_binding(self, target_path: Path) -> dict[str, Any]:
+        """Bind instructions and task state to the resolved target root.
+
+        Never inherit the default workspace's instructions/task when the caller
+        explicitly targeted a different authorized root.
+        """
+        default_root = self.workspace.root.resolve()
+        resolved = Path(target_path).expanduser().resolve(strict=True)
+        is_default = resolved == default_root
+        if is_default:
+            return {
+                "instructions_context": self.project_context,
+                "task": self.task_state.get(),
+                "bound_default_workspace": True,
+                "scope_root": str(default_root),
+                "scope_kind": "workspace",
+            }
+        other_context = load_project_context(resolved)
+        task_path = resolved / ".coding-tools" / "task-state.json"
+        task: dict[str, Any]
+        if task_path.is_file():
+            try:
+                task = TaskStateStore(resolved).get()
+            except (OSError, ValueError, json.JSONDecodeError):
+                task = {"status": "idle", "warning": "Authorized root task state could not be read; default workspace task was not inherited."}
+        else:
+            task = {
+                "status": "idle",
+                "task_id": "",
+                "objective": "",
+                "current_step": "",
+                "next_step": "",
+                "failure": "",
+                "scope_note": "No task is bound to this authorized root. Default workspace tasks are not inherited.",
+            }
+        return {
+            "instructions_context": other_context,
+            "task": task,
+            "bound_default_workspace": False,
+            "scope_root": str(resolved),
+            "scope_kind": "authorized",
+        }
+
     def _command_workdir_argument(self, path: Path) -> str:
         scope = self._path_scope(path)
         return scope["relative"] if scope["kind"] == "workspace" else scope["path"]
@@ -2606,7 +2649,8 @@ class Runtime:
                 project["entrypoint"] = str(metadata.get("main") or "")
             except (OSError, ValueError):
                 pass
-        task = self.task_state.get()
+        scope_binding = self._scope_binding(target.path)
+        task = scope_binding["task"]
         if detail != "full":
             task = {key: task.get(key) for key in ("task_id", "objective", "status", "current_step", "next_step", "failure")}
             git = {
@@ -2615,7 +2659,7 @@ class Runtime:
                 "changed_count": len(git.get("entries", [])) if isinstance(git.get("entries"), list) else int(git.get("changed_count", 0) or 0),
                 "truncated": bool(git.get("truncated", False)),
             }
-        scope_context = self.project_context if target.path == self.workspace.root else load_project_context(target.path)
+        scope_context = scope_binding["instructions_context"]
         instruction_summary = {
             "root_files": [
                 {"path": item.path, "truncated": item.truncated}
@@ -2639,6 +2683,11 @@ class Runtime:
         payload = {
             "workspace": str(self.workspace.root),
             "scope": scope,
+            "scope_binding": {
+                "scope_root": scope_binding["scope_root"],
+                "scope_kind": scope_binding["scope_kind"],
+                "bound_default_workspace": scope_binding["bound_default_workspace"],
+            },
             "default_cwd": self.default_cwd_display(),
             "project": project,
             "execution_profile": execution_profile,
@@ -2698,6 +2747,7 @@ class Runtime:
         queries = list(dict.fromkeys(str(item).strip() for item in raw_queries if str(item).strip()))[:32]
         requested_paths = list(dict.fromkeys(str(item).strip() for item in raw_paths if str(item).strip()))[:80]
         context_root = self.resolve_existing(str(args.get("path", "."))).path
+        scope_binding = self._scope_binding(context_root)
         execution_profile = profile_project_execution(context_root, requested_paths)
         budget = self._prepare_context_budget()
         max_files = min(max(int(args.get("max_files", budget["max_files"])), 1), int(budget["max_files"]))
@@ -2710,10 +2760,10 @@ class Runtime:
         instructions = {
             "root": [
                 {"path": item.path, "content": item.content, "truncated": item.truncated}
-                for item in self.project_context.root_files
+                for item in scope_binding["instructions_context"].root_files
             ],
-            "nested_paths": list(self.project_context.nested_files),
-            "warnings": list(self.project_context.warnings),
+            "nested_paths": list(scope_binding["instructions_context"].nested_files),
+            "warnings": list(scope_binding["instructions_context"].warnings),
         }
         searches: list[dict[str, Any]] = []
         path_scores: dict[str, int] = {path: 1_000_000 - index for index, path in enumerate(requested_paths)}
@@ -2800,7 +2850,12 @@ class Runtime:
                 "used_bytes": total_bytes,
                 "selected_files": len(files),
             },
-            "task_resume": self.task_state.get(),
+            "task_resume": scope_binding["task"],
+            "scope_binding": {
+                "scope_root": scope_binding["scope_root"],
+                "scope_kind": scope_binding["scope_kind"],
+                "bound_default_workspace": scope_binding["bound_default_workspace"],
+            },
             "cache_hit": False,
             "cache_ttl_seconds": CONTEXT_BUNDLE_CACHE_TTL_SECONDS,
             "recommended_next_action": "Call agent_workflow phase=execute with one complete change set; let the execution profile choose verified test/build commands unless an explicit command is required.",

@@ -54,7 +54,18 @@ class ChatViewController {
     this.retryTimer = null;
     this.retryAttempt = 0;
     this.nextRetryAt = 0;
+    this.bottomInset = 0;
+    this.topOverlay = 0;
     this.boundResize = () => this.resize();
+  }
+
+  setContentInsets({ top = 0, bottom = 0 } = {}) {
+    const nextTop = Math.max(0, Number(top) || 0);
+    const nextBottom = Math.max(0, Number(bottom) || 0);
+    if (this.topOverlay === nextTop && this.bottomInset === nextBottom) return;
+    this.topOverlay = nextTop;
+    this.bottomInset = nextBottom;
+    this.resize();
   }
 
   clearRetryState({ resetAttempt = true } = {}) {
@@ -380,11 +391,16 @@ class ChatViewController {
   resize() {
     if (!this.view || !this.window || this.window.isDestroyed()) return;
     const [width, height] = this.window.getContentSize();
+    // WebContentsView is a native layer that always paints above HTML.
+    // Leave room for console drawer (bottom) and toolbar popovers that hang into content (top).
+    const top = Math.max(this.toolbarHeight, this.toolbarHeight + (this.topOverlay || 0));
+    const bottom = Math.max(0, this.bottomInset || 0);
+    const viewHeight = Math.max(0, height - top - bottom);
     this.view.setBounds({
       x: 0,
-      y: this.toolbarHeight,
+      y: top,
       width: Math.max(0, width),
-      height: Math.max(0, height - this.toolbarHeight)
+      height: viewHeight
     });
   }
 

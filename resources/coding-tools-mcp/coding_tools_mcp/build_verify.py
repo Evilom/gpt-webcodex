@@ -229,25 +229,39 @@ def _hash_file(path: Path, algorithm: str) -> str:
 
 
 def collect_artifacts(root: Path, patterns: list[str], algorithm: str, started_ns: int) -> list[dict[str, Any]]:
+    # Always resolve both sides before relative_to. On Windows, tempfile paths and
+    # glob results can mix long names (Administrator) with short names (ADMINI~1).
+    root_resolved = root.resolve()
     found: dict[Path, None] = {}
     for raw in patterns:
         candidate = (root / raw).resolve()
         try:
-            candidate.relative_to(root.resolve())
+            candidate.relative_to(root_resolved)
         except ValueError:
             continue
-        matches = list(root.glob(raw)) if any(ch in raw for ch in "*?[") else [candidate]
+        matches = list(root_resolved.glob(raw)) if any(ch in raw for ch in "*?[") else [candidate]
         for match in matches:
-            if match.is_file():
-                found[match] = None
-            elif match.is_dir():
-                for file in match.rglob("*"):
-                    if file.is_file():
-                        found[file] = None
+            try:
+                match_resolved = match.resolve()
+                match_resolved.relative_to(root_resolved)
+            except (OSError, ValueError):
+                continue
+            if match_resolved.is_file():
+                found[match_resolved] = None
+            elif match_resolved.is_dir():
+                for file in match_resolved.rglob("*"):
+                    if not file.is_file():
+                        continue
+                    try:
+                        resolved_file = file.resolve()
+                        resolved_file.relative_to(root_resolved)
+                    except (OSError, ValueError):
+                        continue
+                    found[resolved_file] = None
     artifacts = []
     for path in sorted(found, key=lambda item: item.as_posix())[:500]:
         stat = path.stat()
-        artifacts.append({"path": path.relative_to(root).as_posix(), "size": stat.st_size, "modified_at": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat().replace("+00:00", "Z"), "fresh": started_ns <= 0 or stat.st_mtime_ns >= started_ns, algorithm: _hash_file(path, algorithm)})
+        artifacts.append({"path": path.relative_to(root_resolved).as_posix(), "size": stat.st_size, "modified_at": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat().replace("+00:00", "Z"), "fresh": started_ns <= 0 or stat.st_mtime_ns >= started_ns, algorithm: _hash_file(path, algorithm)})
     return artifacts
 
 

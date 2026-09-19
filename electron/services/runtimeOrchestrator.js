@@ -308,11 +308,30 @@ class RuntimeOrchestrator {
     try {
       if (options.manual !== false) this.setManualStop(true);
       this.progress('stop-connection', 20, '正在停止当前连接通道');
-      await this.tunnel.stop();
+      let tunnelError = null;
+      try {
+        await this.tunnel.stop();
+      } catch (error) {
+        tunnelError = error;
+      }
       this.progress('stop-runtime', 65, '正在停止 Coding Tools MCP');
-      await this.native.stop().catch(() => false);
-      this.progress('stopped', 100, '所有由本助手启动的服务均已停止');
+      let nativeError = null;
+      try {
+        await this.native.stop();
+      } catch (error) {
+        nativeError = error;
+      }
       this.invalidateSnapshot();
+      if (nativeError) {
+        this.progress('stop-failed', 100, nativeError.message);
+        throw new Error(`Coding Tools MCP 未能完全停止：${nativeError.message}`);
+      }
+      if (tunnelError) {
+        this.progress('stopped-with-warning', 100, `Runtime 已停止，但连接通道停止失败：${tunnelError.message}`);
+        const snapshot = await this.snapshot({ force: true, reason: 'stopped-tunnel-error' });
+        return { ...snapshot, warning: `连接通道停止失败：${tunnelError.message}` };
+      }
+      this.progress('stopped', 100, '所有由本助手启动的服务均已停止');
       return await this.snapshot({ force: true, reason: 'stopped' });
     } finally {
       this.busy = false;
@@ -478,16 +497,18 @@ class RuntimeOrchestrator {
   async lightweightSnapshot() {
     const settings = this.settingsStore.load();
     const token = this.secrets.get('mcpAuthToken');
-    const [mcpRunning, tunnelRunning] = await Promise.all([
+    const [mcpRunning, tunnelStatus] = await Promise.all([
       token ? probeMcp(settings.mcpPort, token, settings.workspace) : Promise.resolve(false),
-      this.tunnel.status(settings).catch(() => false)
+      this.tunnel.status(settings).catch(() => ({ ok: false, processAlive: false, healthReachable: false }))
     ]);
+    const tunnelRunning = typeof tunnelStatus === 'object' ? Boolean(tunnelStatus?.ok) : Boolean(tunnelStatus);
     const failureLayer = recoveryLayerFor({ mcpRunning, tunnelRunning });
     return {
       workspace: settings.workspace,
       connectionMode: 'official',
       mcpRunning,
       tunnelRunning,
+      tunnelDetail: typeof tunnelStatus === 'object' ? tunnelStatus : null,
       connectionRunning: tunnelRunning,
       fullyReady: mcpRunning && tunnelRunning,
       busy: this.busy,
@@ -565,7 +586,8 @@ class RuntimeOrchestrator {
     const runtimeRunning = token
       ? await probeMcp(settings.mcpPort, token, settings.workspace)
       : false;
-    const tunnelRunning = await this.tunnel.status(settings).catch(() => false);
+    const tunnelStatus = await this.tunnel.status(settings).catch(() => ({ ok: false }));
+    const tunnelRunning = typeof tunnelStatus === 'object' ? Boolean(tunnelStatus?.ok) : Boolean(tunnelStatus);
     return this.publishSnapshot({
       settings,
       secrets: this.secrets.status(),
@@ -574,6 +596,7 @@ class RuntimeOrchestrator {
         busy: this.busy,
         runtimeRunning,
         tunnelRunning,
+        tunnelDetail: typeof tunnelStatus === 'object' ? tunnelStatus : null,
         connectionRunning: tunnelRunning,
         connectionMode: 'official',
         fullyReady: runtimeRunning && tunnelRunning,

@@ -54,7 +54,11 @@ contextBridge.exposeInMainWorld('browserAssistant', {
   gitCommitAndPush: (options) => ipcRenderer.invoke('git:commit-and-push', options),
   generateTaskSnapshot: () => ipcRenderer.invoke('task:generate-snapshot'),
   injectPrompt: (text, autoSend) => ipcRenderer.invoke('chat:inject-prompt', text, autoSend),
+  setContentInsets: (insets) => ipcRenderer.invoke('chat:set-content-insets', insets),
   createCheckpoint: (options) => ipcRenderer.invoke('checkpoint:create', options),
   getCheckpointStatus: () => ipcRenderer.invoke('checkpoint:status'),
-  rollbackCheckpoint: () => ipcRenderer.invoke('checkpoint:rollback')
+  rollbackCheckpoint: (options) => ipcRenderer.invoke('checkpoint:rollback', options),
+  issueApproval: (payload) => ipcRenderer.invoke('approval:issue', payload),
+  consumeApproval: (payload) => ipcRenderer.invoke('approval:consume', payload),
+  writeHandoff: (options) => ipcRenderer.invoke('task:write-handoff', options)
 });

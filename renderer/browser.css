@@ -2,7 +2,7 @@
 *{box-sizing:border-box}
 html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#f7f7f8;color:var(--text)}
 button{font:inherit}
-.browser-toolbar{position:relative;z-index:20;height:112px;border-bottom:1px solid var(--border);background:rgba(255,255,255,.98);box-shadow:0 1px 8px rgba(0,0,0,.04)}
+.browser-toolbar{position:relative;z-index:20;height:112px;flex:0 0 112px;border-bottom:1px solid var(--border);background:rgba(255,255,255,.98);box-shadow:0 1px 8px rgba(0,0,0,.04)}
 .toolbar-main{display:grid;grid-template-columns:minmax(280px,1fr) auto minmax(280px,1fr);align-items:center;height:63px;padding:0 14px}
 .nav-actions,.service-state{display:flex;align-items:center;gap:7px}
 .service-state{justify-content:flex-end}
@@ -48,10 +48,11 @@ button{font:inherit}
 .popover-grid div strong{color:#35383c;font-family:"Cascadia Code",Consolas,monospace;font-size:11px}
 .popover-tip{margin-top:10px;padding:7px 9px;border-radius:7px;background:#f5f6f7;color:#6b6f74;font-size:10.5px;line-height:1.4}
 .manager-button{margin-left:7px;padding:0 17px;color:#fff;background:#202123;font-size:12px;font-weight:700}
-.workspace-bar{display:flex;height:49px;align-items:center;gap:10px;padding:0 15px;border-top:1px solid #f0f0f0}
-.workspace-label{position:relative;display:flex;min-width:255px;align-items:center;gap:9px}
-.workspace-label span{padding:3px 7px;border-radius:6px;color:#087f65;background:#e7f6f1;font-size:10px;font-weight:800}
-.workspace-label strong{max-width:300px;overflow:hidden;font-size:12px;text-overflow:ellipsis;white-space:nowrap}
+.workspace-bar{display:flex;height:49px;min-height:49px;align-items:center;gap:8px;padding:0 12px;border-top:1px solid #f0f0f0;overflow:visible}
+.workspace-bar>*{flex:0 0 auto;min-width:0}
+.workspace-label{position:relative;display:flex;min-width:200px;max-width:280px;align-items:center;gap:9px;flex:0 1 auto}
+.workspace-label span{padding:3px 7px;border-radius:6px;color:#087f65;background:#e7f6f1;font-size:10px;font-weight:800;flex:0 0 auto}
+.workspace-label strong{max-width:180px;overflow:hidden;font-size:12px;text-overflow:ellipsis;white-space:nowrap}
 .workspace-health-button{display:grid;width:22px;height:22px;flex:0 0 22px;place-items:center;padding:0;border:0;border-radius:7px;background:transparent;cursor:pointer}
 .workspace-health-button:hover{background:#f0f1f2}
 .workspace-health-button i{width:7px;height:7px;border-radius:50%;background:#b8bcc2}
@@ -66,8 +67,8 @@ button{font:inherit}
 .workspace-quick-tools{margin-top:10px;padding-top:8px;border-top:1px solid #f0f1f2;display:flex;gap:8px}
 .workspace-quick-tools button{flex:1;height:26px;padding:0 8px;border:1px solid #d9d9d9;border-radius:6px;background:#fff;color:#45484c;font-size:11px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:4px}
 .workspace-quick-tools button:hover{background:#f0f1f2;border-color:#cfd2d6;color:#18181b}
-.workspace-select{height:32px;min-width:172px;max-width:220px;margin-left:auto;padding:0 28px 0 10px;border:1px solid #d9d9d9;border-radius:9px;background:#fff;color:#34363a;font-size:11px;font-weight:700;cursor:pointer}
-.switch-state{color:#087f65;font-size:11px;white-space:nowrap}
+.workspace-select{height:32px;min-width:140px;max-width:180px;margin-left:auto;padding:0 24px 0 8px;border:1px solid #d9d9d9;border-radius:9px;background:#fff;color:#34363a;font-size:11px;font-weight:700;cursor:pointer;flex:0 1 auto}
+.switch-state{max-width:200px;overflow:hidden;color:#087f65;font-size:11px;white-space:nowrap;text-overflow:ellipsis;flex:0 1 auto}
 .add-workspace{height:32px;padding:0 12px;border:1px solid #d9d9d9;background:#fff;font-size:11px;font-weight:700}
 .add-workspace.secondary-action{color:#087f65;border-color:#cfe8df;background:#f3fbf8}
 .add-workspace.secondary-action:hover{background:#e7f6f1}
@@ -90,16 +91,16 @@ button{font:inherit}
 .workspace-clean-footer button:hover{background:#f4f4f5}
 .workspace-clean-footer button.danger-btn{border-color:#ecd2d0;color:#b3362f}
 .workspace-clean-footer button.danger-btn:hover{background:#fbeeec}
-.task-strip{display:flex;min-width:0;max-width:590px;align-items:center;gap:7px;padding:5px 8px;border-radius:9px;background:#f5f5f5;color:#74777c;font-size:10px}
+.task-strip{display:flex;min-width:0;max-width:min(590px,42vw);flex:1 1 auto;align-items:center;gap:6px;padding:4px 7px;border-radius:9px;background:#f5f5f5;color:#74777c;font-size:10px;overflow:hidden}
 .task-strip i{width:7px;height:7px;flex:0 0 7px;border-radius:50%;background:#b8bcc2}
-.task-strip b,.task-strip small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.task-strip b{max-width:150px;color:#3e4145;font-size:11px}
-.task-strip small{max-width:190px}
-.task-progress{width:72px;height:5px;flex:0 0 72px;overflow:hidden;border-radius:999px;background:#dfe2e5}
+.task-strip b,.task-strip small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.task-strip b{max-width:120px;flex:0 1 auto;color:#3e4145;font-size:11px}
+.task-strip small{max-width:150px;flex:0 1 auto}
+.task-progress{width:56px;height:5px;flex:0 0 56px;overflow:hidden;border-radius:999px;background:#dfe2e5}
 .task-progress span{display:block;width:0;height:100%;border-radius:inherit;background:var(--green);transition:width .25s ease}
-.task-progress-text{min-width:28px;color:#555b61;font-size:9px;font-variant-numeric:tabular-nums;text-align:right}
-.task-strip button{display:none;padding:2px 6px;border:0;border-radius:5px;background:#e6e7e9;color:#4d5054;font-size:9px;cursor:pointer}
-.task-strip .terminal-toggle-btn{display:inline-flex;align-items:center;padding:2px 7px;border:1px solid #d9d9d9;background:#fff;color:#3e4145;font-size:9.5px;font-weight:600}
+.task-progress-text{min-width:24px;color:#555b61;font-size:9px;font-variant-numeric:tabular-nums;text-align:right}
+.task-strip button{display:none;flex:0 0 auto;max-width:72px;padding:2px 5px;border:0;border-radius:5px;background:#e6e7e9;color:#4d5054;font-size:9px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.task-strip .terminal-toggle-btn{display:inline-flex;align-items:center;flex:0 0 auto;padding:2px 6px;border:1px solid #d9d9d9;background:#fff;color:#3e4145;font-size:9.5px;font-weight:600;white-space:nowrap}
 .task-strip .terminal-toggle-btn:hover{background:#ebecef}
 .task-strip.active .terminal-toggle-btn{border-color:#b9e4d6;color:#087f65;background:#eaf7f2}
 .task-strip.active i{background:var(--green)}
@@ -111,11 +112,15 @@ button{font:inherit}
 .task-strip.paused .task-progress span{background:#e5a000}
 .task-strip.stopped .task-progress span,.task-strip.failed .task-progress span{background:var(--red)}
 .task-strip.active #pauseTask,.task-strip.active #stopTask,.task-strip.paused #resumeTask,.task-strip.paused #stopTask,.task-strip.stopped #resumeTask{display:inline-block}
-.download-state{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#087f65!important}
-.task-console-drawer{position:fixed;bottom:0;left:0;right:0;z-index:95;height:320px;display:flex;flex-direction:column;background:#18181b;color:#e4e4e7;box-shadow:0 -6px 24px rgba(0,0,0,.35);border-top:1px solid #27272a;font-family:"Cascadia Code",Consolas,monospace;transition:transform .2s ease}
-.task-console-drawer[hidden]{display:none}
-.console-header{display:flex;align-items:center;justify-content:space-between;height:36px;padding:0 12px;background:#202024;border-bottom:1px solid #2e2e33;font-size:11px}
-.console-title{display:flex;align-items:center;gap:8px}
+.task-history-wrap{position:relative;display:inline-flex;flex:0 0 auto}
+.download-state{max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#087f65!important}
+.task-console-drawer{position:fixed;left:0;right:0;bottom:0;z-index:95;height:min(320px,48vh);min-height:200px;display:flex;flex-direction:column;background:#18181b;color:#e4e4e7;box-shadow:0 -6px 24px rgba(0,0,0,.35);border-top:1px solid #27272a;font-family:"Cascadia Code",Consolas,monospace;contain:layout paint}
+.task-console-drawer[hidden]{display:none!important}
+.console-header{display:flex;align-items:center;justify-content:space-between;flex:0 0 auto;min-height:36px;gap:8px;padding:4px 12px;background:#202024;border-bottom:1px solid #2e2e33;font-size:11px;flex-wrap:wrap}
+.console-title{display:flex;align-items:center;gap:8px;min-width:0;flex:1 1 auto;flex-wrap:wrap}
+.console-actions{display:flex;align-items:center;gap:6px;flex:0 0 auto;flex-wrap:wrap;justify-content:flex-end}
+.console-toggle{display:inline-flex;align-items:center;gap:4px;color:#a1a1aa;font-size:10px;cursor:pointer;user-select:none;white-space:nowrap}
+.console-toggle input{cursor:pointer}
 .terminal-dot{width:8px;height:8px;border-radius:50%;background:#10a37f;box-shadow:0 0 6px rgba(16,163,127,.6)}
 .console-title b{color:#f4f4f5;font-weight:600;font-size:11.5px}
 .console-command-badge{padding:2px 6px;border-radius:4px;background:#27272a;color:#a1a1aa;font-size:10px}
@@ -126,10 +131,7 @@ button{font:inherit}
 .console-tab.active{background:#27272a;color:#34d399}
 .task-strip .changes-btn{border-color:#d4b106;color:#876800;background:#fffbe6}
 .task-strip .changes-btn:hover{background:#fff1b8}
-.console-actions{display:flex;align-items:center;gap:8px}
-.console-toggle{display:inline-flex;align-items:center;gap:4px;color:#a1a1aa;font-size:10px;cursor:pointer;user-select:none}
-.console-toggle input{cursor:pointer}
-.console-actions button{height:24px;padding:0 8px;border:1px solid #3f3f46;border-radius:5px;background:#27272a;color:#d4d4d8;font-size:10.5px;cursor:pointer}
+.console-actions button{height:24px;padding:0 8px;border:1px solid #3f3f46;border-radius:5px;background:#27272a;color:#d4d4d8;font-size:10.5px;cursor:pointer;white-space:nowrap;flex:0 0 auto}
 .console-actions button:hover{background:#3f3f46;color:#fff}
 .console-actions button.danger{border-color:#7f1d1d;background:#450a0a;color:#fca5a5}
 .console-actions button.danger:hover:not(:disabled){background:#7f1d1d;color:#fff}
@@ -142,10 +144,10 @@ button{font:inherit}
 .console-files-view[hidden]{display:none}
 .console-files-layout{display:flex;width:100%;height:100%}
 .console-files-column{flex:1;display:flex;flex-direction:column;padding:8px 12px;overflow-y:auto;border-right:1px solid #27272a}
-.console-files-header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;color:#a1a1aa;font-size:10.5px}
+.console-files-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px;color:#a1a1aa;font-size:10.5px}
 .console-files-header-title{font-weight:600}
-.console-capsule-actions{display:flex;align-items:center;gap:6px}
-.capsule-badge{padding:2px 6px;border-radius:4px;background:#202024;border:1px solid #3f3f46;color:#a1a1aa;font-size:10px}
+.console-capsule-actions{display:flex;align-items:center;flex-wrap:wrap;gap:6px;min-width:0}
+.capsule-badge{flex:0 1 auto;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 6px;border-radius:4px;background:#202024;border:1px solid #3f3f46;color:#a1a1aa;font-size:10px}
 .capsule-badge.ready{color:#34d399;border-color:#059669;background:rgba(5,150,105,.12)}
 .btn-capsule,.btn-capsule-rollback{height:22px;padding:0 8px;border-radius:4px;font-size:10.5px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:3px;border:1px solid #3f3f46;background:#27272a;color:#d4d4d8}
 .btn-capsule:hover{background:#3f3f46;color:#fff}
@@ -159,8 +161,8 @@ button{font:inherit}
 .console-file-name{color:#38bdf8;font-family:"Cascadia Code",Consolas,monospace;font-size:11px;word-break:break-all}
 .console-file-action{color:#71717a;font-size:10px}
 .console-file-item:hover .console-file-action{color:#34d399}
-.console-git-commit-bar{display:flex;align-items:center;gap:6px;padding:8px 0 0;margin-top:8px;border-top:1px solid #27272a}
-.console-git-commit-bar input{flex:1;height:26px;padding:0 8px;background:#202024;border:1px solid #3f3f46;border-radius:5px;color:#e4e4e7;font-size:11px;outline:none}
+.console-git-commit-bar{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:8px 0 0;margin-top:8px;border-top:1px solid #27272a}
+.console-git-commit-bar input{flex:1 1 140px;min-width:120px;height:26px;padding:0 8px;background:#202024;border:1px solid #3f3f46;border-radius:5px;color:#e4e4e7;font-size:11px;outline:none}
 .console-git-commit-bar input:focus{border-color:#38bdf8}
 .console-git-commit-bar button{height:26px;padding:0 10px;background:#27272a;border:1px solid #3f3f46;border-radius:5px;color:#d4d4d8;font-size:11px;font-weight:600;cursor:pointer}
 .console-git-commit-bar button:hover{background:#3f3f46;color:#fff}
@@ -185,8 +187,8 @@ button{font:inherit}
 .loading-card p{margin:0;color:var(--muted);font-size:12px}
 .spinner{width:32px;height:32px;margin:auto;border:3px solid #dedfe2;border-top-color:#202123;border-radius:50%;animation:spin .75s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
-@media(max-width:1150px){.task-progress{width:48px;flex-basis:48px}.task-strip small{max-width:120px}}
-@media(max-width:1000px){.page-state{display:none}.toolbar-main{grid-template-columns:1fr auto}.task-strip small,.task-progress,.task-progress-text{display:none}}
+@media(max-width:1150px){.task-progress{width:48px;flex-basis:48px}.task-strip small{max-width:100px}.workspace-label strong{max-width:140px}}
+@media(max-width:1000px){.page-state{display:none}.toolbar-main{grid-template-columns:1fr auto}.task-strip small,.task-progress,.task-progress-text{display:none}.workspace-bar{gap:6px;padding:0 8px}.workspace-label{min-width:0;max-width:160px}.add-workspace{padding:0 8px}}
 
 /* Dark theme — match ChatGPT dark chrome + manager dark palette */
 :root{color-scheme:light;--bg:#f7f7f8;--toolbar-bg:rgba(255,255,255,.98);--toolbar-border:#e5e5e5;--sub-border:#f0f0f0;--text:#202123;--muted:#6f7378;--icon:#34363a;--icon-hover:#f0f1f2;--icon-disabled:#c2c5c9;--btn-bg:#fff;--btn-border:#d9d9d9;--btn-hover:#f0f1f2;--btn-text:#45484c;--btn-text-strong:#34363a;--popover-bg:#fff;--popover-border:#dedfe2;--popover-title:#25272a;--popover-strong:#35383c;--popover-muted:#7b7f84;--popover-tip:#f5f6f7;--popover-divider:#f0f1f2;--strip-bg:#f5f5f5;--strip-text:#74777c;--strip-title:#3e4145;--strip-btn-bg:#e6e7e9;--strip-btn-text:#4d5054;--progress-track:#dfe2e5;--progress-text:#555b61;--logo-bg:#202123;--manager-bg:#202123;--green-soft:#e7f6f1;--green-text:#087f65;--green-btn-bg:#f3fbf8;--green-btn-border:#cfe8df;--danger-soft:#fbeeec;--danger-border:#ecd2d0;--danger-text:#b3362f;--changes-bg:#fffbe6;--changes-border:#d4b106;--changes-text:#876800;--changes-hover:#fff1b8;--loading-from:#fff;--loading-mid:#f5f5f6;--loading-to:#eceeef;--spinner-track:#dedfe2;--spinner-head:#202123;--shadow:0 1px 8px rgba(0,0,0,.04);--popover-shadow:0 12px 35px rgba(0,0,0,.14)}
@@ -260,9 +262,9 @@ body[data-theme="dark"] .manager-button{background:#fff;color:#0d0d0d}
 .task-strip.isolated{background:var(--green-soft);box-shadow:inset 0 0 0 1px rgba(52,211,153,.2)}
 .task-strip .changes-btn{border-color:var(--changes-border);color:var(--changes-text);background:var(--changes-bg)}
 .task-strip .changes-btn:hover{background:var(--changes-hover)}
-.task-history-wrap{position:relative;display:inline-flex}
-.task-history-popover{position:absolute;top:30px;left:0;z-index:88;width:min(460px,80vw);max-height:320px;overflow:auto;padding:12px 13px;border:1px solid var(--popover-border);border-radius:12px;background:var(--popover-bg);box-shadow:var(--popover-shadow);font-size:11px;color:var(--text)}
-.task-history-popover[hidden]{display:none}
+.task-history-wrap{position:relative;display:inline-flex;flex:0 0 auto;overflow:visible}
+.task-history-popover{position:absolute;top:calc(100% + 8px);left:0;z-index:110;width:min(460px,86vw);max-height:min(320px,55vh);overflow:auto;padding:12px 13px;border:1px solid var(--popover-border);border-radius:12px;background:var(--popover-bg);box-shadow:var(--popover-shadow);font-size:11px;color:var(--text)}
+.task-history-popover[hidden]{display:none!important}
 .task-history-note{margin:0 0 8px;color:var(--popover-muted);font-size:10px;line-height:1.4}
 .task-history-list{display:grid;gap:6px}
 .task-history-empty{padding:12px 4px;color:var(--popover-muted);text-align:center}

@@ -103,7 +103,9 @@ test('browser task strip exposes stage progress and long-command elapsed time', 
   assert.match(browser, /backgroundOperationStatus/);
   assert.match(browser, /progressLabelForTask/);
   assert.match(browser, /heartbeatAge/);
-  assert.match(browser, /keepVisibleMs = status === 'completed' \? 30000 : 120000/);
+  // 产品规则：completed 短暂保留 30s；failed 保留更久 10min 便于排查；其余终态 120s。
+  // 旧断言只覆盖 completed/others，会把 failed=600000 的改进误判为回归。
+  assert.match(browser, /keepVisibleMs = status === 'completed' \? 30000 : status === 'failed' \? 600000 : 120000/);
   assert.match(browser, /if \(!runtime\?\.state\)/);
   assert.match(browser, /setInterval\(refreshTask, 3000\)/);
   assert.doesNotMatch(browser, /仍在执行，并非卡死/);

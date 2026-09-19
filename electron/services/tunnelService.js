@@ -87,7 +87,29 @@ class TunnelService {
 
   async status(settings) {
     const state = readJson(stateFile(), {});
-    return isAlive(state.tunnelPid) && await canConnect('127.0.0.1', settings.healthPort, 400);
+    const pid = state.tunnelPid;
+    const processAlive = Boolean(pid) && isAlive(pid);
+    let healthReachable = false;
+    try {
+      healthReachable = await canConnect('127.0.0.1', settings.healthPort, 400);
+    } catch {
+      healthReachable = false;
+    }
+    // Local process + local health port ≠ remote tunnel usable. Report layers separately.
+    return {
+      // Back-compat boolean used by older callers.
+      ok: processAlive && healthReachable,
+      processAlive,
+      healthReachable,
+      pid: pid || null,
+      healthPort: Number(settings.healthPort) || 0,
+      remoteVerified: false,
+      detail: processAlive && healthReachable
+        ? '本地 Tunnel 进程存活且健康端口可连；远端连接未单独探测。'
+        : !processAlive
+          ? '本地 Tunnel 进程未运行。'
+          : 'Tunnel 进程存在，但健康端口不可连。',
+    };
   }
 }
 

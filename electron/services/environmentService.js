@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const net = require('node:net');
+const path = require('node:path');
 const { run } = require('./commandRunner');
 const paths = require('../paths');
 const { resolveProxy } = require('./proxyService');
@@ -50,18 +51,9 @@ async function pythonStatus(options = {}) {
       return valid;
     }
   }
-  if (await commandExists('py.exe')) {
-    const candidate = { command: 'py.exe', launchCommand: (await commandExists('pyw.exe')) ? 'pyw.exe' : 'py.exe', args: ['-3'] };
-    const valid = await checkCandidate(candidate);
-    if (valid) {
-      cachedPythonStatus = valid;
-      cachedPythonStatusTime = Date.now();
-      return valid;
-    }
-  }
-  if (await commandExists('python.exe')) {
-    const candidate = { command: 'python.exe', launchCommand: (await commandExists('pythonw.exe')) ? 'pythonw.exe' : 'python.exe', args: [] };
-    const valid = await checkCandidate(candidate);
+  const resolved = await resolveSystemPython();
+  if (resolved) {
+    const valid = await checkCandidate(resolved);
     if (valid) {
       cachedPythonStatus = valid;
       cachedPythonStatusTime = Date.now();
@@ -75,7 +67,29 @@ async function pythonStatus(options = {}) {
 }
 
 function pathForPythonw(pythonPath) {
-  return require('node:path').join(require('node:path').dirname(pythonPath), 'pythonw.exe');
+  return path.join(path.dirname(pythonPath), 'pythonw.exe');
+}
+
+// pyw.exe/py.exe 只是启动器，spawn 记录的 PID 与 MCP health 返回的 os.getpid()
+// 往往不是同一个进程，会导致部署身份检查失败。这里解析出真正的解释器再启动。
+async function resolveSystemPython() {
+  if (await commandExists('py.exe')) {
+    const probe = await run('py.exe', ['-3', '-c', 'import sys; print(sys.executable)'], { allowFailure: true });
+    const exe = String(probe.stdout || '').trim().split(/\r?\n/).filter(Boolean).pop();
+    if (exe && fs.existsSync(exe)) {
+      const pythonw = pathForPythonw(exe);
+      return { command: exe, launchCommand: fs.existsSync(pythonw) ? pythonw : exe, args: [] };
+    }
+  }
+  if (await commandExists('python.exe')) {
+    const where = await run('where.exe', ['python.exe'], { allowFailure: true });
+    const exe = String(where.stdout || '').trim().split(/\r?\n/).map((line) => line.trim()).find((line) => line && fs.existsSync(line));
+    if (exe) {
+      const pythonw = pathForPythonw(exe);
+      return { command: exe, launchCommand: fs.existsSync(pythonw) ? pythonw : exe, args: [] };
+    }
+  }
+  return null;
 }
 
 class EnvironmentService {

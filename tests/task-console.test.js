@@ -33,7 +33,7 @@ test('task console UI elements and styles maintain 112px toolbar layout', () => 
   assert.match(browserHtml, /id="killConsoleBtn"/);
 
   // Verify CSS styles
-  assert.match(browserCss, /\.task-console-drawer\{[^}]*position:fixed;bottom:0/);
+  assert.match(browserCss, /\.task-console-drawer\{[^}]*position:fixed;[^}]*bottom:0/);
   assert.match(browserCss, /\.task-strip \.terminal-toggle-btn/);
 
   // Verify top toolbar 112px invariance

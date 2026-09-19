@@ -109,6 +109,11 @@ class ContextUsageTracker extends EventEmitter {
 
     const sessionId = performanceTrace.current_session_id || null;
     if (sessionId && this.syncedSessionId && sessionId !== this.syncedSessionId) {
+      // A baseline captured for session A must not zero out session B's usage.
+      if (this.sessionBaseline && this.sessionBaseline.sessionId
+        && sessionId && this.sessionBaseline.sessionId !== sessionId) {
+        this.sessionBaseline = null;
+      }
       this.reset();
     }
     if (sessionId) {
@@ -187,11 +192,16 @@ class ContextUsageTracker extends EventEmitter {
     }
 
     if (this.sessionBaseline) {
-      finalBytes = Math.max(0, finalBytes - (this.sessionBaseline.bytes || 0));
-      finalTokens = Math.max(0, finalTokens - (this.sessionBaseline.tokens || 0));
-      finalCalls = Math.max(0, finalCalls - (this.sessionBaseline.calls || 0));
-      finalReqBytes = Math.max(0, finalReqBytes - (this.sessionBaseline.requestBytes || 0));
-      finalResBytes = Math.max(0, finalResBytes - (this.sessionBaseline.responseBytes || 0));
+      const baselineSessionOk = !this.sessionBaseline.sessionId
+        || !sessionId
+        || this.sessionBaseline.sessionId === sessionId;
+      if (baselineSessionOk) {
+        finalBytes = Math.max(0, finalBytes - (this.sessionBaseline.bytes || 0));
+        finalTokens = Math.max(0, finalTokens - (this.sessionBaseline.tokens || 0));
+        finalCalls = Math.max(0, finalCalls - (this.sessionBaseline.calls || 0));
+        finalReqBytes = Math.max(0, finalReqBytes - (this.sessionBaseline.requestBytes || 0));
+        finalResBytes = Math.max(0, finalResBytes - (this.sessionBaseline.responseBytes || 0));
+      }
     }
 
     const previousTokens = this.totalTokens;
@@ -216,12 +226,21 @@ class ContextUsageTracker extends EventEmitter {
     if (!performanceTrace) {
       this.sessionBaseline = null;
     } else {
+      const sessionId = performanceTrace.current_session_id || null;
       const reqBytes = Math.max(0, Number(performanceTrace.request_bytes || 0));
       const resBytes = Math.max(0, Number(performanceTrace.response_bytes || 0));
       const extBytes = reqBytes + resBytes;
       const extCalls = Math.max(0, Number(performanceTrace.tool_calls || 0));
       const estimatedTokens = Math.round(extBytes / 3.2);
-      this.sessionBaseline = { bytes: extBytes, calls: extCalls, tokens: estimatedTokens, requestBytes: reqBytes, responseBytes: resBytes };
+      this.sessionBaseline = {
+        sessionId,
+        bytes: extBytes,
+        calls: extCalls,
+        tokens: estimatedTokens,
+        requestBytes: reqBytes,
+        responseBytes: resBytes,
+      };
+      if (sessionId) this.syncedSessionId = sessionId;
     }
     return this.reset();
   }
