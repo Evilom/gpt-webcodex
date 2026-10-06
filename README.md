@@ -11,8 +11,8 @@
 
 | 组件 | 版本 |
 | --- | --- |
-| 网页 MCP 助手 Desktop | **v0.9.2** |
-| Coding Tools MCP Runtime | **v0.9.2** |
+| 网页 MCP 助手 Desktop | **v0.9.3** |
+| Coding Tools MCP Runtime | **v0.9.3** |
 | MCP Tool Schema | **v14 / 10 tools** |
 | Schema Hash | `631ba25229260ab745932f2fcc1cef3deb982ddc0cf3bbcb900047c458e321fd` |
 | Electron | **43.2.0** |
@@ -28,6 +28,10 @@
 - **Git / Worktree 工作流**：支持 Git 操作、隔离 Worktree、安全应用修改与清理。
 - **本地会话与开发上下文**：保存本地任务、历史、Checkpoint、Rules、Recipes、Skills 和 Memory 等开发上下文。
 - **ChatGPT 页面增强**：保留原生页面渲染，提供连续 MCP 状态观察、动态资源错误提示和长时间无新内容的可操作反馈。
+
+## v0.9.3 Tunnel 启动修复
+
+修复代理地址变量作用域错误，确保 Tunnel 启动后能正确保存 PID 与代理路由，停止服务时可按记录清理进程。补充有效代理、直连及配置代理三种启动/停止回归测试。
 
 ## v0.9.2 体验与界面收口版
 
@@ -63,7 +67,7 @@
 
 本地正式安装包：
 
-`dist/web-mcp-assistant-setup-0.9.2.exe`
+`dist/web-mcp-assistant-setup-0.9.3.exe`
 
 安装后：
 

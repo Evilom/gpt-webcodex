@@ -54,6 +54,9 @@ class TunnelService {
     progress('tunnel-start', 72, '正在连接 OpenAI MCP Tunnel');
     ensureParent(tunnelLogFile());
     rotateLog(tunnelLogFile());
+    const proxyUrl = Object.prototype.hasOwnProperty.call(settings, 'effectiveProxyUrl')
+      ? settings.effectiveProxyUrl
+      : settings.proxyUrl;
     const output = fs.openSync(tunnelLogFile(), 'a');
     let child;
     try {
@@ -72,9 +75,6 @@ class TunnelService {
         '--mcp.discovery-extra-headers', 'Authorization: env:MCP_RUNTIME_HEADER_VALUE',
         '--log.file', tunnelLogFile()
       ];
-      const proxyUrl = Object.prototype.hasOwnProperty.call(settings, 'effectiveProxyUrl')
-        ? settings.effectiveProxyUrl
-        : settings.proxyUrl;
       if (proxyUrl) args.push('--control-plane.http-proxy', proxyUrl);
       child = spawn(tunnelExecutable(), args, {
         detached: false,

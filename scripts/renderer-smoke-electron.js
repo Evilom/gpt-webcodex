@@ -12,7 +12,7 @@ function ok(data) { return { ok: true, data }; }
 
 function snapshot() {
   return {
-    appVersion: '0.9.2-smoke',
+    appVersion: require('../package.json').version + '-smoke',
     settings: {
       theme: currentTheme,
       workspace: demoWorkspace,
