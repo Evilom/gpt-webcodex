@@ -1547,7 +1547,11 @@ function registerIpc() {
       || (Object.hasOwn(clean, 'proxyUrl') && String(clean.proxyUrl || '') !== String(previous.proxyUrl || ''));
     const saved = settings.save(clean);
     if (Object.hasOwn(clean, 'startWithWindows')) {
-      app.setLoginItemSettings({ openAtLogin: Boolean(saved.startWithWindows), path: process.execPath });
+      app.setLoginItemSettings({
+        openAtLogin: Boolean(saved.startWithWindows),
+        path: process.execPath,
+        args: [`--user-data-dir=${app.getPath('userData')}`]
+      });
     }
     if (Object.hasOwn(clean, 'mcpPort')) taskNotificationService?.restartStream();
     if (Object.hasOwn(clean, 'theme') && chatWindow && !chatWindow.isDestroyed()) {
@@ -1631,7 +1635,11 @@ if (!hasSingleInstanceLock) {
   app.on('second-instance', () => showChatWindow());
 
   app.whenReady().then(async () => {
-    app.setLoginItemSettings({ openAtLogin: Boolean(settings.load().startWithWindows), path: process.execPath });
+    app.setLoginItemSettings({
+      openAtLogin: Boolean(settings.load().startWithWindows),
+      path: process.execPath,
+      args: [`--user-data-dir=${app.getPath('userData')}`]
+    });
     session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
     session.defaultSession.setPermissionCheckHandler(() => false);
     app.on('web-contents-created', (_event, contents) => {
