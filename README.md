@@ -1,334 +1,168 @@
 # 网页 MCP 助手（GPT-WebCodex）
 
-让网页版 ChatGPT 直接连接 Windows 本地开发环境，把网页聊天变成一个可以读取项目、修改代码、执行命令、跑测试和构建安装包的桌面开发助手。
+让 **ChatGPT 网页版直接连接 Windows 本地开发环境** 的桌面开发助手。
 
-当前桌面版本：**v0.4.5**  
-内置 Coding Tools MCP Runtime：**v0.4.9**  
-平台：**Windows**
+它把 ChatGPT 的模型能力与本地 Electron + Coding Tools MCP 结合起来，让网页聊天可以真正读取项目、修改代码、执行命令、运行测试、构建安装包、处理 Git，并在长任务中持续汇报和恢复执行。
 
-> 适合在 Codex / Cursor 额度不足时继续使用网页版 ChatGPT 操作本地工程，也可以作为独立的轻量桌面 Coding Agent 使用。普通用户无需安装 Docker 或单独配置 Python。
+> 项目定位：个人使用的轻量级 Codex 桌面助手。
+> ChatGPT Web 负责模型能力，本地应用负责项目、工具、执行与状态管理，不额外维护第二套 OpenAI 模型 API。
 
----
+## 当前版本
 
-## ✨ v0.2.4 主要更新
-
-v0.2.4 的重点不是单纯增加按钮，而是把底层任务执行、Git 隔离和 Runtime 生命周期做得更稳定、更适合长时间开发。
-
-- **新增 Git / Worktree 安全隔离**：代码任务可以先在独立 Git Worktree 中修改和验证，再查看 Diff、应用或丢弃，尽量避免直接污染主工作区。
-- **主 Git 暂存区保护**：应用 Worktree 结果时不主动改动主工作区暂存区；如果主工作区同一文件在任务快照后又发生变化，会拒绝直接覆盖。
-- **长任务后台执行**：测试、构建和复杂 Agent 工作流可以转入后台运行，不再因为一次调用时间较长就表现成“卡死”。
-- **真实心跳与进度状态**：后台任务保存 operation、heartbeat、当前步骤、下一步、正在执行的命令、测试结果和构建结果。
-- **任务恢复能力增强**：刷新页面、切换聊天或本地 Runtime 重启后，任务状态仍可读取；支持暂停、继续、停止和历史记录。
-- **Runtime 生命周期更稳定**：ChatGPT 页面、OpenAI Tunnel、本地 MCP Runtime 分层处理，页面或 Tunnel 异常不会无条件重启健康的 MCP Runtime。
-- **Runtime / Schema 一致性校验**：重启时核对进程 ID、launch ID、runtime instance、源码指纹、Schema version/hash 和工作区，减少“旧进程 / 旧 Schema”问题。
-- **MCP 调用恢复更稳**：只读状态类调用支持重新 discovery 后安全重试，降低 Runtime 重启后工具失效的概率。
-- **Windows 桌面任务通知**：任务完成、失败、中断或等待用户处理时可弹出系统通知，并支持点击回到 ChatGPT。
-- **性能与状态可观测性增强**：可以区分本机执行时间与模型 / 连接等待时间，查看后台任务、运行心跳和性能时间线。
-- **中文界面进一步整理**：管理中心、任务状态、错误信息、设置项和接入说明尽量使用中文展示。
-
----
-
-## 🧩 目前已经支持的功能
-
-### 1. 网页 ChatGPT 直接操作本地项目
-
-连接完成后，ChatGPT 可以通过 Coding Tools MCP：
-
-- 读取文件、目录和项目结构
-- 搜索代码、定位函数、错误或关键字
-- 新建文件、修改文件、应用补丁
-- 执行命令和管理长时间运行的命令会话
-- 查看 Git 状态、Diff、日志、提交记录和文件历史
-- 查看项目内图片
-- 处理 Markdown、文本、PDF、DOCX 等文档工作流
-- 自动运行测试、构建并检查产物
-
-### 2. 项目上下文自动识别
-
-`workspace_context` 会一次返回当前工作区的核心信息，包括：
-
-- 项目类型、名称、版本和入口文件
-- 根目录主要文件
-- Git 分支和修改状态
-- 可用测试 / 构建命令
-- 当前任务状态
-- `AGENTS.md` / `CLAUDE.md` 等项目指令
-- 当前模型上下文压力
-
-这样 ChatGPT 不需要每次都从头大量扫描项目。
-
-### 3. Agent 自动工作流
-
-内置 `agent_workflow`，适合一次完成完整开发任务：
-
-- Bug 诊断与修复
-- 新功能开发
-- 重构
-- 测试失败修复
-- 构建 / 发布验证
-- 项目创建
-- 文档工作流
-- 中断任务恢复
-
-工作流会尽量把“读取上下文 → 修改 → 测试 → 构建 → 汇总结果”合并完成，减少低级工具重复调用。
-
-### 4. Git / Worktree 安全开发
-
-复杂代码任务支持 run-scoped Git Worktree：
-
-- 每个任务创建独立隔离工作区
-- 记录任务开始时的主工作区快照
-- 在隔离区修改和验证代码
-- 查看 Worktree Diff
-- 一键应用到主工作区
-- 一键丢弃隔离任务
-- 检测主工作区后续冲突，避免静默覆盖
-- 尽量保持主 Git index / 暂存区不被任务流程改变
-
-这套机制主要解决长任务修改到一半、多个任务并行或主工作区本身有未提交内容时的安全问题。
-
-### 5. 可恢复的长任务系统
-
-任务中心会记录：
-
-- 当前目标
-- Task ID / Run ID
-- 当前步骤与下一步
-- 任务步骤完成情况
-- 正在运行的命令
-- 最近测试结果
-- 修改过的文件
-- 最近构建报告
-- 后台 operation 与真实 heartbeat
-- Worktree 隔离状态
-- 历史任务
-
-并支持：
-
-- 暂停
-- 继续
-- 停止
-- 清除状态
-- Runtime 重启后重新读取状态
-- 长任务定时主动汇报进度
-
-### 6. Windows 桌面任务通知
-
-支持系统级任务提醒：
-
-- 任务完成提醒
-- 任务失败提醒
-- 任务中断提醒
-- 等待用户确认 / 输入提醒
-- 通知声音开关
-- 点击通知回到 ChatGPT
-- 设置页可直接发送测试通知
-
-### 7. 工作区与权限控制
-
-本地文件访问以用户明确授权的目录为边界：
-
-- 一个主工作区
-- 可添加额外授权目录
-- 未授权路径会被权限策略拒绝
-- 切换工作区后自动更新 MCP 访问范围
-- 支持不同命令权限模式
-- 高风险系统修改仍可以要求额外确认
-
-### 8. 本地 Runtime 与连接管理
-
-安装包内已经集成运行环境：
-
-- 内置便携 Python 3.12
-- 内置 Coding Tools MCP Runtime
-- 不依赖系统 Python
-- 不需要 Docker
-- 本地 MCP 默认绑定 `127.0.0.1`
-- 自动管理 OpenAI Tunnel
-- 支持启动、停止、重启和健康检查
-- Runtime 状态通过心跳持续同步到桌面界面
-
-### 9. 更稳的 Runtime / Schema 生命周期
-
-v0.2.4 对旧进程、旧工具定义和异常重启做了额外处理：
-
-- Runtime 重启前确认旧 PID 退出
-- 检查端口释放
-- 生成并校验新的 process / launch / runtime instance 身份
-- 运行时代码变化会反映到 source fingerprint
-- `server/discover` 与健康端点校验相同 Runtime / Schema 身份
-- 公共工具 Schema 使用 version / hash 契约校验
-- 页面、Tunnel、Runtime 分成三个故障层，避免互相误伤
-
-### 10. 自动测试、构建与产物验证
-
-“构建验证”页面会先识别项目，再自动选择可用方案：
-
-- 自动识别 Node.js / Electron / Python 等项目
-- 自动识别测试命令
-- 自动识别构建命令
-- 测试失败时阻止后续构建
-- 检查构建产物目录
-- 输出版本和产物信息
-- 生成 / 展示 SHA-256
-- 也可以在高级设置中手动覆盖命令
-
-### 11. 系统诊断与修复
-
-“诊断与修复”可以检查：
-
-- 当前工作区
-- 便携运行环境
-- 本地 MCP 服务
-- 端口状态
-- OpenAI Tunnel / 连接状态
-- 部分常见配置问题
-
-能够安全自动处理的问题可以执行一键修复。
-
-### 12. 网络与代理
-
-支持自动选择：
-
-- 直连
-- Windows 系统代理
-- 常见本地代理
-
-连接异常时会进行诊断和重连，不再固定依赖某个代理软件或固定端口。
-
-### 13. 本地安全与密钥保护
-
-- Runtime API Key 使用 Electron `safeStorage` / Windows DPAPI 在本机加密保存
-- MCP Bearer Token 随机生成并加密保存
-- 渲染进程不直接读取密钥明文
-- 普通日志会隐藏 key / token / authorization / secret 等敏感字段
-- 管理页面启用 `contextIsolation`，关闭 `nodeIntegration`
-- 本地 MCP 和管理接口默认只监听本机地址
-- 匿名遥测默认关闭，不上传聊天内容
-
-### 14. 中文桌面管理中心
-
-目前管理中心包括：
-
-- 总览
-- 运行与连接
-- 工作区与权限
-- 任务状态
-- 构建验证
-- 诊断与修复
-- 接入指南
-- 运行日志
-- 偏好设置
-
-同时支持：
-
-- 浅色 / 深色主题
-- Windows 开机启动
-- 打开助手时自动启动服务
-- 关闭窗口后继续后台运行
-- 系统托盘
-- 清除 ChatGPT 登录数据并重新登录
-- 重新生成 MCP Token
-- 清理运行日志
-
-### 15. ChatGPT 接入向导
-
-内置中文接入步骤，覆盖：
-
-1. 创建 OpenAI Tunnel
-2. 创建 Runtime API Key
-3. 在助手中选择工作目录并部署
-4. 在 ChatGPT 中创建自定义 MCP / 连接器
-5. 完成第一次只读工具测试
-
-同时提供可复制的 Coding Tools MCP 自定义指令。
-
----
-
-## 🛠 当前公开 MCP 工具
-
-v0.2.4 内置 Runtime 对 ChatGPT 暴露的核心工具包括：
-
-| 工具 | 用途 |
+| 组件 | 版本 |
 | --- | --- |
-| `coding_tools_guide` | 返回 Coding Tools MCP 使用建议 |
-| `workspace_context` | 快速读取项目、Git 和任务概况 |
-| `agent_workflow` | 一次完成诊断、修改、测试、构建等完整开发任务 |
-| `task_control` | 查看、暂停、继续、停止任务及管理 Worktree |
-| `document_workflow` | PDF / DOCX / Markdown / 文本处理 |
-| `exec_command` | 执行聚焦的工作区命令 |
-| `command_control` | 管理正在运行的命令会话 |
-| `request_permissions` | 请求额外命令 / 文件操作权限 |
-| `view_image` | 查看工作区图片 |
+| 网页 MCP 助手 Desktop | **v0.9.2** |
+| Coding Tools MCP Runtime | **v0.9.2** |
+| MCP Tool Schema | **v14 / 10 tools** |
+| Schema Hash | `631ba25229260ab745932f2fcc1cef3deb982ddc0cf3bbcb900047c458e321fd` |
+| Electron | **43.2.0** |
+| 平台 | **Windows** |
 
-底层还包含 Git、文件读写、搜索、补丁、构建验证等能力，并由上述高层工具统一编排。
+## 能做什么
 
----
+- **直接操作本地项目**：读取、搜索、修改和创建代码文件。
+- **执行开发命令**：运行 PowerShell、Git、npm、Python 和项目自己的脚本。
+- **自动测试与构建**：完成测试、诊断、打包和发布流程。
+- **多工作区管理**：可切换项目，并单独管理额外授权目录。
+- **长任务持续执行**：保留任务、命令、进度与恢复状态，网络或页面短暂异常后可以继续。
+- **Git / Worktree 工作流**：支持 Git 操作、隔离 Worktree、安全应用修改与清理。
+- **本地会话与开发上下文**：保存本地任务、历史、Checkpoint、Rules、Recipes、Skills 和 Memory 等开发上下文。
+- **ChatGPT 页面增强**：保留原生页面渲染，提供连续 MCP 状态观察、动态资源错误提示和长时间无新内容的可操作反馈。
 
-## 📦 下载和安装
+## v0.9.2 体验与界面收口版
 
-普通使用不需要配置开发环境：
+0.9.2 在 0.9.1 稳定性基础上继续收紧真实使用体验：修复 Tunnel / MCP Session 恢复链的缺口，减少顶部状态与活动详情噪声，补齐长期上下文归档闭环，并新增更接近 ChatGPT / Codex 的纯白主题与跟随系统主题。
 
-1. 打开 GitHub 页面右侧 **[Releases](../../releases)**。
-2. 下载最新安装包：`web-mcp-assistant-setup-0.4.4.exe`。
-3. 双击安装。
-4. 打开助手，选择工作目录。
-5. 按“接入指南”配置 OpenAI Tunnel 和 ChatGPT MCP。
+- **连接与恢复**：Tunnel 主通道健康进入轻量状态判断，失效 MCP Session 会清理旧 session 并安全重新 discovery；页面/Tunnel 异常不会误重启健康 Runtime。
+- **唯一状态源**：首页和 React 摘要统一消费 canonical service / assistant state，正常态自动收起启动链，运行、恢复和异常时才展开细节。
+- **运行信息减噪**：顶部空闲态真实压缩，心跳不再作为用户进度条展示，最近事件仅保留命令、阶段、错误和恢复等有意义变化，并尽量中文化。
+- **登录层防误触发**：主 ChatGPT 页面的被动登录探测不会再自动隐藏聊天或拉起模态遮罩；只有用户主动登录或嵌入式登录真实失败时才进入登录中心。
+- **长期上下文闭环**：增加“有效 / 候选 / 已归档”三视图，归档原因与时间可见，并支持恢复为有效和永久删除。
+- **浅色主题**：保留现有深色主题，新增纯白浅色与“跟随系统”，统一青绿色主操作色、按钮层级、字号和 semantic tokens。
+- **工作区中心**：ChatGPT 顶部“全部工作区”直接打开完整 Workspace Center，可快速切换工作区、清理失效目录并统一查看和管理授权目录。
+- **真实 Renderer 验证**：发布链新增 production Electron BrowserWindow smoke，真实加载 preload + React bundle，分别验证浅/深主题、React portal、横向溢出和截图，避免“Vite 构建通过但真实窗口失败”的假绿。
 
-> Windows 可能会对未进行商业代码签名的个人项目弹出安全提示，请确认文件来源是本仓库 Release 后再运行。
+详细变化见 [v0.9.2 发布说明](docs/RELEASE_NOTES_0.9.2.md)。
 
----
+## v0.9.1 稳定性收口版
 
-## 💻 开发者源码运行
+0.9.1 重点解决真实使用中暴露的几个细节：活动详情仍有噪声、心跳跨阈值后桌面卡住提醒可能被吞、长期上下文同主题新候选可能丢失，以及 React 摘要层仍有二次解释任务状态的风险。
 
-```powershell
-# 克隆项目
-git clone https://github.com/3169657175/gpt-webcodex.git
-cd gpt-webcodex
+- **活动详情去噪**：隐藏无意义的等待模型心跳和空输出，最近事件统一中文化、去重，只保留命令、阶段和异常信息。
+- **卡住提醒修复**：保存“上一次实际观察到的语义事件”，心跳从正常跨过 90 秒阈值时可以真实触发一次 `stalled` 通知；重复轮询不重复弹窗，`waiting_model` 保持静默。
+- **长期上下文冲突保护**：候选与候选之间同标题不同内容时，新事实会独立保存为冲突候选，并携带旧内容和新内容供管理界面比较，不再被旧候选吞掉。
+- **Legacy V3 清理**：明显的超长阶段式一次性任务 Prompt 自动安全归档，不直接删除；显式记忆和模型正式总结不会被自动清理。
+- **React 状态统一**：`app.js` 发布经过共享 `AssistantState` 归一化后的中文状态、语义色调和诊断信息，React/TypeScript 层只消费 canonical state，不再自行解释 `task.status` / `lifecycle_state`。
+- **版本展示统一**：设置页与关于区域从 Electron 实际版本读取版本号，避免界面版本字符串滞后。
 
-# 安装依赖
+详细变化见 [v0.9.1 发布说明](docs/RELEASE_NOTES_0.9.1.md)。
+
+## 安装
+
+推荐直接从 GitHub Releases 下载最新版。
+
+本地正式安装包：
+
+`dist/web-mcp-assistant-setup-0.9.2.exe`
+
+安装后：
+
+1. 启动网页 MCP 助手。
+2. 登录 ChatGPT。
+3. 在顶部选择或添加本地工作区。
+4. 直接在 ChatGPT 中让 AI 查看项目、修改代码、运行测试或构建。
+
+## 工作方式
+
+```text
+ChatGPT Web
+    │
+    ▼
+网页 MCP 助手（Electron）
+    │
+    ├── Workspace / Authorized Roots
+    ├── Runtime / Task / Recovery
+    ├── Git / Worktree
+    └── Coding Tools MCP
+            │
+            ▼
+      Windows 本地项目
+```
+
+ChatGPT 页面与本地 Runtime、Tunnel、任务执行相互独立。页面短暂断流或刷新不应自动中断健康的本地任务。
+
+## 权限说明
+
+面向**单用户个人开发场景**，默认采用完全权限模式：
+
+- 命令执行使用当前 Windows 用户本身拥有的权限。
+- Git 提交、Tag、构建、进程操作等正常开发流程不再等待聊天中的二次批准。
+- 工作区与额外授权目录仍用于直接文件工具的路径范围管理。
+
+因此，请只在你信任的本机和项目中使用。
+
+## 开发
+
+安装依赖：
+
+```bash
 npm install
+```
 
-# 开发运行
-npm start
+运行快速验证：
 
-# 全量测试
-npm test
+```bash
+npm run test:quick
+```
 
-# 构建 Windows NSIS 安装包
+运行完整测试：
+
+```bash
+npm run test
+```
+
+构建 Windows 安装包：
+
+```bash
 npm run dist
 ```
 
-构建产物默认位于 `dist/`。
+输出目录：
 
----
+```text
+dist/
+```
 
-## 🔐 安全边界说明
+## 项目结构
 
-这个工具具备真实的本地文件写入和命令执行能力，因此它不是纯聊天插件。
+```text
+electron/                    Electron 主进程、ChatGPT 页面与 Runtime 编排
+renderer/                    桌面管理界面
+renderer-ui/                 React + TypeScript + Vite 渐进迁移层
+resources/coding-tools-mcp/  Coding Tools MCP Python Runtime
+tests/                       Electron / Node 回归测试
+scripts/                     Schema、测试与发布脚本
+docs/                        正式版本发布说明
+```
 
-建议：
+## 发布与验证
 
-- 只授权确实需要 AI 操作的项目目录
-- 重要项目保留 Git 提交或其他备份
-- 普通使用保持安全权限模式
-- ChatGPT 请求执行高风险命令时先检查具体操作
-- 不要把 Runtime Key、MCP Token 或其他密钥粘贴到聊天消息中
+正式版本发布前会执行：
 
-Git Worktree 隔离能降低复杂任务直接修改主工作区的风险，但不能替代 Git 提交和正常备份。
+- React / TypeScript 类型检查与构建
+- 完整 `npm run test`
+- Schema 契约一致性检查
+- quick soak 稳定性验证
+- Windows NSIS 发行构建
+- 安装包、`app.asar`、Runtime、Schema 与版本号核对
+- Git commit / tag / clean 状态检查
 
----
+正式安装包的 SHA-256 以发布完成后的产物校验结果为准。
 
-## 📜 开源协议
+历史公开版本的校验值继续保留在对应 GitHub Release 与版本发布说明中。
 
-- 本项目使用 [MIT License](LICENSE)。
-- 内置的 Coding Tools MCP 来源于 [xyTom/coding-tools-mcp](https://github.com/xyTom/coding-tools-mcp)，其许可与来源说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+## License
 
----
+本项目使用 [MIT License](LICENSE)。
 
-## 📌 版本信息
-
-- 网页 MCP 助手：**0.4.5**
-- Coding Tools MCP Runtime：**0.4.9**
-- Electron：**43.2.0**
-- Windows 安装包：`web-mcp-assistant-setup-0.4.5.exe`
+第三方依赖说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

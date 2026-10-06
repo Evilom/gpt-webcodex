@@ -62,12 +62,12 @@ test('clearActiveWorkspace unbinds the active workspace while preserving history
 test('workspace cleanup UI and IPC are wired end to end', () => {
   const root = path.join(__dirname, '..');
   const read = (...parts) => fs.readFileSync(path.join(root, ...parts), 'utf8');
-  assert.match(read('renderer', 'browser.html'), /id="workspaceCleanButton"/);
-  assert.match(read('renderer', 'browser.html'), /id="workspaceCleanPopover"/);
-  assert.match(read('renderer', 'browser.html'), /id="workspaceCleanActive"/);
-  assert.match(read('renderer', 'browser.js'), /removeRecentWorkspaces/);
-  assert.match(read('renderer', 'browser.js'), /workspaceCleanAll/);
-  assert.match(read('renderer', 'browser.js'), /handleClearActiveWorkspace/);
+  assert.match(read('renderer', 'workspace.html'), /id="workspaceCleanAll"/);
+  assert.match(read('renderer', 'workspace.html'), /id="workspaceList"/);
+  assert.match(read('renderer', 'workspace.html'), /id="workspaceCleanActive"/);
+  assert.match(read('renderer', 'workspace.js'), /removeRecentWorkspaces/);
+  assert.match(read('renderer', 'workspace.js'), /workspaceCleanAll/);
+  assert.match(read('renderer', 'workspace.js'), /handleClearActiveWorkspace/);
   assert.match(read('electron', 'browserPreload.js'), /workspace:remove-recent/);
   assert.match(read('electron', 'browserPreload.js'), /workspace:clear-active/);
   assert.match(read('electron', 'main.js'), /workspace:remove-recent/);

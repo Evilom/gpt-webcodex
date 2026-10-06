@@ -26,7 +26,7 @@ const required = [
 
 // Optional at dev checkout; required only for a shippable portable runtime bundle.
 const portableOptionalInDev = [
-  'resources/tools/python/python.exe',
+  'resources/native-python/python.exe',
 ];
 
 const warnings = [];

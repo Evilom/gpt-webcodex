@@ -17,7 +17,7 @@ if str(SOURCE_ROOT) not in sys.path:
 import coding_tools_mcp.server as server_module
 from coding_tools_mcp.build_verify import collect_artifacts, detect_project, infer_project_root, profile_project_execution, verify_build as verify_build_profile
 from coding_tools_mcp.task_state import TaskStateStore, classify_command
-from coding_tools_mcp.server import Runtime, classify_context_pressure
+from coding_tools_mcp.server import Runtime, classify_context_pressure, classify_context_workload
 from coding_tools_mcp.protocol import dispatch_rpc
 from coding_tools_mcp.document_tools import create_docx, extract_docx
 from coding_tools_mcp.errors import ToolFailure
@@ -26,6 +26,40 @@ from coding_tools_mcp.performance_trace import PerformanceTraceStore, TRACE_VERS
 
 
 class TaskStateTests(unittest.TestCase):
+    def test_execution_ledger_upsert_merges_evidence_and_supports_lookup(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = TaskStateStore(Path(temp))
+            store.upsert_operation({
+                "operation_id": "ledger-op",
+                "execution_id": "ledger-exec",
+                "operation_key": "fingerprint-a",
+                "run_id": "run-a",
+                "status": "running",
+                "lifecycle_state": "running",
+                "action_fingerprint": "a" * 64,
+                "execution": {"execution_id": "ledger-exec", "lifecycle_state": "running", "process_id": 123},
+            })
+            stored = store.upsert_operation({
+                "operation_id": "ledger-op",
+                "execution_id": "ledger-exec",
+                "status": "completed",
+                "lifecycle_state": "completed",
+                "stdout_digest": "b" * 64,
+                "final_evidence": {"exit_code": 0},
+                "execution": {"lifecycle_state": "completed", "finished_at": "done"},
+            })
+            self.assertEqual(stored["operation_key"], "fingerprint-a")
+            self.assertEqual(stored["action_fingerprint"], "a" * 64)
+            self.assertEqual(stored["execution"]["execution_id"], "ledger-exec")
+            self.assertEqual(stored["execution"]["process_id"], 123)
+            self.assertEqual(stored["execution"]["lifecycle_state"], "completed")
+            self.assertEqual(stored["stdout_digest"], "b" * 64)
+            self.assertEqual(
+                store.find_operation(operation_key="fingerprint-a", run_id="run-a")["execution_id"],
+                "ledger-exec",
+            )
+            self.assertEqual(store.find_operation(execution_id="ledger-exec")["status"], "completed")
+
     def test_operation_records_persist_and_orphaned_running_operation_is_interrupted(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = TaskStateStore(Path(temp))
@@ -36,7 +70,30 @@ class TaskStateTests(unittest.TestCase):
             recovered = store.recover_orphaned_operations("new")
             self.assertEqual(len(recovered), 1)
             self.assertEqual(recovered[0]["status"], "interrupted")
+            self.assertEqual(recovered[0]["lifecycle_state"], "unknown_outcome")
+            self.assertFalse(recovered[0]["retry_safe"])
+            self.assertTrue(recovered[0]["side_effect_possible"])
+            self.assertEqual(recovered[0]["execution"]["execution_id"], "op1")
             self.assertEqual(store.operation_records()[-1]["status"], "interrupted")
+
+    def test_orphaned_queued_operation_is_not_started_and_retry_safe(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = TaskStateStore(Path(temp))
+            store.upsert_operation({
+                "operation_id": "queued-op", "execution_id": "queued-exec", "run_id": "run-q",
+                "tool": "agent_workflow", "runtime_instance_id": "old", "status": "queued",
+                "lifecycle_state": "queued", "queued_at": "2026-08-28T00:00:00Z",
+                "retry_safe": True, "side_effect_possible": False,
+            })
+            recovered = store.recover_orphaned_operations("new")
+            self.assertEqual(len(recovered), 1)
+            item = recovered[0]
+            self.assertEqual(item["status"], "not_started")
+            self.assertEqual(item["lifecycle_state"], "not_started")
+            self.assertTrue(item["retry_safe"])
+            self.assertFalse(item["side_effect_possible"])
+            self.assertEqual(item["execution"]["lifecycle_state"], "not_started")
+            self.assertEqual(item["execution"]["started_at"], "")
 
     def test_new_task_has_run_id_and_typed_lifecycle(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -55,8 +112,27 @@ class TaskStateTests(unittest.TestCase):
             state = store.update({"status": "completed", "current_step": "Completed"})
             self.assertEqual(state["lifecycle_state"], "completed")
             self.assertIsNone(state["current_command"])
+            self.assertEqual(state["current_step"], "")
             self.assertEqual(state["last_command"]["session_id"], "session-terminal")
             self.assertEqual(state["last_command"]["status"], "completed")
+            self.assertIsInstance(state["last_command"]["elapsed_ms"], int)
+
+    def test_completed_lifecycle_marks_pending_finalize_step_completed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = TaskStateStore(Path(temp))
+            store.ensure_started("terminal step cleanup")
+            state = store.update({
+                "steps": [
+                    {"id": "verify", "text": "Verify", "status": "completed"},
+                    {"id": "finalize", "text": "Finalize", "status": "pending"},
+                ],
+                "status": "completed",
+                "current_step": "Testing and building",
+            })
+            finalize = next(step for step in state["steps"] if step["id"] == "finalize")
+            self.assertEqual(finalize["status"], "completed")
+            self.assertEqual(finalize["state"], "completed")
+            self.assertEqual(state["current_step"], "")
 
     def test_terminal_task_is_not_revived_by_later_plain_command(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -76,7 +152,19 @@ class TaskStateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             store = TaskStateStore(Path(temp))
             store.ensure_started("command event fidelity")
-            store.record_command_started("echo hello", "session-command", temp)
+            store.record_command_started(
+                "echo hello",
+                "session-command",
+                temp,
+                execution={
+                    "execution_id": "execution-command",
+                    "lifecycle_state": "running",
+                    "started_at": "2026-08-28T00:00:00Z",
+                    "retry_safe": False,
+                    "side_effect_possible": True,
+                    "pid": 1234,
+                },
+            )
             store.record_tool_result(
                 "exec_command",
                 {"cmd": "echo hello", "role": "blocking", "blocking": True},
@@ -89,6 +177,15 @@ class TaskStateTests(unittest.TestCase):
                     "summary": "exit 0 | hello",
                     "stdout": "hello\n",
                     "stderr": "",
+                    "execution": {
+                        "execution_id": "execution-command",
+                        "lifecycle_state": "completed",
+                        "started_at": "2026-08-28T00:00:00Z",
+                        "finished_at": "2026-08-28T00:00:01Z",
+                        "retry_safe": False,
+                        "side_effect_possible": True,
+                        "pid": 1234,
+                    },
                 },
             )
             events = store.events_since(0, limit=100)
@@ -97,6 +194,8 @@ class TaskStateTests(unittest.TestCase):
             self.assertEqual(started["payload"]["details"]["session_id"], "session-command")
             self.assertEqual(started["payload"]["details"]["kind"], "command")
             self.assertEqual(started["payload"]["details"]["workdir"], temp)
+            self.assertEqual(started["payload"]["details"]["execution_id"], "execution-command")
+            self.assertEqual(started["payload"]["details"]["execution_lifecycle_state"], "running")
             details = completed["payload"]["details"]
             self.assertEqual(details["command"], "echo hello")
             self.assertEqual(details["session_id"], "session-command")
@@ -104,12 +203,18 @@ class TaskStateTests(unittest.TestCase):
             self.assertEqual(details["exit_code"], 0)
             self.assertEqual(details["elapsed_ms"], 321)
             self.assertEqual(details["summary"], "exit 0 | hello")
+            self.assertEqual(details["execution_id"], "execution-command")
+            self.assertEqual(details["execution_lifecycle_state"], "completed")
+            self.assertFalse(details["retry_safe"])
+            self.assertTrue(details["side_effect_possible"])
             self.assertTrue(details["started_at"])
             self.assertTrue(details["finished_at"])
             self.assertEqual(completed["state"]["lifecycle_state"], "waiting_model")
             self.assertIsNone(completed["state"]["current_command"])
             self.assertEqual(completed["state"]["last_command"]["exit_code"], 0)
             self.assertEqual(completed["state"]["last_command"]["elapsed_ms"], 321)
+            self.assertEqual(completed["state"]["last_command"]["execution_id"], "execution-command")
+            self.assertEqual(completed["state"]["last_command"]["execution_lifecycle_state"], "completed")
 
     def test_waiting_model_task_is_superseded_immediately_by_different_objective(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -164,6 +269,39 @@ class TaskStateTests(unittest.TestCase):
         self.assertEqual(classify_context_pressure(85, 2 * 1024 * 1024, 4), "elevated")
         self.assertEqual(classify_context_pressure(130, 4 * 1024 * 1024, 4), "high")
 
+    def test_context_workload_classification_uses_real_tool_action(self) -> None:
+        self.assertEqual(classify_context_workload("exec_command", {"cmd": "npm test"}), "command")
+        self.assertEqual(classify_context_workload("command_control", {"action": "poll"}), "command")
+        self.assertEqual(classify_context_workload("task_control", {"action": "worktree_diff"}), "diff")
+        self.assertEqual(classify_context_workload("git_diff", {}), "diff")
+        self.assertEqual(classify_context_workload("task_control", {"action": "history"}), "history")
+        self.assertEqual(classify_context_workload("workspace_context", {}), "general")
+
+    def test_context_pressure_snapshot_reports_workload_reasons(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            runtime = Runtime(Path(temp))
+            base = time.monotonic()
+            for offset in range(3):
+                runtime.performance_trace.record(
+                    tool="exec_command", started_monotonic=base + offset, finished_monotonic=base + offset + 0.01,
+                    response_bytes=800_000, origin="external", workload_kind="command",
+                )
+            for offset in range(6):
+                runtime.performance_trace.record(
+                    tool="task_control", started_monotonic=base + 10 + offset, finished_monotonic=base + 10 + offset + 0.01,
+                    response_bytes=200_000, origin="external", workload_kind="diff",
+                )
+            pressure = runtime._context_pressure_snapshot()
+            self.assertEqual(pressure["large_payloads"], 3)
+            self.assertTrue(pressure["command_heavy"])
+            self.assertTrue(pressure["diff_heavy"])
+            self.assertFalse(pressure["history_heavy"])
+            self.assertIn("large_payloads", pressure["pressure_reasons"])
+            self.assertIn("command_heavy", pressure["pressure_reasons"])
+            self.assertTrue(pressure["recommend_compact"])
+            self.assertIn("v0.2.8", pressure["recommendation"])
+            runtime.close()
+
     def test_performance_trace_counts_only_context_visible_calls(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = PerformanceTraceStore(Path(temp))
@@ -190,6 +328,36 @@ class TaskStateTests(unittest.TestCase):
             self.assertEqual(state["desktop_calls"], 1)
             self.assertEqual(state["system_events"], 1)
             self.assertEqual([event["origin"] for event in state["recent"]], ["external", "desktop", "system"])
+
+    def test_performance_trace_tracks_context_workload_without_internal_pollution(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = PerformanceTraceStore(Path(temp))
+            base = time.monotonic()
+            store.record(
+                tool="exec_command", started_monotonic=base, finished_monotonic=base + 0.01,
+                response_bytes=300_000, origin="external", workload_kind="command",
+            )
+            store.record(
+                tool="task_control", started_monotonic=base + 0.02, finished_monotonic=base + 0.03,
+                response_bytes=120_000, origin="external", workload_kind="diff",
+            )
+            store.record(
+                tool="task_control", started_monotonic=base + 0.04, finished_monotonic=base + 0.05,
+                response_bytes=80_000, origin="external", workload_kind="history",
+            )
+            store.record(
+                tool="command_control", started_monotonic=base + 0.06, finished_monotonic=base + 0.07,
+                response_bytes=900_000, origin="desktop", workload_kind="command",
+            )
+            state = store.get()
+            self.assertEqual(state["large_payloads"], 1)
+            self.assertEqual(state["command_calls"], 1)
+            self.assertEqual(state["command_response_bytes"], 300_000)
+            self.assertEqual(state["diff_calls"], 1)
+            self.assertEqual(state["diff_response_bytes"], 120_000)
+            self.assertEqual(state["history_calls"], 1)
+            self.assertEqual(state["history_response_bytes"], 80_000)
+            self.assertEqual(state["recent"][-1]["workload_kind"], "command")
 
     def test_performance_trace_new_runtime_resets_legacy_and_previous_session_counts(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -297,13 +465,41 @@ class TaskStateTests(unittest.TestCase):
             self.assertGreater(replay[0]["event_id"], first_id)
             self.assertEqual(replay[0]["type"], "task.completed")
 
-    def test_direct_exec_command_does_not_create_persistent_task(self) -> None:
+    def test_task_control_events_supports_incremental_cursor(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            runtime = Runtime(Path(temp))
+            runtime.task_state.ensure_started("incremental events")
+            cursor = runtime.task_state.latest_event_id()
+            runtime.task_state.update({"current_step": "new activity"})
+            result = runtime.task_control({"action": "events", "after_event_id": cursor, "wait_ms": 0, "limit": 10})
+            self.assertEqual(len(result["events"]), 1)
+            self.assertGreater(result["next_after_event_id"], cursor)
+            self.assertFalse(result["wait_timed_out"])
+            runtime.close()
+
+    def test_direct_exec_command_creates_implicit_task_and_desktop_activity_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             runtime = Runtime(root, permission_mode="dangerous")
-            result = runtime.exec_command({"cmd": "echo ok", "yield_time_ms": 1000})
+            tool_result = runtime.call_tool("exec_command", {"cmd": "echo feedback-ok", "yield_time_ms": 1000})
+            self.assertFalse(tool_result["isError"])
+            result = tool_result["structuredContent"]
             self.assertEqual(result.get("exit_code"), 0)
-            self.assertFalse((root / ".coding-tools" / "task-state.json").exists())
+            self.assertTrue((root / ".coding-tools" / "task-state.json").exists())
+            state = runtime.task_state.get()
+            self.assertEqual(state["task_origin"], "implicit_command")
+            self.assertEqual(state["status"], "waiting")
+            self.assertIsNone(state["current_command"])
+            session = runtime._get_output_session(result["session_id"])
+            cursor_before = (session.stdout_cursor, session.stderr_cursor)
+            runtime.request_context.trace_origin = "desktop"
+            snapshot = runtime.task_control({"action": "get"})
+            cursor_after = (session.stdout_cursor, session.stderr_cursor)
+            self.assertEqual(cursor_after, cursor_before)
+            self.assertIn("feedback-ok", snapshot["activity"]["command"]["latest_output"])
+            self.assertTrue(snapshot["feedback_capabilities"]["desktop_activity_stream"]["supported"])
+            self.assertTrue(snapshot["feedback_capabilities"]["chatgpt_tool_invocation_status"]["supported"])
+            self.assertFalse(snapshot["feedback_capabilities"]["mcp_events"]["supported"])
             runtime.close()
 
     def test_agent_workflow_prepare_does_not_create_persistent_task(self) -> None:
@@ -372,6 +568,59 @@ class TaskStateTests(unittest.TestCase):
 
 
 class BackgroundOperationTests(unittest.TestCase):
+    def test_task_control_get_returns_bounded_background_operation_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            runtime = Runtime(Path(temp))
+            lifecycle_by_index = {
+                0: ("running", "queued"),
+                1: ("running", "running"),
+                2: ("running", "running"),
+                3: ("failed", "failed"),
+                4: ("interrupted", "unknown_outcome"),
+                5: ("failed", "timed_out"),
+                6: ("not_started", "not_started"),
+            }
+            current = runtime.task_state.ensure_started("summarize current run")
+            run_id = current["run_id"]
+            for index in range(15):
+                status, lifecycle = lifecycle_by_index.get(index, ("completed", "completed"))
+                runtime.task_state.upsert_operation({
+                    "operation_id": f"summary-{index}",
+                    "execution_id": f"execution-{index}",
+                    "run_id": run_id,
+                    "task_id": current["task_id"],
+                    "tool": "agent_workflow",
+                    "status": status,
+                    "lifecycle_state": lifecycle,
+                    "execution": {
+                        "execution_id": f"execution-{index}",
+                        "lifecycle_state": lifecycle,
+                    },
+                })
+            runtime.task_state.upsert_operation({
+                "operation_id": "foreign-run",
+                "execution_id": "foreign-execution",
+                "run_id": "other-run",
+                "task_id": "other-task",
+                "tool": "agent_workflow",
+                "status": "running",
+                "lifecycle_state": "running",
+            })
+            result = runtime.task_control({"action": "get"})
+            summary = result["background_operations_summary"]
+            self.assertEqual(summary["total"], 15)
+            self.assertEqual(summary["queued"], 1)
+            self.assertEqual(summary["running"], 2)
+            self.assertEqual(summary["failed"], 1)
+            self.assertEqual(summary["timed_out"], 1)
+            self.assertEqual(summary["unknown_outcome"], 1)
+            self.assertEqual(summary["not_started"], 1)
+            self.assertEqual(summary["completed"], 8)
+            self.assertNotIn("foreign-run", {item.get("operation_id") for item in summary["items"]})
+            self.assertEqual(len(summary["items"]), 12)
+            self.assertEqual(summary["items_truncated"], 3)
+            runtime.close()
+
     def test_long_agent_workflow_hands_back_and_can_be_polled(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             runtime = Runtime(Path(temp))
@@ -389,11 +638,14 @@ class BackgroundOperationTests(unittest.TestCase):
                 self.assertEqual(structured["status"], "running")
                 self.assertTrue(structured["requires_progress_report"])
                 operation_id = structured["background_operation"]["operation_id"]
+                execution_id = structured["background_operation"]["execution"]["execution_id"]
                 self.assertTrue(structured["background_operation"]["task_id"])
                 self.assertTrue(structured["background_operation"]["run_id"])
                 self.assertTrue(structured["background_operation"]["heartbeat_at"])
                 polled = runtime.task_control({"action": "operation", "operation_id": operation_id, "wait_ms": 1000})
                 self.assertEqual(polled["background_operation"]["status"], "completed")
+                self.assertEqual(polled["background_operation"]["execution"]["execution_id"], execution_id)
+                self.assertEqual(polled["background_operation"]["execution"]["lifecycle_state"], "completed")
                 self.assertEqual(polled["background_operation"]["result"], {"done": True})
                 self.assertEqual(runtime.task_state.operation_records()[-1]["status"], "completed")
             runtime.close()
@@ -413,10 +665,11 @@ class BackgroundOperationTests(unittest.TestCase):
                 first, _ = runtime._start_background_tool("agent_workflow", arguments, request_id=1)
                 second, _ = runtime._start_background_tool("agent_workflow", arguments, request_id=2)
                 self.assertEqual(first["operation_id"], second["operation_id"])
+                self.assertEqual(first["execution_id"], second["execution_id"])
                 first["event"].wait(1)
             runtime.close()
 
-    def test_runtime_start_marks_previous_running_operation_and_task_as_interrupted(self) -> None:
+    def test_runtime_start_preserves_unknown_outcome_without_replaying_side_effects(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             store = TaskStateStore(root)
@@ -428,10 +681,96 @@ class BackgroundOperationTests(unittest.TestCase):
             })
             runtime = Runtime(root)
             recovered = runtime.task_state.get()
-            self.assertEqual(recovered["lifecycle_state"], "failed")
-            self.assertIn("后台任务已中断", recovered["current_step"])
-            self.assertEqual(runtime.task_state.operation_records()[-1]["status"], "interrupted")
+            self.assertEqual(recovered["lifecycle_state"], "waiting_model")
+            self.assertEqual(recovered["run_state"], "waiting_model")
+            self.assertEqual(recovered["pause_reason"], "unsafe_to_retry")
+            self.assertEqual(recovered["wait_reason"], "unsafe_to_retry")
+            self.assertIn("will not be replayed automatically", recovered["failure"])
+            self.assertTrue(recovered["safe_resume_point"])
+            self.assertEqual(recovered["recovery_attempt"], 1)
+            self.assertEqual(recovered["last_recovery"]["execution_state"], "unknown_outcome")
+            self.assertFalse(recovered["last_recovery"]["retry_safe"])
+            self.assertTrue(recovered["last_recovery"]["side_effect_possible"])
+            operation = runtime.task_state.operation_records()[-1]
+            self.assertEqual(operation["status"], "interrupted")
+            self.assertEqual(operation["lifecycle_state"], "unknown_outcome")
+            self.assertFalse(operation["retry_safe"])
+            self.assertTrue(operation["side_effect_possible"])
             runtime.close()
+
+    def test_runtime_start_recovers_queued_operation_without_duplicate_side_effect(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = TaskStateStore(root)
+            task = store.ensure_started("recover queued")
+            store.update({
+                "steps": [
+                    {"id": "prepare", "text": "Prepare", "status": "completed"},
+                    {"id": "execute", "text": "Execute", "status": "in_progress"},
+                ],
+                "next_step": "Continue execute",
+            })
+            store.upsert_operation({
+                "operation_id": "queued-op", "operation_key": "queued-key", "tool": "agent_workflow",
+                "task_id": task["task_id"], "run_id": task["run_id"], "runtime_instance_id": "dead-runtime",
+                "status": "queued", "lifecycle_state": "queued", "queued_at": "2026-08-12T00:00:00Z",
+            })
+            runtime = Runtime(root)
+            recovered = runtime.task_state.get()
+            self.assertEqual(recovered["lifecycle_state"], "recovering")
+            self.assertEqual(recovered["run_state"], "recovering")
+            self.assertIsNone(recovered["failure"])
+            self.assertEqual(recovered["current_step_id"], "execute")
+            self.assertEqual(recovered["resume_cursor"], 1)
+            self.assertEqual(recovered["recovery_attempt"], 1)
+            operation = runtime.task_state.operation_records()[-1]
+            self.assertEqual(operation["status"], "not_started")
+            self.assertEqual(operation["lifecycle_state"], "not_started")
+            self.assertTrue(operation["retry_safe"])
+            self.assertFalse(operation["side_effect_possible"])
+            runtime.close()
+
+    def test_durable_run_cursor_step_metadata_and_heartbeat(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = TaskStateStore(Path(temp))
+            task = store.ensure_started("durable run")
+            state = store.update({
+                "project_id": "project-1",
+                "local_session_id": "session-1",
+                "plan_revision": 3,
+                "steps": [
+                    {"id": "one", "text": "One", "status": "completed", "retry_safe": True},
+                    {"id": "two", "text": "Two", "status": "in_progress", "kind": "command", "execution_id": "exec-2", "attempt": 1, "max_attempts": 3},
+                    {"id": "three", "text": "Three", "status": "pending"},
+                ],
+            })
+            self.assertEqual(state["project_id"], "project-1")
+            self.assertEqual(state["local_session_id"], "session-1")
+            self.assertEqual(state["plan_revision"], 3)
+            self.assertEqual(state["current_step_id"], "two")
+            self.assertEqual(state["resume_cursor"], 1)
+            self.assertEqual(state["steps"][1]["step_id"], "two")
+            self.assertEqual(state["steps"][1]["title"], "Two")
+            self.assertEqual(state["steps"][1]["state"], "running")
+            self.assertEqual(state["steps"][1]["execution_id"], "exec-2")
+            self.assertEqual(state["steps"][1]["attempt"], 1)
+            self.assertEqual(state["steps"][1]["max_attempts"], 3)
+            first_heartbeat = state["last_heartbeat_at"]
+            time.sleep(0.002)
+            heartbeat = store.heartbeat(run_id=task["run_id"], step_id="two", progress=True)
+            self.assertGreater(heartbeat["last_heartbeat_at"], first_heartbeat)
+            self.assertEqual(heartbeat["steps"][1]["last_progress_at"], heartbeat["last_heartbeat_at"])
+            store.record_command_started("sleep 10", "session-one", ".")
+            before = store.get()["last_heartbeat_at"]
+            time.sleep(0.002)
+            ignored = store.heartbeat(run_id=task["run_id"], session_id="stale-session")
+            self.assertEqual(ignored["last_heartbeat_at"], before)
+            matched = store.heartbeat(run_id=task["run_id"], session_id="session-one")
+            self.assertGreater(matched["last_heartbeat_at"], before)
+            advanced = store.update({"complete_step_ids": ["two"]})
+            self.assertEqual(advanced["current_step_id"], "three")
+            self.assertEqual(advanced["resume_cursor"], 2)
+            self.assertEqual(advanced["steps"][1]["state"], "completed")
 
 
 class PermissionPolicyTests(unittest.TestCase):
@@ -541,7 +880,7 @@ class BuildVerificationTests(unittest.TestCase):
             profile = profile_project_execution(root)
             self.assertEqual(profile["test"]["status"], "verified")
             self.assertEqual(profile["test"]["framework"], "unittest")
-            self.assertIn("unittest discover", profile["test"]["command"])
+            self.assertIn("defaultTestLoader.discover", profile["test"]["command"])
 
     def test_unavailable_python_tests_do_not_guess_or_execute_runner(self) -> None:
         with tempfile.TemporaryDirectory() as temp, patch("coding_tools_mcp.build_verify.importlib.util.find_spec", return_value=None):
@@ -581,6 +920,37 @@ class ExecutionPlannerTests(unittest.TestCase):
             self.assertEqual(plan["test"]["status"], "verified")
             runtime.close()
 
+    def test_explicit_commands_keep_request_path_semantics_when_subproject_is_detected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp, patch("coding_tools_mcp.build_verify._tool_available", return_value=True):
+            root = Path(temp)
+            child = root / "frontend"
+            (child / "src").mkdir(parents=True)
+            (child / "src" / "app.js").write_text("x\n", encoding="utf-8")
+            (child / "package.json").write_text(json.dumps({"name": "frontend", "scripts": {"test": "node --test"}}), encoding="utf-8")
+            runtime = Runtime(root, permission_mode="dangerous")
+            plan = runtime._build_execution_plan({
+                "workflow": "bugfix",
+                "path": ".",
+                "paths": ["frontend/src/app.js"],
+                "commands": ["node frontend/src/app.js"],
+                "verification": "none",
+            })
+            self.assertEqual(plan["project_root"], "frontend")
+            self.assertEqual(plan["workdir"], "frontend")
+            self.assertEqual(plan["commands"][0]["workdir"], ".")
+
+            overridden = runtime._build_execution_plan({
+                "workflow": "bugfix",
+                "path": ".",
+                "paths": ["frontend/src/app.js"],
+                "workdir": "frontend",
+                "commands": ["node src/app.js"],
+                "verification": "none",
+            })
+            self.assertEqual(overridden["workdir"], "frontend")
+            self.assertEqual(overridden["commands"][0]["workdir"], "frontend")
+            runtime.close()
+
     def test_prepare_returns_execution_plan_and_diagnose_runs_no_guessed_tests(self) -> None:
         with tempfile.TemporaryDirectory() as temp, patch.dict("os.environ", {"CODING_TOOLS_MCP_TOOL_MODE": "smart"}):
             root = Path(temp)
@@ -616,6 +986,27 @@ class PatchDisambiguationTests(unittest.TestCase):
 
 
 class ToolModeTests(unittest.TestCase):
+    def test_ask_and_plan_agent_modes_block_mutation_without_changing_smart_tool_surface(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for agent_mode in ("ask", "plan"):
+                with patch.dict(os.environ, {
+                    "CODING_TOOLS_MCP_TOOL_MODE": "smart",
+                    "CODING_TOOLS_MCP_AGENT_MODE": agent_mode,
+                }):
+                    runtime = Runtime(root, permission_mode="dangerous")
+                    self.assertEqual(runtime.agent_mode, agent_mode)
+                    self.assertEqual(len(runtime._exposed_tool_names), 10)
+                    allowed = runtime.call_tool("workspace_context", {})
+                    self.assertFalse(allowed["isError"])
+                    blocked = runtime.call_tool("exec_command", {"cmd": "echo should-not-run"})
+                    self.assertTrue(blocked["isError"])
+                    self.assertEqual(blocked["structuredContent"]["error"]["code"], "AGENT_MODE_READ_ONLY")
+                    task_mutation = runtime.call_tool("task_control", {"action": "start", "objective": "blocked"})
+                    self.assertTrue(task_mutation["isError"])
+                    self.assertEqual(task_mutation["structuredContent"]["error"]["code"], "AGENT_MODE_READ_ONLY")
+                    runtime.close()
+
     def test_windows_core_environment_keeps_required_os_paths(self) -> None:
         required = {"SYSTEMDRIVE", "PROGRAMDATA", "ALLUSERSPROFILE", "SYSTEMROOT", "USERPROFILE", "PUBLIC"}
         self.assertTrue(required.issubset(server_module.WINDOWS_CORE_ENV_NAMES))
@@ -643,8 +1034,8 @@ class ToolModeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp, patch.dict("os.environ", {"CODING_TOOLS_MCP_TOOL_MODE": "smart"}):
             runtime = Runtime(Path(temp))
             tools = set(runtime.exposed_tool_names())
-            self.assertLessEqual(len(tools), 9)
-            self.assertEqual(tools, {"coding_tools_guide", "workspace_context", "agent_workflow", "task_control", "document_workflow", "exec_command", "command_control", "request_permissions", "view_image"})
+            self.assertLessEqual(len(tools), 10)
+            self.assertEqual(tools, {"coding_tools_guide", "workspace_context", "agent_workflow", "task_control", "document_workflow", "exec_command", "command_control", "request_permissions", "remember_context", "view_image"})
             self.assertNotIn("document_extract", tools)
 
     def test_workspace_context_is_compact_and_cached(self) -> None:
@@ -706,6 +1097,7 @@ class ToolModeTests(unittest.TestCase):
             self.assertTrue(second["cache_hit"])
             self.assertEqual(first["files"][0]["path"], "app.py")
             self.assertIn("hello", first["files"][0]["content"])
+            runtime.close()
 
     def test_apply_changes_and_verify_runs_continuous_workflow(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -735,6 +1127,7 @@ class ToolModeTests(unittest.TestCase):
             self.assertEqual(result["phase"], "prepare")
             self.assertEqual(result["context"]["files"][0]["path"], "app.py")
             self.assertEqual(len(result["context"]["searches"]), 2)
+            runtime.close()
 
     def test_agent_workflow_creates_greenfield_project_and_verifies(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -794,12 +1187,15 @@ class ToolModeTests(unittest.TestCase):
             lines[559] = "TARGET_NEEDLE = important_value"
             (root / "large.py").write_text("\n".join(lines) + "\n", encoding="utf-8")
             runtime = Runtime(root)
-            result = runtime.prepare_coding_context({"objective": "inspect target", "queries": ["TARGET_NEEDLE"]})
-            self.assertEqual(result["read_strategy"], "search_windows")
-            self.assertGreater(result["files"][0]["start_line"], 1)
-            self.assertIn("TARGET_NEEDLE", result["files"][0]["content"])
-            self.assertNotIn("line-1\n", result["files"][0]["content"])
-            self.assertLessEqual(result["total_content_bytes"], result["context_budget"]["total_bytes"])
+            try:
+                result = runtime.prepare_coding_context({"objective": "inspect target", "queries": ["TARGET_NEEDLE"]})
+                self.assertEqual(result["read_strategy"], "search_windows")
+                self.assertGreater(result["files"][0]["start_line"], 1)
+                self.assertIn("TARGET_NEEDLE", result["files"][0]["content"])
+                self.assertNotIn("line-1\n", result["files"][0]["content"])
+                self.assertLessEqual(result["total_content_bytes"], result["context_budget"]["total_bytes"])
+            finally:
+                runtime.close()
 
     def test_prepare_context_budget_is_internal_and_pressure_aware(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -811,12 +1207,21 @@ class ToolModeTests(unittest.TestCase):
 
     def test_server_discover_does_not_require_initialize(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
-            response = dispatch_rpc(Runtime(Path(temp)), {"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {}})
+            runtime = Runtime(Path(temp))
+            response = dispatch_rpc(runtime, {"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {}})
             self.assertIn("result", response)
             self.assertEqual(response["result"]["serverInfo"]["name"], "coding-tools-mcp")
             self.assertTrue(response["result"]["capabilities"]["tools"]["listChanged"])
             self.assertIn("runtimeInstanceId", response["result"]["serverInfo"])
             self.assertIn("processId", response["result"]["serverInfo"])
+            feedback = response["result"]["feedbackCapabilities"]
+            self.assertTrue(feedback["desktop_activity_stream"]["supported"])
+            self.assertTrue(feedback["chatgpt_tool_invocation_status"]["supported"])
+            self.assertFalse(feedback["mcp_apps_status_card"]["supported"])
+            exec_tool = next(item for item in runtime.list_tools()["tools"] if item["name"] == "exec_command")
+            self.assertEqual(exec_tool["_meta"]["openai/toolInvocation/invoking"], "正在执行本地命令…")
+            self.assertEqual(exec_tool["_meta"]["openai/toolInvocation/invoked"], "本地命令已返回")
+            runtime.close()
 
     def test_authorized_root_allows_absolute_read_write_and_blocks_other_paths(self) -> None:
         with tempfile.TemporaryDirectory() as main_temp, tempfile.TemporaryDirectory() as extra_temp, tempfile.TemporaryDirectory() as blocked_temp:

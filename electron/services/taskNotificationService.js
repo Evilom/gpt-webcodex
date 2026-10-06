@@ -19,28 +19,11 @@ function formatDuration(seconds) {
 }
 
 function needsHumanAttention(state) {
-  const lifecycle = String(state?.lifecycle_state || '');
-  if (lifecycle === 'needs_user') return true;
-  if (lifecycle === 'waiting_model') return false;
-  if (String(state?.status || '') !== 'waiting') return false;
-  const text = [state?.current_step, state?.next_step, state?.failure]
-    .filter(Boolean)
-    .join(' ');
-  return /(waiting\s+for\s+(user|approval|permission|confirmation|input|review)|needs?\s+(user|approval|permission|confirmation|input)|requires?\s+(approval|permission|confirmation|input)|用户|人工|确认|授权|批准|输入|选择|审阅|审核)/i.test(text);
+  return require('../../renderer/assistantState').needsHumanAttention(state);
 }
 
-function eventForState(state) {
-  const lifecycle = String(state?.lifecycle_state || '');
-  if (lifecycle === 'completed') return 'completed';
-  if (lifecycle === 'failed') return 'failed';
-  if (lifecycle === 'cancelled') return 'stopped';
-  if (lifecycle === 'needs_user') return 'attention';
-  const status = String(state?.status || 'idle');
-  if (status === 'completed') return 'completed';
-  if (status === 'failed') return 'failed';
-  if (status === 'stopped') return 'stopped';
-  if (needsHumanAttention(state)) return 'attention';
-  return null;
+function eventForState(state, nowMs = Date.now()) {
+  return require('../../renderer/assistantState').eventForState(state, nowMs);
 }
 
 function titleForEvent(event) {
@@ -48,7 +31,8 @@ function titleForEvent(event) {
     completed: '任务已完成',
     failed: '任务执行失败',
     stopped: '任务已中断',
-    attention: '任务需要你的处理'
+    attention: '任务需要你的处理',
+    stalled: '任务疑似卡住'
   }[event] || '任务状态更新';
 }
 
@@ -99,26 +83,18 @@ function notificationDetail(event, state, elapsed) {
   if (event === 'stopped') {
     return clip(state?.failure || state?.current_step || state?.next_step || '任务已停止执行。', 180);
   }
+  if (event === 'stalled') {
+    return clip(`后台心跳超过 90 秒未更新 · ${state?.current_step || state?.objective || '请打开助手查看诊断'}`, 180);
+  }
   return '';
 }
 
 function taskbarState(state) {
-  const lifecycle = String(state?.lifecycle_state || '');
-  if (['created', 'preparing', 'running', 'waiting_model'].includes(lifecycle)) return { progress: 2, mode: 'indeterminate' };
-  if (['paused', 'needs_user'].includes(lifecycle)) return { progress: 1, mode: 'paused' };
-  if (['failed', 'cancelled'].includes(lifecycle)) return { progress: 1, mode: 'error' };
-  const status = String(state?.status || 'idle');
-  if (status === 'active') return { progress: 2, mode: 'indeterminate' };
-  if (status === 'paused' || needsHumanAttention(state)) return { progress: 1, mode: 'paused' };
-  if (status === 'failed' || status === 'stopped') return { progress: 1, mode: 'error' };
-  return { progress: -1, mode: 'none' };
+  return require('../../renderer/assistantState').taskbarState(state);
 }
 
 function taskCanBeBlockedByRuntime(state) {
-  const lifecycle = String(state?.lifecycle_state || '');
-  if (lifecycle) return ['created', 'preparing', 'running', 'waiting_model'].includes(lifecycle);
-  const status = String(state?.status || 'idle');
-  return status === 'active' || (status === 'waiting' && !needsHumanAttention(state));
+  return require('../../renderer/assistantState').taskCanBeBlockedByRuntime(state);
 }
 
 function runtimeOutageLabel(status) {
@@ -134,7 +110,9 @@ const TASK_EVENT_NOTIFICATION = Object.freeze({
   'task.completed': 'completed',
   'task.failed': 'failed',
   'task.cancelled': 'stopped',
-  'task.needs_user': 'attention'
+  'task.needs_user': 'attention',
+  'task.stalled': 'stalled',
+  'task.recovery_failed': 'failed'
 });
 
 function runKey(state) {
@@ -150,6 +128,7 @@ class TaskNotificationService {
     this.loadNotificationCheckpoint = options.loadNotificationCheckpoint || (() => null);
     this.saveNotificationCheckpoint = options.saveNotificationCheckpoint || (() => {});
     this.getChatWindow = options.getChatWindow || (() => null);
+    this.onTaskEvent = options.onTaskEvent || (() => {});
     this.getTray = options.getTray || (() => null);
     this.showChatWindow = options.showChatWindow || (() => {});
     this.NotificationClass = options.NotificationClass;
@@ -163,6 +142,7 @@ class TaskNotificationService {
     this.unsubscribeStream = null;
     this.workspace = null;
     this.lastState = null;
+    this.lastObservedStateEvent = { runKey: '', event: null };
     this.lastRuntimeStatus = null;
     this.runtimeOutage = null;
     this.runtimeHealthyRunId = '';
@@ -232,6 +212,7 @@ class TaskNotificationService {
     this.flushCheckpoint();
     this.workspace = null;
     this.lastState = null;
+    this.lastObservedStateEvent = { runKey: '', event: null };
     this.lastRuntimeStatus = null;
     this.runtimeOutage = null;
     this.runtimeHealthyRunId = '';
@@ -357,18 +338,23 @@ class TaskNotificationService {
     if (workspace !== this.workspace) {
       this.workspace = workspace;
       this.lastState = null;
+      this.lastObservedStateEvent = { runKey: '', event: null };
       this.runtimeOutage = null;
       this.runtimeHealthyRunId = '';
     }
     if (state) {
       const previousRun = runKey(this.lastState);
       this.lastState = { ...state };
+      this.lastObservedStateEvent = { runKey: runKey(state), event: eventForState(state, this.now()) };
       this.updateShell(state);
       const currentRun = runKey(state);
       if (currentRun && currentRun !== previousRun) {
         this.runtimeOutage = null;
         this.runtimeHealthyRunId = this.lastRuntimeStatus?.fullyReady ? currentRun : '';
       }
+    }
+    try { this.onTaskEvent({ ...record, state: state ? { ...state } : null, workspace }); } catch (error) {
+      this.log?.warn?.('任务事件界面推送失败', { error: error?.message || String(error) });
     }
 
     if (eventIdNumber > this.lastEventId) {
@@ -407,20 +393,32 @@ class TaskNotificationService {
       this.activateCheckpoint(workspace);
       this.workspace = workspace;
       this.lastState = state && typeof state === 'object' ? { ...state } : null;
+      this.lastObservedStateEvent = { runKey: runKey(state), event: eventForState(state, this.now()) };
       this.runtimeHealthyRunId = taskCanBeBlockedByRuntime(state) && this.lastRuntimeStatus?.fullyReady ? runKey(state) : '';
       this.updateShell(state);
+      try { this.onTaskEvent({ type: 'task.state', state: state && typeof state === 'object' ? { ...state } : null, workspace }); } catch (error) {
+        this.log?.warn?.('任务状态界面推送失败', { error: error?.message || String(error) });
+      }
       return;
     }
 
-    const previous = this.lastState;
+    const previousObserved = { ...this.lastObservedStateEvent };
     this.lastState = state && typeof state === 'object' ? { ...state } : null;
     this.updateShell(state);
-    if (!state || !state.task_id) return;
+    try { this.onTaskEvent({ type: 'task.state', state: state && typeof state === 'object' ? { ...state } : null, workspace }); } catch (error) {
+      this.log?.warn?.('任务状态界面推送失败', { error: error?.message || String(error) });
+    }
+    if (!state || !state.task_id) {
+      this.lastObservedStateEvent = { runKey: '', event: null };
+      return;
+    }
 
-    const event = eventForState(state);
+    const currentRun = runKey(state);
+    const event = eventForState(state, this.now());
+    this.lastObservedStateEvent = { runKey: currentRun, event };
     if (!event) return;
-    const previousEvent = previous?.task_id === state.task_id ? eventForState(previous) : null;
-    const transitioned = previous?.task_id !== state.task_id || previousEvent !== event;
+    const previousEvent = previousObserved.runKey === currentRun ? previousObserved.event : null;
+    const transitioned = previousObserved.runKey !== currentRun || previousEvent !== event;
     if (!transitioned) return;
 
     const settings = this.getSettings() || {};

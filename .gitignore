@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-*-release/
 build/
 out/
 .electron-builder-cache/
@@ -16,3 +17,13 @@ resources/native-python/
 resources/*.zip
 .DS_Store
 
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local development plans / dogfooding notes.
+# Keep them locally instead of publishing them in the repository root.
+00_*.md
+
+# Generated React manager bundle.
+renderer/react-dist/

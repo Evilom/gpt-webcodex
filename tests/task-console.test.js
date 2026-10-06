@@ -20,7 +20,7 @@ test('task console IPC channels and preload bindings are configured', () => {
   assert.match(preload, /killActiveCommand:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('task:kill-active-command'\)/);
 });
 
-test('task console UI elements and styles maintain 112px toolbar layout', () => {
+test('task console UI elements and styles maintain 164px toolbar layout', () => {
   const browserHtml = read('renderer/browser.html');
   const browserCss = read('renderer/browser.css');
   const browserJs = read('renderer/browser.js');
@@ -36,8 +36,8 @@ test('task console UI elements and styles maintain 112px toolbar layout', () => 
   assert.match(browserCss, /\.task-console-drawer\{[^}]*position:fixed;[^}]*bottom:0/);
   assert.match(browserCss, /\.task-strip \.terminal-toggle-btn/);
 
-  // Verify top toolbar 112px invariance
-  assert.match(browserCss, /\.browser-toolbar\{[^}]*height:112px/);
+  // Verify top toolbar 164px invariance
+  assert.match(browserCss, /\.browser-toolbar\{[^}]*height:var\(--toolbar-height\)/);
 
   // Verify JavaScript handler and toggle logic
   assert.match(browserJs, /refreshTaskConsole/);

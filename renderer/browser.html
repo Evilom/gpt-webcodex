@@ -20,9 +20,10 @@
       <div class="page-state" id="pageState"><i></i><span>正在准备 ChatGPT…</span></div>
       <div class="service-state">
         <span id="downloadState" class="download-state"></span>
+        <button id="openDownloadButton" class="download-action" type="button" hidden>打开附件</button>
         <span id="mcpState" title="Coding Tools MCP 本地服务状态"><i></i>本地工具</span>
         <span id="tunnelState" title="OpenAI Tunnel 连接状态"><i></i><em id="connectionStateLabel">连接通道</em></span>
-        <div class="context-usage-wrap" id="contextUsageWrap">
+<div class="context-usage-wrap" id="contextUsageWrap">
           <button id="contextUsageButton" class="context-usage-button" type="button" title="点击查看本地 MCP 工具调用流量（累计字节估算，不等于 ChatGPT 上下文窗口占用）" aria-expanded="false">
             <i class="context-dot safe"></i><span id="contextUsageSummary">MCP 负载 0k</span>
           </button>
@@ -57,6 +58,8 @@
             </div>
           </div>
         </div>
+        <button id="schemaRefreshHint" class="schema-refresh-hint" type="button" hidden title="当前聊天仍使用旧版工具定义；点击可暂时关闭此提示">工具已更新 · 建议新建聊天 ×</button>
+        <button id="nativeLoginButton" class="login-action login-entry" type="button" title="打开登录中心：优先在应用内登录，成功后自动返回">登录 / 登录帮助</button>
         <button id="managerButton" class="manager-button">设置</button>
       </div>
     </div>
@@ -69,56 +72,62 @@
           <code id="workspaceHealthPath">-</code>
           <div><span>状态</span><strong id="workspaceHealthState">等待检查</strong></div>
           <div><span>最近检查</span><strong id="workspaceHealthTime">-</strong></div>
-          <div class="workspace-quick-tools">
-            <button id="openInExplorerBtn" type="button" title="在 Windows 资源管理器中查看当前工作区">📂 资源管理器</button>
-            <button id="openInEditorBtn" type="button" title="在 VS Code / 默认代码编辑器中打开">💻 VS Code</button>
-          </div>
+          <div class="workspace-quick-tools"><button id="openInExplorerBtn" type="button" title="在 Windows 资源管理器中查看当前工作区">📂 资源管理器</button>
+<button id="openInEditorBtn" type="button" title="在 VS Code / 默认代码编辑器中打开">💻 VS Code</button></div>
         </div>
       </div>
-      <div class="task-strip" id="taskStrip">
-        <i></i><b id="taskTitle">暂无任务</b><small id="taskStep"></small>
-        <span class="task-progress" aria-hidden="true"><span id="taskProgressBar"></span></span><span id="taskProgressText" class="task-progress-text"></span>
-        <button id="pauseTask">暂停</button><button id="resumeTask">继续</button><button id="stopTask">停止</button>
-        <button id="taskChangesBtn" class="terminal-toggle-btn changes-btn" type="button" title="查看本次任务修改的文件" hidden>📝 0 文件</button>
-        <button id="openTerminalButton" class="terminal-toggle-btn" type="button" title="打开任务实时输出控制台">控制台</button>
-        <div class="task-history-wrap">
-          <button id="openTaskHistoryButton" class="terminal-toggle-btn" type="button" title="查看最近任务历史（读取工作区 .coding-tools/task-history.json）" aria-expanded="false">历史</button>
-          <div id="taskHistoryPopover" class="task-history-popover" hidden>
+      <div class="task-strip idle" id="taskStrip">
+        <i></i><b id="taskStatusLabel">空闲</b><small id="taskTitle">暂无任务</small>
+        <button id="stopTask" type="button" hidden>停止</button>
+      </div>
+      <div class="workspace-picker" id="workspacePicker">
+        <button id="workspacePickerButton" class="workspace-select" type="button" aria-expanded="false" title="打开独立工作区中心">全部工作区</button>
+      </div>
+      <div id="switchState" class="switch-state"></div>
+      <button id="addAuthorizedRootQuick" class="add-workspace secondary-action" title="授权一个额外目录，无需切换主工作区">＋ 授权目录</button>
+      <button id="addWorkspace" class="add-workspace">＋ 添加工作区</button>
+    </div>
+    <div class="progress-band" id="progressBand" aria-live="polite">
+      <div class="progress-detail-trigger" id="progressDetailTrigger" role="button" tabindex="0" aria-expanded="false" aria-label="悬停或按 Enter 查看详细运行状态">
+        <span class="progress-band-icon" id="progressIcon"></span>
+        <div class="progress-band-copy"><b id="progressMessage">正在读取任务进度…</b><small id="progressDetail">本地任务状态会持续更新</small></div>
+      </div>
+<button id="taskChangesBtn" class="terminal-toggle-btn changes-btn" type="button" title="查看本次任务修改的文件" hidden>📝 0 文件</button>
+<button id="openTerminalButton" class="terminal-toggle-btn" type="button" title="打开任务实时输出控制台">控制台</button>
+<div class="task-history-wrap"><button id="openTaskHistoryButton" class="terminal-toggle-btn" type="button" title="查看最近任务历史（读取工作区 .coding-tools/task-history.json）" aria-expanded="false">历史</button><div id="taskHistoryPopover" class="task-history-popover" hidden>
             <div class="popover-header">
               <b>最近任务历史</b>
               <div class="popover-actions">
                 <button id="refreshTaskHistoryBtn" type="button" class="btn-continue">刷新</button>
               </div>
             </div>
-            <p class="task-history-note" id="taskHistoryNote">来自当前工作区 .coding-tools/task-history.json（最近 50 条）</p>
+            <p class="task-history-note" id="taskHistoryNote">来自当前工作区 本地任务历史（最近 50 条）</p>
             <div id="taskHistoryList" class="task-history-list">
               <div class="task-history-empty">加载中…</div>
             </div>
-          </div>
-        </div>
-      </div>
-      <select id="workspaceSelect" class="workspace-select" aria-label="全部工作区"><option value="">全部工作区</option></select>
-      <div class="workspace-clean-wrap">
-        <button id="workspaceCleanButton" class="workspace-clean-button" type="button" title="清理最近工作区记录" aria-label="清理最近工作区记录" aria-expanded="false">清理</button>
-        <div id="workspaceCleanPopover" class="workspace-clean-popover" hidden>
-          <b>工作区记录与退出</b>
-          <p>点击 ✕ 移除单条记录；或点击下方按钮直接退出清空当前工作区。</p>
-          <div id="workspaceCleanList"></div>
-          <div class="workspace-clean-footer">
-            <button id="workspaceCleanActive" class="danger-btn" type="button" title="退出并解除当前工作区绑定">清空当前工作区</button>
-            <button id="workspaceCleanAll" type="button" title="清理全部历史记录（保留当前）">清理全部记录</button>
-          </div>
-        </div>
-      </div>
-      <div id="switchState" class="switch-state"></div>
-      <button id="addAuthorizedRootQuick" class="add-workspace secondary-action" title="授权一个额外目录，无需切换主工作区">＋ 授权目录</button>
-      <button id="addWorkspace" class="add-workspace">＋ 添加工作区</button>
+          </div></div>
+      <time id="progressElapsed"></time>
+      <button id="activityToggle" class="progress-action activity-toggle" type="button" aria-expanded="false" hidden>活动详情</button>
+      <button id="progressAction" class="progress-action" type="button" hidden></button>
+      <button id="nativeLoginFinish" class="login-action" type="button" hidden>登录完成，返回助手</button>
+      <button id="nativeLoginCancel" class="login-action secondary" type="button" hidden>取消登录</button>
     </div>
   </header>
   <main class="loading-stage">
     <div class="loading-card"><div class="spinner"></div><h1>正在打开 ChatGPT</h1><p>聊天页面与本地工作区权限相互隔离。</p></div>
   </main>
-  <div id="taskConsoleDrawer" class="task-console-drawer" hidden>
+  <dialog id="loginDialog" class="login-dialog" aria-labelledby="loginDialogTitle" aria-describedby="loginDialogMessage">
+    <div class="login-dialog-badge" id="loginDialogBadge">CHATGPT · 登录中心</div>
+    <h1 id="loginDialogTitle">在助手内登录 ChatGPT</h1>
+    <p id="loginDialogMessage">直接在应用内登录，成功后自动返回聊天。</p>
+    <div class="login-dialog-steps" id="loginDialogSteps"><span>1 选择登录方式</span><span>2 完成账号验证</span><span>3 自动返回聊天</span></div>
+    <button id="embeddedLoginStart" class="login-dialog-primary" type="button">在应用内继续登录</button>
+    <button id="loginBrowserFallback" class="login-dialog-secondary" type="button">应用内遇到问题？使用 Chrome 备用登录</button>
+    <button id="loginCheckNow" class="login-dialog-primary" type="button" hidden>我已登录，立即检查</button>
+    <div class="login-dialog-note" id="loginDialogNote">登录过程使用助手自己的会话，不读取其他软件或日常浏览器中的账号。</div>
+    <button id="loginDialogCancel" class="login-dialog-cancel" type="button">暂不登录，返回页面</button>
+  </dialog>
+<div id="taskConsoleDrawer" class="task-console-drawer" hidden>
     <div class="console-header">
       <div class="console-title">
         <i class="terminal-dot"></i>
@@ -166,6 +175,8 @@
       </div>
     </div>
   </div>
+  <script src="progressPresentation.js"></script>
+  <script src="assistantState.js"></script>
   <script src="browser.js"></script>
 </body>
 </html>

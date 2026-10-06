@@ -1,7 +1,7 @@
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const crypto = require('node:crypto');
-const { app, BrowserWindow, dialog, ipcMain, shell, Tray, Menu, nativeImage, session, Notification } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, shell, Tray, Menu, nativeImage, session, Notification, screen } = require('electron');
 const { SettingsStore } = require('./services/settingsStore');
 const { SecretStore } = require('./services/secretStore');
 const { LogService } = require('./services/logService');
@@ -17,7 +17,6 @@ const { LocalMcpClient } = require('./services/localMcpClient');
 const { TaskNotificationService } = require('./services/taskNotificationService');
 const { NotificationCheckpointStore } = require('./services/notificationCheckpointStore');
 const { ContextUsageTracker } = require('./services/contextUsageTracker');
-const { notificationStateFile, mcpLogFile } = require('./paths');
 const { stageAndCommit } = require('./services/safeGitOps');
 const {
   createCheckpoint: createSafeCheckpoint,
@@ -28,24 +27,43 @@ const { ApprovalStore } = require('./services/approvalStore');
 const { writeHandoffFile } = require('./services/handoffService');
 
 const approvalStore = new ApprovalStore();
+const { ApprovalService } = require('./services/approvalService');
+const { DoctorService } = require('./services/doctorService');
+const { AutoMemoryService } = require('./services/autoMemoryService');
+const { WorkspaceManager } = require('./services/workspaceManager');
+const { PublicMcpGateway } = require('./services/publicMcpGateway');
+const { notificationStateFile, dataRoot, mcpLogFile } = require('./paths');
 
 let chatWindow;
 let managerWindow;
+let workspaceWindow;
+let activityDetailWindow;
+let activityDetailPayload = null;
+let activityDetailAnchor = null;
+let activityDetailPinned = false;
+let activityDetailHover = false;
+let activityDetailHideTimer = null;
 let chatController;
 let orchestrator;
 let forceQuit = false;
 let tray = null;
 let buildVerification;
 let healthService;
+let doctorService;
 let taskNotificationService;
 let superviseTimer = null;
 let sharedLocalMcpClient = null;
 const contextUsageTracker = new ContextUsageTracker();
+let autoMemoryService;
+let publicMcpGateway;
+let lastDownloadPath = '';
 const settings = new SettingsStore();
 const secrets = new SecretStore();
 const log = new LogService();
 const environment = new EnvironmentService();
 const notificationCheckpoints = new NotificationCheckpointStore(notificationStateFile);
+const approvalService = new ApprovalService(settings);
+const workspaceManager = new WorkspaceManager(settings);
 
 if (process.platform === 'win32') app.setAppUserModelId('com.gptwebcodex.assistant');
 
@@ -146,7 +164,14 @@ function archiveTask(state, historyPath, reason) {
 
 async function invokeSafely(action) {
   try { return { ok: true, data: await action() }; }
-  catch (error) { return { ok: false, error: safeMessage(error) }; }
+  catch (error) {
+    return {
+      ok: false,
+      error: safeMessage(error),
+      code: String(error?.code || ''),
+      details: error?.details && typeof error.details === 'object' ? error.details : null
+    };
+  }
 }
 
 async function callLocalMcpTool(name, args = {}) {
@@ -183,7 +208,7 @@ function invalidateLocalMcpDiscovery() {
 function localMcpCallCanRetry(name, args = {}) {
   if (name === 'workspace_context' || name === 'coding_tools_guide') return true;
   if (name !== 'task_control') return false;
-  return ['get', 'history', 'operation', 'worktree_list', 'worktree_get', 'worktree_diff']
+  return ['get', 'history', 'operation', 'events', 'worktree_list', 'worktree_get', 'worktree_diff']
     .includes(String(args?.action || 'get').toLowerCase());
 }
 
@@ -229,7 +254,7 @@ function createChatWindow() {
     return chatWindow;
   }
 
-  const initialTheme = settings.load().theme === 'light' ? 'light' : 'dark';
+  const initialTheme = ['light', 'dark', 'system'].includes(settings.load().theme) ? settings.load().theme : 'light';
   chatWindow = new BrowserWindow({
     width: 1360,
     height: 900,
@@ -253,28 +278,43 @@ function createChatWindow() {
     window: chatWindow,
     log,
     settings,
-    toolbarHeight: 112,
+    toolbarHeight: 164,
+    nativeLoginRoot: path.join(dataRoot(), 'native-login'),
     onState: (payload) => {
       if (chatWindow && !chatWindow.isDestroyed()) chatWindow.webContents.send('chat:state', payload);
+      sendManager('chat:state', payload);
     },
     onDownload: (payload) => {
+      if (payload?.status === 'completed' && payload.path) lastDownloadPath = path.resolve(String(payload.path));
       if (chatWindow && !chatWindow.isDestroyed()) chatWindow.webContents.send('chat:download', payload);
-    }
+    },
+    onConversationTurn: (turn) => autoMemoryService?.ingestTurn(turn)
   });
   chatController.mount();
 
   chatWindow.once('ready-to-show', () => chatWindow.show());
+  chatWindow.on('move', () => {
+    if (activityDetailWindow && !activityDetailWindow.isDestroyed() && activityDetailWindow.isVisible()) positionActivityDetailWindow();
+  });
+  chatWindow.on('resize', () => {
+    if (activityDetailWindow && !activityDetailWindow.isDestroyed() && activityDetailWindow.isVisible()) positionActivityDetailWindow();
+  });
   chatWindow.on('closed', () => {
     if (chatController) chatController.dispose();
     chatController = null;
+    if (activityDetailWindow && !activityDetailWindow.isDestroyed()) activityDetailWindow.destroy();
+    activityDetailWindow = null;
     chatWindow = null;
     if (managerWindow && !managerWindow.isDestroyed()) managerWindow.destroy();
+    if (workspaceWindow && !workspaceWindow.isDestroyed()) workspaceWindow.destroy();
   });
   chatWindow.on('close', (event) => {
     if (forceQuit) return;
     event.preventDefault();
     if (settings.load().keepRunningOnClose) {
       if (managerWindow && !managerWindow.isDestroyed()) managerWindow.hide();
+      if (workspaceWindow && !workspaceWindow.isDestroyed()) workspaceWindow.hide();
+      if (activityDetailWindow && !activityDetailWindow.isDestroyed()) activityDetailWindow.hide();
       chatWindow.hide();
       return;
     }
@@ -289,6 +329,222 @@ function createChatWindow() {
     });
   });
   return chatWindow;
+}
+
+function openWorkspaceWindow() {
+  if (workspaceWindow && !workspaceWindow.isDestroyed()) {
+    workspaceWindow.show();
+    workspaceWindow.focus();
+    return workspaceWindow;
+  }
+
+  const chatBounds = chatWindow && !chatWindow.isDestroyed() ? chatWindow.getBounds() : null;
+  const width = 820;
+  const height = 620;
+  const x = chatBounds ? Math.round(chatBounds.x + Math.max(0, (chatBounds.width - width) / 2)) : undefined;
+  const y = chatBounds ? Math.round(chatBounds.y + Math.max(0, (chatBounds.height - height) / 2)) : undefined;
+
+  workspaceWindow = new BrowserWindow({
+    width,
+    height,
+    parent: chatWindow && !chatWindow.isDestroyed() ? chatWindow : undefined,
+    modal: false,
+    x,
+    y,
+    minWidth: 700,
+    minHeight: 540,
+    show: false,
+    skipTaskbar: true,
+    frame: false,
+    transparent: false,
+    backgroundColor: '#f7f7f8',
+    title: '网页 MCP 助手 · 工作区中心',
+    icon: appIconPath(),
+    webPreferences: {
+      preload: path.join(__dirname, 'workspacePreload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  });
+  workspaceWindow.removeMenu();
+  const initialTheme = ['light', 'dark', 'system'].includes(settings.load().theme) ? settings.load().theme : 'light';
+  workspaceWindow.loadFile(path.join(__dirname, '..', 'renderer', 'workspace.html'), { query: { theme: initialTheme } });
+  workspaceWindow.once('ready-to-show', () => workspaceWindow.show());
+  workspaceWindow.on('close', (event) => {
+    if (forceQuit) return;
+    event.preventDefault();
+    workspaceWindow.hide();
+    if (chatWindow && !chatWindow.isDestroyed()) {
+      chatWindow.show();
+      chatWindow.focus();
+    }
+  });
+  workspaceWindow.on('closed', () => { workspaceWindow = null; });
+  return workspaceWindow;
+}
+
+function sendActivityDetailState() {
+  const state = {
+    visible: Boolean(activityDetailWindow && !activityDetailWindow.isDestroyed() && activityDetailWindow.isVisible()),
+    pinned: activityDetailPinned
+  };
+  if (chatWindow && !chatWindow.isDestroyed()) chatWindow.webContents.send('activity-detail:state', state);
+  if (activityDetailWindow && !activityDetailWindow.isDestroyed()) activityDetailWindow.webContents.send('activity-detail:state', state);
+}
+
+function clearActivityDetailHideTimer() {
+  if (activityDetailHideTimer) clearTimeout(activityDetailHideTimer);
+  activityDetailHideTimer = null;
+}
+
+function ensureActivityDetailWindow() {
+  if (activityDetailWindow && !activityDetailWindow.isDestroyed()) return activityDetailWindow;
+  activityDetailWindow = new BrowserWindow({
+    width: 860,
+    height: 560,
+    parent: chatWindow && !chatWindow.isDestroyed() ? chatWindow : undefined,
+    modal: false,
+    show: false,
+    skipTaskbar: true,
+    frame: false,
+    resizable: false,
+    maximizable: false,
+    minimizable: false,
+    fullscreenable: false,
+    hasShadow: true,
+    backgroundColor: '#f7f8f8',
+    title: '网页 MCP 助手 · 运行详情',
+    webPreferences: {
+      preload: path.join(__dirname, 'activityDetailPreload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  });
+  activityDetailWindow.removeMenu();
+  activityDetailWindow.loadFile(path.join(__dirname, '..', 'renderer', 'activity-detail.html'));
+  activityDetailWindow.webContents.on('did-finish-load', () => {
+    if (activityDetailPayload) activityDetailWindow.webContents.send('activity-detail:payload', activityDetailPayload);
+    sendActivityDetailState();
+  });
+  activityDetailWindow.on('closed', () => {
+    activityDetailWindow = null;
+    activityDetailPinned = false;
+    activityDetailHover = false;
+    sendActivityDetailState();
+  });
+  return activityDetailWindow;
+}
+
+function positionActivityDetailWindow() {
+  if (!activityDetailWindow || activityDetailWindow.isDestroyed() || !chatWindow || chatWindow.isDestroyed() || !activityDetailAnchor) return;
+  const content = chatWindow.getContentBounds();
+  const anchor = activityDetailAnchor;
+  const width = Math.max(560, Math.min(860, content.width - 28));
+  const height = Math.max(420, Math.min(560, content.height - 90));
+  const desired = {
+    x: Math.round(content.x + Math.max(12, Number(anchor.left || 0) + 12)),
+    y: Math.round(content.y + Math.max(0, Number(anchor.bottom || 0)) + 6),
+    width,
+    height
+  };
+  const display = screen.getDisplayMatching(desired);
+  const work = display.workArea;
+  desired.x = Math.min(Math.max(work.x + 8, desired.x), work.x + work.width - width - 8);
+  if (desired.y + height > work.y + work.height - 8) {
+    desired.y = Math.max(work.y + 8, Math.round(content.y + Number(anchor.top || 0) - height - 6));
+  }
+  activityDetailWindow.setBounds(desired, false);
+}
+
+function showActivityDetail({ anchor = null, payload = null, pinned = false } = {}) {
+  clearActivityDetailHideTimer();
+  if (anchor && typeof anchor === 'object') activityDetailAnchor = anchor;
+  if (payload && typeof payload === 'object') activityDetailPayload = payload;
+  if (pinned) activityDetailPinned = true;
+  const detail = ensureActivityDetailWindow();
+  positionActivityDetailWindow();
+  if (activityDetailPayload && !detail.webContents.isLoading()) detail.webContents.send('activity-detail:payload', activityDetailPayload);
+  detail.showInactive();
+  sendActivityDetailState();
+  return { visible: true, pinned: activityDetailPinned };
+}
+
+function scheduleActivityDetailHide(delay = 220) {
+  clearActivityDetailHideTimer();
+  if (activityDetailPinned || activityDetailHover) return;
+  activityDetailHideTimer = setTimeout(() => {
+    activityDetailHideTimer = null;
+    if (activityDetailPinned || activityDetailHover) return;
+    if (activityDetailWindow && !activityDetailWindow.isDestroyed()) activityDetailWindow.hide();
+    sendActivityDetailState();
+  }, Math.max(0, Number(delay) || 0));
+}
+
+function closeActivityDetail({ force = false } = {}) {
+  clearActivityDetailHideTimer();
+  if (!force && activityDetailPinned) return { visible: true, pinned: true };
+  activityDetailPinned = false;
+  if (activityDetailWindow && !activityDetailWindow.isDestroyed()) activityDetailWindow.hide();
+  sendActivityDetailState();
+  return { visible: false, pinned: false };
+}
+
+function openApprovalWindow() {
+  const pending = approvalService.list();
+  if (!pending.pending_count) return null;
+  if (approvalWindow && !approvalWindow.isDestroyed()) {
+    approvalWindow.show();
+    approvalWindow.focus();
+    approvalWindow.webContents.send('approval:refresh');
+    return approvalWindow;
+  }
+
+  const chatBounds = chatWindow && !chatWindow.isDestroyed() ? chatWindow.getBounds() : null;
+  const width = 540;
+  const height = 420;
+  const x = chatBounds ? Math.round(chatBounds.x + Math.max(0, (chatBounds.width - width) / 2)) : undefined;
+  const y = chatBounds ? Math.round(chatBounds.y + Math.max(0, (chatBounds.height - height) / 2)) : undefined;
+
+  approvalWindow = new BrowserWindow({
+    width,
+    height,
+    x,
+    y,
+    minWidth: 480,
+    minHeight: 340,
+    show: false,
+    skipTaskbar: true,
+    frame: false,
+    resizable: true,
+    backgroundColor: '#f7f7f8',
+    title: '网页 MCP 助手 · 需要确认',
+    icon: appIconPath(),
+    webPreferences: {
+      preload: path.join(__dirname, 'approvalPreload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  });
+  approvalWindow.removeMenu();
+  approvalWindow.loadFile(path.join(__dirname, '..', 'renderer', 'approval.html'));
+  approvalWindow.once('ready-to-show', () => approvalWindow.show());
+  approvalWindow.on('close', (event) => {
+    if (forceQuit) return;
+    event.preventDefault();
+    approvalWindow.hide();
+  });
+  approvalWindow.on('closed', () => { approvalWindow = null; });
+  return approvalWindow;
+}
+
+function broadcastWorkspaceHub(hub = workspaceManager.hub()) {
+  if (chatWindow && !chatWindow.isDestroyed()) chatWindow.webContents.send('workspace:changed', hub);
+  if (workspaceWindow && !workspaceWindow.isDestroyed()) workspaceWindow.webContents.send('workspace:changed', hub);
+  if (managerWindow && !managerWindow.isDestroyed()) managerWindow.webContents.send('workspace:changed', hub);
+  return hub;
 }
 
 function openManagerWindow() {
@@ -307,6 +563,8 @@ function openManagerWindow() {
   managerWindow = new BrowserWindow({
     width,
     height,
+    parent: chatWindow && !chatWindow.isDestroyed() ? chatWindow : undefined,
+    modal: false,
     x,
     y,
     minWidth: 820,
@@ -326,7 +584,7 @@ function openManagerWindow() {
     }
   });
   managerWindow.removeMenu();
-  const initialTheme = settings.load().theme === 'light' ? 'light' : 'dark';
+  const initialTheme = ['light', 'dark', 'system'].includes(settings.load().theme) ? settings.load().theme : 'light';
   managerWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'), { query: { theme: initialTheme } });
   managerWindow.once('ready-to-show', () => managerWindow.show());
   managerWindow.on('close', (event) => {
@@ -342,27 +600,139 @@ function openManagerWindow() {
   return managerWindow;
 }
 
+async function prepareLocalHistoryResume(historyId) {
+  const current = settings.load();
+  const token = secrets.get('mcpAuthToken');
+  if (!token) throw new Error('本地 MCP 尚未生成认证 Token。');
+  if (!sharedLocalMcpClient) sharedLocalMcpClient = new LocalMcpClient({ port: current.mcpPort, token, log });
+  else sharedLocalMcpClient.configure({ port: current.mcpPort, token });
+  return sharedLocalMcpClient.prepareHistoryResume(historyId);
+}
+
+async function compactLocalSession() {
+  const current = settings.load();
+  const token = secrets.get('mcpAuthToken');
+  if (!token) throw new Error('本地 MCP 尚未生成认证 Token。');
+  if (!sharedLocalMcpClient) sharedLocalMcpClient = new LocalMcpClient({ port: current.mcpPort, token, log });
+  else sharedLocalMcpClient.configure({ port: current.mcpPort, token });
+  return sharedLocalMcpClient.compactLocalSession();
+}
+
+async function searchLocalHistory(options = {}) {
+  const current = settings.load();
+  const token = secrets.get('mcpAuthToken');
+  if (!token) throw new Error('本地 MCP 尚未生成认证 Token。');
+  if (!sharedLocalMcpClient) sharedLocalMcpClient = new LocalMcpClient({ port: current.mcpPort, token, log });
+  else sharedLocalMcpClient.configure({ port: current.mcpPort, token });
+  return sharedLocalMcpClient.historySearch(options);
+}
+
+function localMcpClient() {
+  const current = settings.load();
+  const token = secrets.get('mcpAuthToken');
+  if (!token) throw new Error('本地 MCP 尚未生成认证 Token。');
+  if (!sharedLocalMcpClient) sharedLocalMcpClient = new LocalMcpClient({ port: current.mcpPort, token, log });
+  else sharedLocalMcpClient.configure({ port: current.mcpPort, token });
+  return sharedLocalMcpClient;
+}
+
+const MEMORY_CONTROL_ACTIONS = new Set([
+  'status', 'config', 'set_config', 'list', 'search', 'candidates', 'propose', 'confirm', 'reject', 'ingest',
+  'update', 'revisions', 'restore', 'archive', 'delete', 'export', 'import'
+]);
+
+function sanitizeMemoryControlPayload(input = {}) {
+  const source = input && typeof input === 'object' ? input : {};
+  const action = String(source.action || 'status').trim().toLowerCase();
+  if (!MEMORY_CONTROL_ACTIONS.has(action)) throw new Error('不支持的长期上下文操作。');
+  const result = { action };
+  const copyText = (key, limit) => {
+    if (source[key] !== undefined && source[key] !== null) result[key] = String(source[key]).slice(0, limit);
+  };
+  copyText('query', 1000); copyText('scope', 20); copyText('memory_type', 40); copyText('title', 300);
+  copyText('content', 131072); copyText('memory_id', 80); copyText('candidate_id', 80); copyText('resolution', 40);
+  copyText('auto_memory', 20); copyText('project_id', 200); copyText('task_id', 200); copyText('source', 120);
+  copyText('user_text', 6000); copyText('assistant_text', 8000); copyText('conversation_id', 160); copyText('turn_id', 160);
+  if (source.limit !== undefined) result.limit = Math.max(1, Math.min(Number(source.limit || 50), 200));
+  if (source.revision !== undefined) result.revision = Math.max(1, Number(source.revision || 1));
+  if (source.confidence !== undefined) result.confidence = Math.max(0, Math.min(Number(source.confidence || 0), 1));
+  for (const key of ['pinned', 'archived', 'allow_sensitive_personal', 'confirm', 'apply_config']) {
+    if (source[key] !== undefined) result[key] = source[key] === true;
+  }
+  if (['restore', 'archive', 'delete'].includes(action) && result.confirm !== true) {
+    throw new Error('此记忆操作需要本机明确确认。');
+  }
+  return result;
+}
+
+async function controlLocalMemory(payload = {}) {
+  const request = sanitizeMemoryControlPayload(payload);
+  const response = await localMcpClient().memoryControl(request);
+  if (request.action === 'status' && response?.result && autoMemoryService) response.result.auto_capture = autoMemoryService.getStatus();
+  return response;
+}
+
 function registerIpc() {
-  secureHandle('app:snapshot', (_event, options) => invokeSafely(() => orchestrator.snapshot(options || {})));
+  secureHandle('app:snapshot', (_event, options) => invokeSafely(async () => {
+    const snapshot = await orchestrator.snapshot(options || {});
+    return { ...snapshot, appVersion: app.getVersion(), chat: chatController?.getState() || null };
+  }));
   secureHandle('app:lightweight-snapshot', () => invokeSafely(() => orchestrator.lightweightSnapshot()));
-  secureHandle('workspace:hub', () => invokeSafely(async () => { const current = settings.load(); return { activeWorkspace: current.workspace, recentWorkspaces: current.recentWorkspaces || [] }; }));
+  secureHandle('workspace:hub', () => invokeSafely(() => workspaceManager.hub()));
+  secureHandle('workspace:inspect', () => invokeSafely(() => workspaceManager.inspectAll()));
+  secureHandle('workspace:remove', (_event, workspace) => invokeSafely(() => broadcastWorkspaceHub(workspaceManager.remove(workspace))));
+  secureHandle('workspace:cleanup-invalid', () => invokeSafely(() => {
+    const result = workspaceManager.cleanupInvalid();
+    broadcastWorkspaceHub(result.hub);
+    return result;
+  }));
+  secureHandle('workspace:favorite', (_event, workspace) => invokeSafely(() => broadcastWorkspaceHub(workspaceManager.toggleFavorite(workspace))));
+  secureHandle('workspace:storage', () => invokeSafely(() => workspaceManager.storageStatus()));
+  secureHandle('workspace:cleanup-storage', () => invokeSafely(async () => {
+    const current = settings.load();
+    let worktreeCleanup = null;
+    try {
+      worktreeCleanup = await callLocalMcpTool('task_control', {
+        action: 'worktree_cleanup',
+        retention_days: Number(current.storageRetentionDays || 7),
+        keep: Number(current.storageRetentionCount || 5)
+      });
+    } catch (error) {
+      log.warn?.('workspace-worktree-cleanup-skipped', { error: safeMessage(error) });
+    }
+    const localCleanup = workspaceManager.cleanupStorage();
+    const removedWorktrees = Array.isArray(worktreeCleanup?.cleanup?.removed)
+      ? worktreeCleanup.cleanup.removed.map((item) => item?.path || item).filter(Boolean)
+      : [];
+    return { ...localCleanup, removedWorktrees, worktreeCleanup };
+  }));
   secureHandle('workspace:remove-recent', (_event, targets) => invokeSafely(() => orchestrator.removeRecentWorkspaces(targets)));
   secureHandle('workspace:clear-active', () => invokeSafely(async () => {
     const result = await orchestrator.clearActiveWorkspace();
     invalidateLocalMcpDiscovery();
     taskNotificationService?.reset();
+    broadcastWorkspaceHub();
     return result;
   }));
   secureHandle('workspace:switch', (_event, workspace) => invokeSafely(async () => {
     const result = await orchestrator.switchWorkspace(workspace);
+    workspaceManager.touch(workspace);
     invalidateLocalMcpDiscovery();
     taskNotificationService?.reset();
     taskNotificationService?.restartStream();
+    broadcastWorkspaceHub();
     return result;
   }));
-  secureHandle('workspace:authorized-roots', (_event, roots) => invokeSafely(() => orchestrator.updateAuthorizedRoots(roots)));
+  secureHandle('workspace:authorized-roots', (_event, roots) => invokeSafely(async () => {
+    const snapshot = await orchestrator.updateAuthorizedRoots(Array.isArray(roots) ? roots : []);
+    broadcastWorkspaceHub();
+    return snapshot;
+  }));
+  secureHandle('approval:list', () => invokeSafely(() => approvalService.list()));
+  secureHandle('approval:decide', (_event, requestId, decision) => invokeSafely(() => approvalService.decide(requestId, decision)));
   secureHandle('workspace:choose-authorized-root', () => invokeSafely(async () => {
-    const result = await dialog.showOpenDialog(chatWindow, { properties: ['openDirectory', 'createDirectory'] });
+    const dialogParent = workspaceWindow && !workspaceWindow.isDestroyed() ? workspaceWindow : chatWindow;
+    const result = await dialog.showOpenDialog(dialogParent, { properties: ['openDirectory', 'createDirectory'] });
     if (result.canceled || !result.filePaths[0]) return null;
     const selected = path.resolve(result.filePaths[0]);
     const current = settings.load();
@@ -370,6 +740,7 @@ function registerIpc() {
     const key = selected.toLowerCase();
     const merged = roots.some((item) => String(item).toLowerCase() === key) ? roots : [...roots, selected];
     const snapshot = await orchestrator.updateAuthorizedRoots(merged);
+    broadcastWorkspaceHub();
     return { selected, snapshot };
   }));
   secureHandle('task-state:read', () => invokeSafely(async () => {
@@ -688,12 +1059,27 @@ function registerIpc() {
       task: taskResult?.state || null,
     };
   }));
-  secureHandle('task-state:history', () => invokeSafely(async () => {
-    let historyPath;
-    try { ({ historyPath } = workspaceStatePaths()); } catch { return []; }
-    try { const value = JSON.parse(await fs.readFile(historyPath, 'utf8')); return Array.isArray(value) ? value.slice(-50).reverse() : []; }
-    catch (error) { if (error?.code === 'ENOENT') return []; throw error; }
+  secureHandle('task-state:history', (_event, options = {}) => invokeSafely(async () => {
+    try { return await searchLocalHistory(options || {}); }
+    catch (runtimeError) {
+      let historyPath;
+      try { ({ historyPath } = workspaceStatePaths()); } catch { return { items: [], source: 'legacy', warning: safeMessage(runtimeError) }; }
+      try {
+        const value = JSON.parse(await fs.readFile(historyPath, 'utf8'));
+        const query = String(options?.query || '').trim().toLowerCase();
+        const items = (Array.isArray(value) ? value : []).slice().reverse().filter((item) => {
+          if (!query) return true;
+          return [item?.objective, item?.summary, item?.failure, ...(Array.isArray(item?.modified_files) ? item.modified_files.map((entry) => entry?.path) : [])]
+            .filter(Boolean).join(' ').toLowerCase().includes(query);
+        }).slice(0, Math.max(1, Math.min(Number(options?.limit || 30), 50)));
+        return { items, count: items.length, source: 'legacy', warning: `SQLite 历史暂不可用：${safeMessage(runtimeError)}` };
+      } catch (error) {
+        if (error?.code === 'ENOENT') return { items: [], count: 0, source: 'legacy', warning: safeMessage(runtimeError) };
+        throw error;
+      }
+    }
   }));
+  secureHandle('task-state:history-prepare', (_event, historyId) => invokeSafely(() => prepareLocalHistoryResume(historyId)));
   secureHandle('performance:read', () => invokeSafely(async () => {
     let performancePath;
     try { ({ performancePath } = workspaceStatePaths()); } catch { return null; }
@@ -715,18 +1101,56 @@ function registerIpc() {
   secureHandle('mcp:task-worktree-diff', (_event, runId) => invokeSafely(() => callLocalMcpTool('task_control', { action: 'worktree_diff', run_id: String(runId || ''), max_bytes: 262144 })));
   secureHandle('mcp:task-worktree-apply', (_event, runId) => invokeSafely(() => callLocalMcpTool('task_control', { action: 'worktree_apply', run_id: String(runId || '') })));
   secureHandle('mcp:task-worktree-discard', (_event, runId) => invokeSafely(() => callLocalMcpTool('task_control', { action: 'worktree_discard', run_id: String(runId || '') })));
+  secureHandle('local-session:compact', () => invokeSafely(() => compactLocalSession()));
+  secureHandle('memory:control', (_event, payload = {}) => invokeSafely(async () => {
+    const action = String(payload?.action || 'status').trim().toLowerCase();
+    if (action === 'export') {
+      const result = await dialog.showSaveDialog(managerWindow || chatWindow, {
+        title: '导出长期上下文备份',
+        defaultPath: path.join(app.getPath('documents'), `gpt-webcodex-memory-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}.zip`),
+        filters: [{ name: 'ZIP 备份', extensions: ['zip'] }]
+      });
+      if (result.canceled || !result.filePath) return { canceled: true };
+      return localMcpClient().memoryControl({ action: 'export', target: result.filePath });
+    }
+    if (action === 'import') {
+      const result = await dialog.showOpenDialog(managerWindow || chatWindow, {
+        title: '导入长期上下文备份',
+        properties: ['openFile'],
+        filters: [{ name: 'ZIP 备份', extensions: ['zip'] }]
+      });
+      if (result.canceled || !result.filePaths[0]) return { canceled: true };
+      return localMcpClient().memoryControl({ action: 'import', source: result.filePaths[0], confirm: true, apply_config: payload?.apply_config === true });
+    }
+    return controlLocalMemory(payload);
+  }));
   secureHandle('notification:test', () => invokeSafely(() => taskNotificationService?.testNotification() ?? false));
   secureHandle('build:inspect', () => invokeSafely(() => buildVerification.inspect(settings.load().workspace)));
   secureHandle('build:run', (_event, options) => invokeSafely(() => buildVerification.execute(settings.load().workspace, options || {})));
   secureHandle('health:inspect', () => invokeSafely(() => healthService.inspect()));
   secureHandle('health:repair', () => invokeSafely(() => healthService.repair()));
+  secureHandle('doctor:inspect', () => invokeSafely(() => doctorService.inspect({ network: true })));
+  secureHandle('support:report-save', () => invokeSafely(async () => {
+    const report = await doctorService.createSupportReport({ network: true });
+    const result = await dialog.showSaveDialog(managerWindow || chatWindow, {
+      title: '保存脱敏支持报告',
+      defaultPath: path.join(app.getPath('documents'), report.filename),
+      filters: [{ name: '文本文件', extensions: ['txt'] }]
+    });
+    if (result.canceled || !result.filePath) return { canceled: true, filename: report.filename };
+    await fs.writeFile(result.filePath, report.text, 'utf8');
+    return { canceled: false, filename: path.basename(result.filePath), filePath: result.filePath };
+  }));
   secureHandle('workspace:choose-and-switch', () => invokeSafely(async () => {
-    const result = await dialog.showOpenDialog(chatWindow, { properties: ['openDirectory', 'createDirectory'] });
+    const dialogParent = workspaceWindow && !workspaceWindow.isDestroyed() ? workspaceWindow : chatWindow;
+    const result = await dialog.showOpenDialog(dialogParent, { properties: ['openDirectory', 'createDirectory'] });
     if (result.canceled) return null;
     const switched = await orchestrator.switchWorkspace(result.filePaths[0]);
+    workspaceManager.touch(result.filePaths[0]);
     invalidateLocalMcpDiscovery();
     taskNotificationService?.reset();
     taskNotificationService?.restartStream();
+    broadcastWorkspaceHub();
     return switched;
   }));
   secureHandle('manager:close', () => invokeSafely(async () => {
@@ -738,7 +1162,64 @@ function registerIpc() {
     return true;
   }));
   secureHandle('manager:open', () => invokeSafely(async () => { openManagerWindow(); return true; }));
+  secureHandle('activity-detail:show', (_event, options = {}) => invokeSafely(async () => showActivityDetail(options || {})));
+  secureHandle('activity-detail:update', (_event, payload = {}) => invokeSafely(async () => {
+    activityDetailPayload = payload && typeof payload === 'object' ? payload : null;
+    if (activityDetailWindow && !activityDetailWindow.isDestroyed() && activityDetailPayload) {
+      activityDetailWindow.webContents.send('activity-detail:payload', activityDetailPayload);
+    }
+    return true;
+  }));
+  secureHandle('activity-detail:hide', () => invokeSafely(async () => { scheduleActivityDetailHide(); return true; }));
+  secureHandle('activity-detail:hover', (_event, value) => invokeSafely(async () => {
+    activityDetailHover = Boolean(value);
+    if (activityDetailHover) clearActivityDetailHideTimer();
+    else scheduleActivityDetailHide(260);
+    return true;
+  }));
+  secureHandle('activity-detail:close', () => invokeSafely(async () => closeActivityDetail({ force: true })));
+  secureHandle('activity-detail:pin', () => invokeSafely(async () => {
+    activityDetailPinned = true;
+    clearActivityDetailHideTimer();
+    sendActivityDetailState();
+    return true;
+  }));
+  secureHandle('activity-detail:unpin', () => invokeSafely(async () => {
+    activityDetailPinned = false;
+    sendActivityDetailState();
+    if (!activityDetailHover) scheduleActivityDetailHide(260);
+    return true;
+  }));
+  secureHandle('workspace-window:open', () => invokeSafely(async () => { openWorkspaceWindow(); return true; }));
+  secureHandle('approval-window:open', () => invokeSafely(async () => {
+    openApprovalWindow();
+    return true;
+  }));
+  secureHandle('approval-window:close', () => invokeSafely(async () => {
+    if (approvalWindow && !approvalWindow.isDestroyed()) approvalWindow.hide();
+    return true;
+  }));
+  secureHandle('workspace-window:close', () => invokeSafely(async () => {
+    if (workspaceWindow && !workspaceWindow.isDestroyed()) workspaceWindow.hide();
+    if (chatWindow && !chatWindow.isDestroyed()) {
+      chatWindow.show();
+      chatWindow.focus();
+    }
+    return true;
+  }));
   secureHandle('chat:navigate', (_event, action) => invokeSafely(async () => chatController?.navigate(action)));
+  secureHandle('chat:stop-generation', () => invokeSafely(async () => chatController?.stopGeneration?.() || false));
+  secureHandle('chat:open-last-download', () => invokeSafely(async () => {
+    const rawWorkspace = String(settings.load().workspace || '').trim();
+    if (!rawWorkspace || !lastDownloadPath) throw new Error('暂无可打开的附件。');
+    const candidate = path.resolve(lastDownloadPath);
+    const workspace = path.resolve(rawWorkspace);
+    if (!candidate.toLowerCase().startsWith(`${workspace.toLowerCase()}${path.sep}`)) throw new Error('附件路径不在当前工作区内。');
+    await fs.access(candidate);
+    const error = await shell.openPath(candidate);
+    if (error) throw new Error(error);
+    return candidate;
+  }));
   secureHandle('chat:status', () => invokeSafely(async () => chatController?.getState() || null));
   secureHandle('chat:inject-prompt', (_event, text, autoSend) => invokeSafely(async () => chatController?.injectPrompt(text, autoSend)));
   secureHandle('chat:set-content-insets', (_event, insets = {}) => invokeSafely(async () => {
@@ -748,6 +1229,29 @@ function registerIpc() {
     });
     return true;
   }));
+  secureHandle('chat:login-open', () => invokeSafely(async () => {
+    if (!chatController) throw new Error('聊天窗口尚未初始化。');
+    chatController.offerLogin('entry', chatController.activeContents(), true);
+    return chatController.getState();
+  }));
+  secureHandle('chat:login-embedded', () => invokeSafely(async () => {
+    if (!chatController) throw new Error('聊天窗口尚未初始化。');
+    if (chatController.nativeLogin?.run) await chatController.cancelNativeLogin();
+    return chatController.startEmbeddedLogin();
+  }));
+  secureHandle('chat:login-dismiss', () => invokeSafely(async () => {
+    if (chatController?.nativeLogin?.run) await chatController.cancelNativeLogin();
+    return chatController?.dismissLogin();
+  }));
+  secureHandle('chat:native-login-start', () => invokeSafely(async () => {
+    if (!chatController) throw new Error('聊天窗口尚未初始化。');
+    return chatController.startNativeLogin();
+  }));
+  secureHandle('chat:native-login-finish', () => invokeSafely(async () => {
+    if (!chatController) throw new Error('聊天窗口尚未初始化。');
+    return chatController.finishNativeLogin();
+  }));
+  secureHandle('chat:native-login-cancel', () => invokeSafely(async () => chatController?.cancelNativeLogin()));
   secureHandle('chat:clear-session', () => invokeSafely(async () => {
     if (!chatController) throw new Error('ChatGPT 页面尚未初始化。');
     await chatController.clearSession();
@@ -1036,19 +1540,23 @@ function registerIpc() {
     return result.canceled ? '' : result.filePaths[0];
   }));
   secureHandle('settings:save', (_event, patch) => invokeSafely(async () => {
-    const allowed = ['permissionMode', 'toolMode', 'mcpPort', 'healthPort', 'proxyMode', 'proxyUrl', 'tunnelId', 'tunnelProfile', 'startWithWindows', 'autoStartServices', 'keepRunningOnClose', 'progressReportSeconds', 'taskNotifications', 'taskNotificationOnlyWhenUnfocused', 'taskNotificationSound', 'taskNotificationMinSeconds', 'theme', 'guideProgress', 'firstRunCompleted', 'bridgeRemovedNotice'];
+    const allowed = ['mcpPort', 'healthPort', 'proxyMode', 'proxyUrl', 'tunnelId', 'tunnelProfile', 'startWithWindows', 'autoStartServices', 'keepRunningOnClose', 'taskNotifications', 'taskNotificationSound', 'theme'];
     const clean = Object.fromEntries(Object.entries(patch || {}).filter(([key]) => allowed.includes(key)));
+    const previous = settings.load();
+    const proxyChanged = (Object.hasOwn(clean, 'proxyMode') && String(clean.proxyMode || '') !== String(previous.proxyMode || 'auto'))
+      || (Object.hasOwn(clean, 'proxyUrl') && String(clean.proxyUrl || '') !== String(previous.proxyUrl || ''));
     const saved = settings.save(clean);
     if (Object.hasOwn(clean, 'startWithWindows')) {
       app.setLoginItemSettings({ openAtLogin: Boolean(saved.startWithWindows), path: process.execPath });
     }
     if (Object.hasOwn(clean, 'mcpPort')) taskNotificationService?.restartStream();
     if (Object.hasOwn(clean, 'theme') && chatWindow && !chatWindow.isDestroyed()) {
-      const nextTheme = saved.theme === 'light' ? 'light' : 'dark';
+      const nextTheme = saved.theme;
       chatWindow.webContents.send('theme:changed', nextTheme);
       chatWindow.setBackgroundColor(nextTheme === 'dark' ? '#000000' : '#f7f7f8');
     }
     clearProxyCache();
+    if (proxyChanged && chatController) await chatController.applyBrowserProxyPolicy({ closeConnections: true, forceProbe: true });
     return saved;
   }));
   secureHandle('environment:detect-proxy', () => invokeSafely(async () => resolveProxy(settings.load(), { force: true })));
@@ -1092,7 +1600,7 @@ function registerIpc() {
     return contextUsageTracker.reset();
   }));
   secureHandle('shell:open', (_event, target) => invokeSafely(async () => {
-    const allowed = new Set(['chatgpt-connectors', 'openai-tunnels', 'openai-runtime-keys', 'tunnel-ui', 'coding-tools-source']);
+    const allowed = new Set(['chatgpt-connectors', 'chatgpt-developer-mode', 'chatgpt-plugins', 'openai-tunnels', 'openai-runtime-keys', 'tunnel-ui']);
     if (!allowed.has(target)) throw new Error('不允许打开该地址。');
     if (target === 'chatgpt-connectors' && chatController) {
       await chatController.openUrl('https://chatgpt.com/#settings/Connectors');
@@ -1104,11 +1612,12 @@ function registerIpc() {
     }
     const current = settings.load();
     const urls = {
-      'chatgpt-connectors': 'https://chatgpt.com/#settings/Connectors',
+      'chatgpt-connectors': 'https://chatgpt.com/plugins',
+      'chatgpt-developer-mode': 'https://chatgpt.com/plugins#settings/Security?section=developer-mode',
+      'chatgpt-plugins': 'https://chatgpt.com/plugins',
       'openai-tunnels': 'https://platform.openai.com/settings/organization/tunnels',
       'openai-runtime-keys': 'https://platform.openai.com/settings/organization/api-keys',
-      'tunnel-ui': `http://127.0.0.1:${current.healthPort}/ui`,
-      'coding-tools-source': 'https://github.com/xyTom/coding-tools-mcp'
+      'tunnel-ui': `http://127.0.0.1:${current.healthPort}/ui`
     };
     await shell.openExternal(urls[target]);
     return true;
@@ -1140,8 +1649,26 @@ if (!hasSingleInstanceLock) {
         sendManager('runtime:status-changed', payload);
       }
     });
+    await orchestrator.ensureToken();
+    if (secrets.get('privatePublicMcpEnabled') === '1') {
+      publicMcpGateway = new PublicMcpGateway({ settings, secrets, log });
+      publicMcpGateway.start().catch((error) => {
+        log.warn('Private MCP Gateway 启动失败；不影响本地 Runtime 与 Tunnel', { error: error.message });
+      });
+    }
     buildVerification = new BuildVerificationService(log, (payload) => sendManager('build:progress', payload));
     healthService = new HealthService({ settings, secrets, environment, orchestrator });
+    doctorService = new DoctorService({
+      settings,
+      secrets,
+      environment,
+      orchestrator,
+      healthService,
+      log,
+      getChatState: () => chatController?.getState() || {},
+      appVersion: app.getVersion()
+    });
+    autoMemoryService = new AutoMemoryService({ memoryControl: (payload) => localMcpClient().memoryControl(sanitizeMemoryControlPayload(payload)), log });
     log.on('entry', (payload) => sendManager('logs:entry', payload));
     registerIpc();
     const startupSettings = settings.load();
@@ -1160,6 +1687,10 @@ if (!hasSingleInstanceLock) {
         const token = secrets.get('mcpAuthToken');
         const client = new LocalMcpClient({ port: current.mcpPort, token, log });
         return client.subscribeTaskEvents(listener, { onError, ...streamOptions });
+      },
+      onTaskEvent: (payload) => {
+        if (chatWindow && !chatWindow.isDestroyed()) chatWindow.webContents.send('chat:task-event', payload);
+        sendManager('runtime:task-event', payload);
       },
       getChatWindow: () => chatWindow,
       getTray: () => tray,
@@ -1207,10 +1738,18 @@ if (!hasSingleInstanceLock) {
     }
   });
 
-  app.on('before-quit', () => {
+  let loginQuitPending = false;
+  app.on('before-quit', (event) => {
     forceQuit = true;
     if (superviseTimer) clearTimeout(superviseTimer);
     taskNotificationService?.stop();
+    publicMcpGateway?.stop().catch(() => {});
+    if (chatController?.nativeLogin?.run) {
+      event.preventDefault();
+      if (loginQuitPending) return;
+      loginQuitPending = true;
+      chatController.cancelNativeLogin().finally(() => app.quit());
+    }
   });
   app.on('window-all-closed', () => {
     if (!forceQuit && settings.load().keepRunningOnClose) return;

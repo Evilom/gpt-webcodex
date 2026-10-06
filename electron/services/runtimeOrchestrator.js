@@ -66,12 +66,73 @@ function runtimeIdentityMatches(identity, launch) {
 
 function recoveryLayerFor(status = {}) {
   if (!status.mcpRunning) return 'runtime';
-  if (!status.tunnelRunning) return 'tunnel';
+  if (!status.tunnelRunning || status.connectionRunning === false) return 'tunnel';
   return '';
 }
 
+const SCHEMA_REFRESH_NOTICE_MS = 24 * 60 * 60 * 1000;
 
-function switchMcpWorkspace(port, token, workspace) {
+function compactSchemaIdentity(identity = {}) {
+  return {
+    version: String(identity.version || ''),
+    schemaVersion: Number(identity.schemaVersion || identity.schema_version || 0),
+    schemaHash: String(identity.schemaHash || identity.schema_hash || ''),
+    toolCount: Number(identity.toolCount || identity.tool_count || 0)
+  };
+}
+
+function schemaIdentityChanged(previous, current) {
+  const before = compactSchemaIdentity(previous || {});
+  const after = compactSchemaIdentity(current || {});
+  if (!after.schemaVersion || !after.schemaHash) return false;
+  if (!before.schemaVersion || !before.schemaHash) return true;
+  return before.version !== after.version
+    || before.schemaVersion !== after.schemaVersion
+    || before.schemaHash !== after.schemaHash
+    || before.toolCount !== after.toolCount;
+}
+
+function activeSchemaRefreshNotice(now = Date.now()) {
+  const state = readJson(stateFile(), {});
+  const notice = state.schemaRefreshNotice;
+  if (!notice || typeof notice !== 'object') return null;
+  const changedAt = Date.parse(String(notice.changedAt || ''));
+  if (!Number.isFinite(changedAt) || now - changedAt > SCHEMA_REFRESH_NOTICE_MS) return null;
+  return notice;
+}
+
+function recordSchemaDiscovery(identity) {
+  const current = compactSchemaIdentity(identity);
+  let activeNotice = null;
+  updateJsonAtomic(stateFile(), (state) => {
+    const previous = state.lastDiscoveredSchema && typeof state.lastDiscoveredSchema === 'object'
+      ? state.lastDiscoveredSchema
+      : null;
+    const changed = schemaIdentityChanged(previous, current);
+    const notice = changed ? {
+      changedAt: new Date().toISOString(),
+      previous: previous ? compactSchemaIdentity(previous) : null,
+      current,
+      message: '本地工具定义已升级；如果这个聊天是在升级前打开的，请新建聊天以刷新工具参数。'
+    } : state.schemaRefreshNotice;
+    activeNotice = notice || null;
+    return { ...state, lastDiscoveredSchema: current, schemaRefreshNotice: notice || null };
+  });
+  return activeNotice;
+}
+
+function currentSchemaIdentity() {
+  const state = readJson(stateFile(), {});
+  return compactSchemaIdentity(state.lastDiscoveredSchema || {});
+}
+
+
+const WORKSPACE_SWITCH_REQUEST_TIMEOUT_MS = 30000;
+const WORKSPACE_SWITCH_CONFIRM_TIMEOUT_MS = 15000;
+const WORKSPACE_SWITCH_CONFIRM_INTERVAL_MS = 250;
+
+function switchMcpWorkspace(port, token, workspace, options = {}) {
+  const timeoutMs = Math.max(1000, Number(options.timeoutMs || WORKSPACE_SWITCH_REQUEST_TIMEOUT_MS));
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({ workspace });
     const request = http.request({
@@ -84,7 +145,7 @@ function switchMcpWorkspace(port, token, workspace) {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(body)
       },
-      timeout: 5000
+      timeout: timeoutMs
     }, (response) => {
       let payload = '';
       response.setEncoding('utf8');
@@ -99,10 +160,47 @@ function switchMcpWorkspace(port, token, workspace) {
         resolve(parsed);
       });
     });
-    request.on('timeout', () => { request.destroy(new Error('MCP 工作区切换超时')); });
+    request.on('timeout', () => {
+      const error = new Error(`MCP 工作区切换请求超时（${Math.round(timeoutMs / 1000)} 秒）`);
+      error.code = 'WORKSPACE_SWITCH_TIMEOUT';
+      request.destroy(error);
+    });
     request.on('error', reject);
     request.end(body);
   });
+}
+
+async function waitForMcpWorkspace(port, token, workspace, options = {}) {
+  const timeoutMs = Math.max(500, Number(options.timeoutMs || WORKSPACE_SWITCH_CONFIRM_TIMEOUT_MS));
+  const intervalMs = Math.max(50, Number(options.intervalMs || WORKSPACE_SWITCH_CONFIRM_INTERVAL_MS));
+  const deadline = Date.now() + timeoutMs;
+  let identity = null;
+  while (Date.now() <= deadline) {
+    identity = await probeMcpIdentity(port, token, workspace);
+    if (identity) return identity;
+    if (Date.now() >= deadline) break;
+    await wait(Math.min(intervalMs, Math.max(50, deadline - Date.now())));
+  }
+  return null;
+}
+
+async function switchMcpWorkspaceConfirmed(port, token, workspace, options = {}) {
+  const requestTimeoutMs = Math.max(1000, Number(options.requestTimeoutMs || WORKSPACE_SWITCH_REQUEST_TIMEOUT_MS));
+  const confirmTimeoutMs = Math.max(500, Number(options.confirmTimeoutMs || WORKSPACE_SWITCH_CONFIRM_TIMEOUT_MS));
+  let requestError = null;
+  try {
+    await switchMcpWorkspace(port, token, workspace, { timeoutMs: requestTimeoutMs });
+  } catch (error) {
+    requestError = error;
+  }
+
+  // The control endpoint can finish the switch just as the HTTP response is
+  // interrupted by a proxy/socket timeout. Confirming the Runtime identity
+  // before rolling back prevents a successful switch from being undone.
+  const identity = await waitForMcpWorkspace(port, token, workspace, { timeoutMs: confirmTimeoutMs });
+  if (identity) return { identity, responseRecovered: Boolean(requestError) };
+  if (requestError) throw requestError;
+  throw new Error(`MCP 工作区切换未在 ${Math.round(confirmTimeoutMs / 1000)} 秒内完成身份确认`);
 }
 
 function setMcpAuthorizedRoots(port, token, roots) {
@@ -217,12 +315,14 @@ class RuntimeOrchestrator {
     }
     this.busy = true;
     try {
+      this.progress('config-check', 2, '正在检查工作区、Runtime API Key、Tunnel ID 与端口配置');
       const settings = this.settingsStore.load();
       this.validate(settings);
       const runtimeApiKey = this.secrets.get('runtimeApiKey');
-      if (!runtimeApiKey) throw new Error('请先在“部署设置”中保存 Runtime API Key。');
+      if (!runtimeApiKey) throw new Error('请先在“设置与诊断”中保存 Runtime API Key。');
       if (!settings.tunnelId) throw new Error('请先填写 OpenAI Tunnel ID。');
       const token = await this.ensureToken();
+      this.progress('config-ready', 5, '必要配置检查通过');
 
       this.progress('preflight', 8, '正在检查工作目录、运行环境和端口');
       const env = await this.environment.inspect(settings, { forceProxy: true });
@@ -251,6 +351,7 @@ class RuntimeOrchestrator {
       }
 
       const launch = await this.native.start(settings, token, this.progress.bind(this));
+      this.progress('runtime-ready', 60, 'Runtime 进程已启动');
 
       this.progress('mcp-health', 64, '正在验证 Coding Tools MCP');
       let identity = null;
@@ -274,15 +375,25 @@ class RuntimeOrchestrator {
         || discovered.schemaHash !== String(identity.schema_hash || '')) {
         throw new Error('MCP tools discovery 与健康检查身份不一致，已拒绝继续启动 Tunnel。');
       }
+      recordSchemaDiscovery(discovered);
+      this.progress('mcp-ready', 70, '本地 MCP 已通过身份与工具发现校验');
 
       await this.tunnel.start({ ...settings, effectiveProxyUrl: proxy.resolvedUrl }, runtimeApiKey, token, this.progress.bind(this));
+      this.progress('tunnel-ready', 86, 'OpenAI Tunnel 本地通道已启动');
+      this.progress('upstream-check', 90, '正在验证 OpenAI 上游网络通道');
+      const upstreamState = await this.tunnel.connectionStatus(settings, { cacheMs: 0 }).catch(() => ({ localReady: true, upstreamReachable: false }));
+      if (upstreamState.upstreamReachable) {
+        this.progress('upstream-ready', 96, 'OpenAI 上游网络通道可达');
+      } else {
+        this.log.warn('Tunnel 已启动，但 OpenAI 上游网络通道暂未通过验证');
+      }
       this.setManualStop(false);
       this.autoRecoveryBlocked = false;
       this.lastStartFailure = '';
       this.heartbeatFailures = 0;
       this.recoveryAttempts = 0;
       this.nextRecoveryAt = 0;
-      this.progress('complete', 100, '部署完成，MCP 与 OpenAI Tunnel 均已运行');
+      this.progress('complete', 100, '服务启动流程结束，正在按实时状态校验完整链路');
       this.invalidateSnapshot();
       return await this.snapshot({ force: true, reason: 'started' });
     } catch (error) {
@@ -343,6 +454,54 @@ class RuntimeOrchestrator {
     return this.start(options);
   }
 
+  async restartRuntime(options = {}) {
+    if (this.busy) throw new Error('当前已有部署或恢复操作正在进行。');
+    this.busy = true;
+    try {
+      const settings = this.settingsStore.load();
+      this.validate(settings);
+      const token = await this.ensureToken();
+      this.progress('runtime-mode-restart', 25, '正在静默重启本地 MCP Runtime，Tunnel 保持运行');
+      await this.native.stop().catch(() => false);
+      if (!(await waitForPortRelease(settings.mcpPort, 5000))) {
+        throw new Error(`本地端口 ${settings.mcpPort} 未及时释放，无法切换 Agent 模式。`);
+      }
+      const launch = await this.native.start(settings, token, this.progress.bind(this));
+      let identity = null;
+      for (let index = 0; index < 35; index += 1) {
+        const candidate = await probeMcpIdentity(settings.mcpPort, token, settings.workspace);
+        if (runtimeIdentityMatches(candidate, launch)) { identity = candidate; break; }
+        if (!(await this.native.status(settings))) throw new Error('Coding Tools MCP 在模式切换过程中提前退出。');
+        await wait(500);
+      }
+      if (!identity) throw new Error('新 Agent 模式的 MCP Runtime 未通过身份校验。');
+      const discoveryClient = new LocalMcpClient({ port: settings.mcpPort, token, log: this.log });
+      await discoveryClient.discoverTools();
+      const discovered = discoveryClient.schemaIdentity();
+      if (discovered.runtimeInstanceId !== String(identity.runtime_instance_id || identity.instance_id || '')
+        || discovered.processId !== Number(identity.process_id || 0)
+        || discovered.sourceFingerprint !== String(identity.source_fingerprint || '')
+        || discovered.schemaVersion !== Number(identity.schema_version || 0)
+        || discovered.schemaHash !== String(identity.schema_hash || '')) {
+        throw new Error('Agent 模式切换后 MCP discovery 与 Runtime 身份不一致。');
+      }
+      recordSchemaDiscovery(discovered);
+      this.autoRecoveryBlocked = false;
+      this.lastStartFailure = '';
+      this.heartbeatFailures = 0;
+      this.invalidateSnapshot();
+      this.progress('runtime-mode-ready', 100, 'Agent 模式已生效，Tunnel 未重启');
+      return await this.snapshot({ force: true, reason: options.reason || 'runtime-restarted' });
+    } catch (error) {
+      this.lastStartFailure = error.message;
+      this.invalidateSnapshot();
+      this.log.error(error.message, { stage: 'runtime-only-restart' });
+      throw error;
+    } finally {
+      this.busy = false;
+    }
+  }
+
   async restartTunnel(options = {}) {
     if (this.busy) throw new Error('当前已有部署任务正在运行。');
     this.busy = true;
@@ -356,7 +515,10 @@ class RuntimeOrchestrator {
       const identity = await probeMcpIdentity(settings.mcpPort, token, settings.workspace);
       if (!identity) throw new Error('本地 MCP Runtime 当前不可用，不能执行 Tunnel-only 恢复。');
 
-      const proxy = await resolveProxy(settings);
+      const proxy = await resolveProxy(settings, { force: true });
+      if (!proxy.reachable) {
+        throw new Error('当前没有可用的 OpenAI 网络路径，暂不重启 Tunnel；网络恢复后会自动重试。');
+      }
       this.progress('tunnel-recovery-stop', 30, '本地 MCP 正常，仅重启 OpenAI Tunnel');
       await this.tunnel.stop();
       if (!(await waitForPortRelease(settings.healthPort, 5000))) {
@@ -441,11 +603,17 @@ class RuntimeOrchestrator {
     const token = await this.ensureToken();
     try {
       this.progress('workspace-switch', 20, '正在热切换 MCP 工作目录');
-      await switchMcpWorkspace(previous.mcpPort, token, workspace);
+      const switched = await switchMcpWorkspaceConfirmed(previous.mcpPort, token, workspace);
+      if (switched.responseRecovered) {
+        this.log.warn('MCP 工作区切换响应超时，但 Runtime 身份已确认，继续完成切换', {
+          workspace,
+          confirmation: 'health'
+        });
+      }
       const next = this.settingsStore.save({ workspace, recentWorkspaces });
       await this.native.markWorkspace(next);
       this.progress('workspace-health', 80, '正在验证新的工作目录');
-      const ready = await probeMcp(next.mcpPort, token, workspace);
+      const ready = await waitForMcpWorkspace(next.mcpPort, token, workspace, { timeoutMs: 5000 });
       if (!ready) throw new Error('新工作目录与 MCP 实际目录不一致。');
       this.progress(
         'workspace-complete',
@@ -457,7 +625,12 @@ class RuntimeOrchestrator {
     } catch (error) {
       this.log.error(error.message, { stage: 'workspace-switch', rollback: previous.workspace });
       try {
-        await switchMcpWorkspace(previous.mcpPort, token, previous.workspace);
+        // Always confirm the old identity. MCP serializes workspace changes
+        // behind its switch lock, so a rollback request safely waits behind a
+        // slow first request instead of racing it or leaving the UI ambiguous.
+        await switchMcpWorkspaceConfirmed(previous.mcpPort, token, previous.workspace, {
+          confirmTimeoutMs: 15000
+        });
         this.settingsStore.save(previous);
         await this.native.markWorkspace(previous);
       } catch (rollbackError) {
@@ -497,27 +670,30 @@ class RuntimeOrchestrator {
   async lightweightSnapshot() {
     const settings = this.settingsStore.load();
     const token = this.secrets.get('mcpAuthToken');
-    const [mcpRunning, tunnelStatus] = await Promise.all([
+    const schemaIdentity = currentSchemaIdentity();
+    const [mcpRunning, tunnelState] = await Promise.all([
       token ? probeMcp(settings.mcpPort, token, settings.workspace) : Promise.resolve(false),
-      this.tunnel.status(settings).catch(() => ({ ok: false, processAlive: false, healthReachable: false }))
+      this.tunnel.connectionStatus(settings).catch(() => ({ localReady: false, upstreamReachable: false }))
     ]);
-    const tunnelRunning = typeof tunnelStatus === 'object' ? Boolean(tunnelStatus?.ok) : Boolean(tunnelStatus);
+    const tunnelRunning = Boolean(tunnelState.localReady);
+    const connectionRunning = tunnelRunning && Boolean(tunnelState.upstreamReachable);
     const failureLayer = recoveryLayerFor({ mcpRunning, tunnelRunning });
     return {
       workspace: settings.workspace,
       connectionMode: 'official',
       mcpRunning,
       tunnelRunning,
-      tunnelDetail: typeof tunnelStatus === 'object' ? tunnelStatus : null,
-      connectionRunning: tunnelRunning,
-      fullyReady: mcpRunning && tunnelRunning,
+      tunnelUpstreamReachable: Boolean(tunnelState.upstreamReachable),
+      connectionRunning,
+      fullyReady: mcpRunning && connectionRunning,
       busy: this.busy,
       recovering: this.recovering,
       manuallyStopped: this.isManuallyStopped(),
       failures: this.heartbeatFailures,
       failureLayer,
       recoveryBlocked: this.autoRecoveryBlocked,
-      lastStartFailure: this.lastStartFailure
+      lastStartFailure: this.lastStartFailure,
+      schemaIdentity
     };
   }
 
@@ -536,8 +712,14 @@ class RuntimeOrchestrator {
     if (this.autoRecoveryBlocked) {
       return { ...status, recoveryBlocked: true, lastStartFailure: this.lastStartFailure };
     }
+    const failureLayer = recoveryLayerFor(status);
+    if (!failureLayer) {
+      this.heartbeatFailures = 0;
+      return status;
+    }
     this.heartbeatFailures += 1;
-    if (this.heartbeatFailures < 3 || Date.now() < this.nextRecoveryAt) {
+    const failureThreshold = failureLayer === 'tunnel' ? 6 : 3;
+    if (this.heartbeatFailures < failureThreshold || Date.now() < this.nextRecoveryAt) {
       return { ...status, failures: this.heartbeatFailures };
     }
 
@@ -551,10 +733,10 @@ class RuntimeOrchestrator {
       mcpRunning: status.mcpRunning,
       tunnelRunning: status.tunnelRunning,
       connectionMode: status.connectionMode,
-      failureLayer: recoveryLayerFor(status)
+      failureLayer
     });
     try {
-      if (recoveryLayerFor(status) === 'tunnel') {
+      if (failureLayer === 'tunnel') {
         await this.restartTunnel({ automatic: true });
       } else {
         await this.restart({ automatic: true });
@@ -582,12 +764,23 @@ class RuntimeOrchestrator {
   async _collectSnapshot(reason) {
     const settings = this.settingsStore.load();
     const environment = await this.environment.inspect(settings);
+    const schemaIdentity = currentSchemaIdentity();
     const token = this.secrets.get('mcpAuthToken');
     const runtimeRunning = token
       ? await probeMcp(settings.mcpPort, token, settings.workspace)
       : false;
-    const tunnelStatus = await this.tunnel.status(settings).catch(() => ({ ok: false }));
-    const tunnelRunning = typeof tunnelStatus === 'object' ? Boolean(tunnelStatus?.ok) : Boolean(tunnelStatus);
+    const tunnelState = await this.tunnel.inspect(settings).catch(() => ({
+      localReady: false,
+      upstreamReachable: false,
+      adminReady: false,
+      clientInstanceId: '',
+      tunnelId: settings.tunnelId || '',
+      tunnelName: '',
+      mainChannelProbe: 'unavailable',
+      mainChannelReady: false
+    }));
+    const tunnelRunning = Boolean(tunnelState.localReady);
+    const connectionRunning = tunnelRunning && Boolean(tunnelState.upstreamReachable);
     return this.publishSnapshot({
       settings,
       secrets: this.secrets.status(),
@@ -596,18 +789,23 @@ class RuntimeOrchestrator {
         busy: this.busy,
         runtimeRunning,
         tunnelRunning,
-        tunnelDetail: typeof tunnelStatus === 'object' ? tunnelStatus : null,
-        connectionRunning: tunnelRunning,
+        tunnelUpstreamReachable: Boolean(tunnelState.upstreamReachable),
+        tunnelDiagnostics: tunnelState,
+        connectionRunning,
         connectionMode: 'official',
-        fullyReady: runtimeRunning && tunnelRunning,
+        fullyReady: runtimeRunning && connectionRunning,
         localMcpUrl: `http://127.0.0.1:${settings.mcpPort}/mcp`,
         tunnelUiUrl: `http://127.0.0.1:${settings.healthPort}/ui`,
-        manuallyStopped: this.isManuallyStopped()
+        manuallyStopped: this.isManuallyStopped(),
+        schemaIdentity
       }
     }, reason);
   }
 }
 
-module.exports = { RuntimeOrchestrator, probeMcp, probeMcpIdentity, runtimeIdentityMatches, recoveryLayerFor, waitForPortRelease, setMcpAuthorizedRoots };
+module.exports = { RuntimeOrchestrator, probeMcp, probeMcpIdentity, runtimeIdentityMatches, recoveryLayerFor,
+  compactSchemaIdentity, schemaIdentityChanged, activeSchemaRefreshNotice, recordSchemaDiscovery, currentSchemaIdentity,
+  waitForPortRelease, switchMcpWorkspace, waitForMcpWorkspace, switchMcpWorkspaceConfirmed,
+  setMcpAuthorizedRoots };
 
 

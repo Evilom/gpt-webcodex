@@ -2,9 +2,703 @@ const api = window.browserAssistant;
 const $ = (selector) => document.querySelector(selector);
 let switching = false;
 let activeWorkspace = '';
-let recentWorkspaceHub = null;
 let lastRuntimeState = null;
 let lastRuntimeCheckAt = 0;
+let workspaceHubState = { workspaces: [] };
+let lastApprovalRequestId = '';
+let lastStreamState = { status: 'unknown', updatedAt: 0 };
+let progressInput = { task: null, operation: null, activity: null, runtimeLayers: null, feedbackCapabilities: null, available: true, stale: false };
+let taskRefreshPromise = null;
+let lastTaskRefreshAt = 0;
+let taskRefreshWarning = '';
+let nativeLoginState = { status: 'idle', message: '' };
+let loginState = { status: 'idle', mode: '', prompt: false };
+let activityPopoverPinned = false;
+let activityDetailVisible = false;
+let activityOpenTimer = null;
+let activityCloseTimer = null;
+let currentConversationKey = '';
+let currentChatSchemaIdentity = '';
+let dismissedSchemaMismatch = '';
+
+function syncToolbarDensity(view, forceExpanded = false) {
+  const expandedStates = new Set(['local_running', 'testing', 'building', 'planning', 'recovering', 'quiet', 'suspected_stall', 'stalled', 'failed', 'waiting_user', 'generating']);
+  const expanded = forceExpanded || expandedStates.has(String(view?.userState || view?.key || ''));
+  $('#progressBand')?.classList.toggle('compact', !expanded);
+}
+
+function schemaIdentityKey(identity = {}) {
+  const version = String(identity.version || '');
+  const schemaVersion = Number(identity.schemaVersion || identity.schema_version || 0);
+  const schemaHash = String(identity.schemaHash || identity.schema_hash || '');
+  const toolCount = Number(identity.toolCount || identity.tool_count || 0);
+  return schemaVersion && schemaHash ? `${version}|${schemaVersion}|${schemaHash}|${toolCount}` : '';
+}
+
+function chatConversationKey(url) {
+  try {
+    const parsed = new URL(String(url || ''));
+    const match = parsed.pathname.match(/\/c\/([^/]+)/i);
+    return match ? `c:${match[1]}` : 'new';
+  } catch { return 'new'; }
+}
+
+function storedChatSchemaIdentity(key) {
+  try { return String(localStorage.getItem(`mcp-chat-schema:${key}`) || ''); }
+  catch { return ''; }
+}
+
+function rememberChatSchemaIdentity(key, identity) {
+  if (!key || !identity) return;
+  currentChatSchemaIdentity = identity;
+  try { localStorage.setItem(`mcp-chat-schema:${key}`, identity); } catch {}
+}
+
+function refreshSchemaHint() {
+  const hint = $('#schemaRefreshHint');
+  if (!hint) return;
+  const runtimeIdentity = schemaIdentityKey(lastRuntimeState?.schemaIdentity || {});
+  const mismatchKey = currentChatSchemaIdentity && runtimeIdentity && currentChatSchemaIdentity !== runtimeIdentity
+    ? `${currentConversationKey}|${currentChatSchemaIdentity}|${runtimeIdentity}`
+    : '';
+  hint.hidden = !mismatchKey || dismissedSchemaMismatch === mismatchKey;
+  hint.dataset.mismatchKey = mismatchKey;
+  hint.title = mismatchKey
+    ? '当前聊天仍绑定升级前的工具定义。新建聊天后会自动使用最新版工具参数。点击可暂时关闭此提示。'
+    : '';
+}
+
+function withTimeout(promise, timeoutMs, label = '请求') {
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${label}超时`)), timeoutMs); })
+  ]).finally(() => clearTimeout(timer));
+}
+
+function setSwitchState(message = '', tone = 'success', clearAfterMs = 0) {
+  const node = $('#switchState');
+  if (!node) return;
+  node.textContent = message;
+  node.classList.toggle('error', tone === 'error');
+  if (clearAfterMs > 0) setTimeout(() => {
+    if (node.textContent === message) { node.textContent = ''; node.classList.remove('error'); }
+  }, clearAfterMs);
+}
+
+function unwrap(result) {
+  if (!result?.ok) throw new Error(result?.error || '操作失败');
+  return result.data;
+}
+
+function baseName(value) {
+  return String(value || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || value || '未选择';
+}
+
+function taskPresentation(task, runningOperation, streamState, available = true, activity = null, runtimeLayers = null) {
+  const view = window.assistantState.describe(task, runningOperation, streamState, Date.now(), available, activity, !available, runtimeLayers);
+  return { key: view.key, tone: window.assistantState.toneFor(view), label: window.assistantState.labelFor(view), detail: view.message, canStop: Boolean(view.canStop) };
+}
+
+function formatActivityTime(value) {
+  const time = Date.parse(String(value || ''));
+  return Number.isFinite(time) ? new Date(time).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-';
+}
+
+function formatActivityDuration(ms) {
+  const value = Number(ms);
+  if (!Number.isFinite(value) || value < 0) return '—';
+  const seconds = Math.floor(value / 1000);
+  if (seconds < 60) return `${seconds} 秒`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} 分 ${seconds % 60} 秒`;
+  return `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分`;
+}
+
+function formatActivityAge(seconds) {
+  const value = Number(seconds);
+  if (!Number.isFinite(value) || value < 0) return '';
+  if (value < 3) return '刚刚';
+  if (value < 60) return `${Math.floor(value)} 秒前`;
+  const minutes = Math.floor(value / 60);
+  const rest = Math.floor(value % 60);
+  return minutes < 60 ? `${minutes} 分${rest ? ` ${rest} 秒` : ''}前` : `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分前`;
+}
+
+function localizeActivityText(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  const exact = { 'Waiting for model': '等待 ChatGPT', 'Command started': '命令已启动', 'Command completed': '命令已完成', running: '运行中', completed: '已完成', failed: '失败', exited: '已结束', queued: '排队中', cancelled: '已取消' };
+  if (exact[text]) return exact[text];
+  return text.replace(/Waiting for model/gi, '等待 ChatGPT').replace(/\bexited\b/gi, '已结束').replace(/\brunning\b/gi, '运行中').replace(/\bcompleted\b/gi, '已完成').replace(/\bfailed\b/gi, '失败').replace(/\bexit\s+(-?\d+)/gi, '退出码 $1');
+}
+
+function meaningfulTimeline(items) {
+  const noisy = /waiting[_ -]?model|等待\s*ChatGPT|heartbeat|心跳/i;
+  const result = [];
+  for (const event of Array.isArray(items) ? items : []) {
+    const type = String(event?.type || '').trim();
+    const label = localizeActivityText(event?.label || type || event?.event || '');
+    const detail = localizeActivityText(event?.detail || event?.step || '');
+    if (!label || noisy.test(`${type} ${label} ${detail}`)) continue;
+    const item = { label, detail, time: formatActivityTime(event?.timestamp) };
+    const previous = result.at(-1);
+    if (previous && previous.label === item.label && previous.detail === item.detail) continue;
+    result.push(item);
+  }
+  return result.slice(-8).reverse();
+}
+
+function clearActivityTimers() {
+  if (activityOpenTimer) clearTimeout(activityOpenTimer);
+  if (activityCloseTimer) clearTimeout(activityCloseTimer);
+  activityOpenTimer = null;
+  activityCloseTimer = null;
+}
+
+function activityAnchorPayload(anchor) {
+  const rect = (anchor || $('#progressDetailTrigger')).getBoundingClientRect();
+  return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: rect.width, height: rect.height };
+}
+
+function openActivityPanel(anchor, { pin = false } = {}) {
+  if ($('#activityToggle')?.hidden) return;
+  clearActivityTimers();
+  if (pin) activityPopoverPinned = true;
+  activityDetailVisible = true;
+  void api.activityDetailShow?.({
+    anchor: activityAnchorPayload(anchor),
+    pinned: activityPopoverPinned,
+    payload: buildActivityDetailPayload()
+  });
+  $('#activityToggle')?.setAttribute('aria-expanded', 'true');
+  $('#progressDetailTrigger')?.setAttribute('aria-expanded', 'true');
+  if ($('#activityToggle')) $('#activityToggle').textContent = activityPopoverPinned ? '收起详情' : '活动详情';
+}
+
+function closeActivityPanel({ force = false } = {}) {
+  if (activityPopoverPinned && !force) return;
+  clearActivityTimers();
+  if (force) {
+    activityPopoverPinned = false;
+    activityDetailVisible = false;
+    void api.activityDetailClose?.();
+    $('#activityToggle')?.setAttribute('aria-expanded', 'false');
+    $('#progressDetailTrigger')?.setAttribute('aria-expanded', 'false');
+  } else {
+    void api.activityDetailHide?.();
+  }
+}
+
+function scheduleActivityOpen(anchor) {
+  if ($('#activityToggle')?.hidden) return;
+  if (activityCloseTimer) clearTimeout(activityCloseTimer);
+  activityOpenTimer = setTimeout(() => openActivityPanel(anchor), 150);
+}
+
+function scheduleActivityClose() {
+  if (activityPopoverPinned) return;
+  if (activityOpenTimer) clearTimeout(activityOpenTimer);
+  activityCloseTimer = setTimeout(() => closeActivityPanel(), 180);
+}
+
+function buildActivityDetailPayload() {
+  const { task, operation, activity, runtimeLayers, feedbackCapabilities, available, stale } = progressInput;
+  const command = activity?.command && typeof activity.command === 'object'
+    ? activity.command
+    : (task?.current_command && typeof task.current_command === 'object' ? task.current_command : null);
+  const lastCommand = task?.last_command && typeof task.last_command === 'object' ? task.last_command : null;
+  const timeline = Array.isArray(activity?.timeline) ? activity.timeline : [];
+  const view = window.progressPresentation.describe(task, operation, lastStreamState, Date.now(), available, activity, stale, runtimeLayers);
+  const stateLabel = {
+    testing: '正在测试', building: '正在构建', waiting_model: '等待 ChatGPT', waiting_user: '等待处理', quiet: '仍在运行',
+    suspected_stall: '疑似停滞', stalled: '疑似卡住', local_running: '本地运行中', planning: '正在规划', recovering: '正在恢复',
+    completed: '已完成', failed: '失败', stopped: '已停止', generating: '模型处理中'
+  }[view.userState || view.key] || view.key || '—';
+  const commandRunning = command?.status === 'running'
+    || command?.execution_lifecycle_state === 'running'
+    || runtimeLayers?.process?.state === 'running'
+    || runtimeLayers?.execution?.state === 'running';
+  const stage = commandRunning
+    ? '正在执行本地命令'
+    : localizeActivityText(task?.current_step || operation?.phase || operation?.status || (task?.status === 'completed' ? '本地任务已完成' : ''));
+  const lastActivityAt = command?.last_output_at || lastCommand?.finished_at || timeline.at(-1)?.timestamp || task?.updated_at || operation?.updated_at;
+  let waitReason = '—';
+  const lifecycle = String(task?.lifecycle_state || '');
+  if (!available) waitReason = '等待本地状态连接恢复';
+  else if (commandRunning) waitReason = command?.last_output_at ? '等待命令继续输出或结束' : '命令已启动，等待首段输出';
+  else if (lifecycle === 'waiting_model') waitReason = '等待 ChatGPT 发起下一次工具调用';
+  else if (operation && ['running', 'queued'].includes(String(operation.status || ''))) waitReason = operation.status === 'queued' ? '等待后台执行槽位' : '等待后台阶段完成';
+  else if (lastStreamState.status === 'generating') waitReason = '等待网页端发起本地工具调用';
+  const nativeStatus = feedbackCapabilities?.chatgpt_tool_invocation_status?.supported;
+  const desktopStream = feedbackCapabilities?.desktop_activity_stream?.supported;
+  const lastResultStatus = lastCommand?.status || task?.latest_test_result?.status || task?.latest_build_result?.status || '';
+  const lastExitCode = lastCommand?.exit_code;
+  const lastResult = lastResultStatus
+    ? `${localizeActivityText(lastResultStatus)}${lastExitCode == null ? '' : ` · 退出码 ${lastExitCode}`}${lastCommand?.elapsed_ms == null ? '' : ` · ${formatActivityDuration(lastCommand.elapsed_ms)}`}`
+    : '';
+  const output = String(command?.latest_output || '').trim();
+  const operationRunning = operation && ['running', 'queued'].includes(String(operation.status || ''));
+  const showHeartbeat = Boolean(commandRunning || operationRunning);
+  return {
+    status: view.message,
+    capturedAt: `${stale ? '最后成功读取 ' : '状态读取 '}${formatActivityTime(activity?.captured_at || task?.updated_at)}`,
+    state: stateLabel,
+    stage,
+    elapsed: commandRunning || operationRunning ? (view.elapsed || formatActivityDuration(command?.elapsed_ms)) : '',
+    lastSeen: lastActivityAt ? formatActivityTime(lastActivityAt) : '',
+    process: runtimeLayers?.process?.state === 'running' ? '本地进程运行中' : runtimeLayers?.process?.state === 'background' ? '后台任务运行中' : '',
+    waitReason,
+    nextStep: task?.next_step || (view.userState === 'waiting_model' ? '等待 ChatGPT 继续' : '—'),
+    channel: nativeStatus && desktopStream ? 'ChatGPT 调用提示 + 桌面实时状态' : desktopStream ? '桌面实时状态' : '任务状态快照',
+    taskId: task?.task_id || '',
+    runId: task?.run_id || operation?.run_id || '',
+    operationId: operation?.operation_id || '',
+    lastResult,
+    diagnosis: view.diagnostic || (view.userState === 'waiting_model' ? '本地执行已经结束，目前在等待 ChatGPT 继续。' : '当前没有发现异常。'),
+    command: command?.command || '',
+    output,
+    outputMeta: commandRunning ? '实时更新' : '',
+    timeline: meaningfulTimeline(timeline)
+  };
+}
+
+function renderActivityPanel() {
+  const toggle = $('#activityToggle');
+  if (!toggle) return;
+  const { task, operation, activity, runtimeLayers } = progressInput;
+  const command = activity?.command || task?.current_command;
+  const hasContent = Boolean(task || operation || command || (Array.isArray(activity?.timeline) && activity.timeline.length) || runtimeLayers);
+  toggle.hidden = !hasContent;
+  if (!hasContent) {
+    activityPopoverPinned = false;
+    activityDetailVisible = false;
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.textContent = '活动详情';
+    void api.activityDetailClose?.();
+    return;
+  }
+  const view = window.progressPresentation.describe(progressInput.task, progressInput.operation, lastStreamState, Date.now(), progressInput.available, progressInput.activity, progressInput.stale, progressInput.runtimeLayers);
+  if (!activityDetailVisible) toggle.textContent = ['quiet', 'suspected_stall', 'stalled'].includes(view.userState) ? '为什么看起来卡住了？' : '活动详情';
+  if (activityDetailVisible) void api.activityDetailUpdate?.(buildActivityDetailPayload());
+}
+
+function renderChatState(state) {
+  if (!state) return;
+  const nextConversationKey = chatConversationKey(state.url);
+  if (nextConversationKey !== currentConversationKey) {
+    const previousIdentity = currentChatSchemaIdentity;
+    const previousKey = currentConversationKey;
+    currentConversationKey = nextConversationKey;
+    currentChatSchemaIdentity = storedChatSchemaIdentity(nextConversationKey);
+    if (!currentChatSchemaIdentity && previousKey === 'new' && nextConversationKey.startsWith('c:') && previousIdentity) {
+      rememberChatSchemaIdentity(nextConversationKey, previousIdentity);
+    }
+    dismissedSchemaMismatch = '';
+  }
+  const attachmentReady = ['attached', 'available'].includes(String(state.mcpAttachment?.status || ''));
+  const runtimeIdentity = schemaIdentityKey(lastRuntimeState?.schemaIdentity || {});
+  if (attachmentReady && !currentChatSchemaIdentity && runtimeIdentity) {
+    rememberChatSchemaIdentity(currentConversationKey || nextConversationKey, runtimeIdentity);
+  }
+  refreshSchemaHint();
+  lastStreamState = state.streamState || lastStreamState;
+  nativeLoginState = state.nativeLogin || nativeLoginState;
+  loginState = state.login || loginState;
+  renderLogin();
+  renderProgress();
+  $('#backButton').disabled = !state.canGoBack;
+  $('#forwardButton').disabled = !state.canGoForward;
+  const element = $('#pageState');
+  element.classList.toggle('loading', Boolean(state.loading));
+  element.classList.toggle('ready', !state.loading && !state.error);
+  element.classList.toggle('error', Boolean(state.error));
+  element.querySelector('span').textContent = state.error
+    ? `加载失败：${state.error}`
+    : state.url?.startsWith('https://accounts.google.com/') ? 'Google 登录请使用右侧「登录修复」'
+    : state.loading ? '正在切换页面…' : 'ChatGPT 已就绪';
+}
+
+function renderProgress() {
+  renderActivityPanel();
+  const login = nativeLoginState;
+  const activeLogin = login.active || ['starting', 'waiting', 'syncing', 'closing'].includes(login.status);
+  $('#nativeLoginButton').disabled = ['starting', 'syncing', 'closing'].includes(login.status);
+  $('#nativeLoginFinish').hidden = !['waiting', 'syncing'].includes(login.status);
+  $('#nativeLoginFinish').disabled = login.status === 'syncing';
+  $('#nativeLoginCancel').hidden = !activeLogin;
+  $('#nativeLoginCancel').disabled = login.status === 'closing';
+  if (activeLogin || ['error', 'success'].includes(login.status)) {
+    syncToolbarDensity(null, true);
+    $('#progressBand').className = `progress-band ${login.status === 'error' ? 'failed' : login.status === 'success' ? 'active' : 'waiting'}`;
+    $('#progressMessage').textContent = login.status === 'success' ? 'ChatGPT 登录修复完成' : login.status === 'error' ? '登录修复未完成' : '浏览器登录修复';
+    $('#progressDetail').textContent = login.cleanupWarning || login.message;
+    $('#progressDetail').title = `${login.message}${login.cleanupWarning ? ` ${login.cleanupWarning}` : ''}`;
+    $('#progressElapsed').textContent = '';
+    $('#progressAction').hidden = true;
+    return;
+  }
+  if (loginState.mode === 'embedded' && !loginState.prompt) {
+    syncToolbarDensity(null, true);
+    $('#progressBand').className = 'progress-band waiting';
+    $('#progressMessage').textContent = loginState.returning ? '登录已确认，正在自动返回' : '正在应用内登录 ChatGPT';
+    $('#progressDetail').textContent = loginState.message;
+    $('#progressElapsed').textContent = '';
+    $('#progressAction').hidden = true;
+    return;
+  }
+  const view = window.progressPresentation.describe(
+    progressInput.task,
+    progressInput.operation,
+    lastStreamState,
+    Date.now(),
+    progressInput.available,
+    progressInput.activity,
+    progressInput.stale,
+    progressInput.runtimeLayers
+  );
+  const band = $('#progressBand');
+  band.className = `progress-band ${view.key} tone-${window.assistantState.toneFor(view)}`;
+  syncToolbarDensity(view);
+  $('#progressMessage').textContent = view.message;
+  $('#progressDetail').textContent = view.detail;
+  $('#progressElapsed').textContent = view.elapsed ? `已运行 ${view.elapsed}` : '';
+  const action = $('#progressAction');
+  if (action) {
+    action.hidden = !view.action;
+    action.textContent = view.actionLabel || '';
+    action.dataset.action = view.action || '';
+    action.title = view.actionLabel || '';
+  }
+}
+
+function renderServiceState(state) {
+  lastRuntimeState = state || null;
+  lastRuntimeCheckAt = Date.now();
+  const connectionRunning = state?.tunnelRunning;
+  refreshSchemaHint();
+  const label = $('#connectionStateLabel');
+  if (label) label.textContent = '连接通道';
+  [['#mcpState', state?.mcpRunning], ['#tunnelState', connectionRunning]].forEach(([selector, value]) => {
+    const element = $(selector);
+    element.classList.toggle('ready', Boolean(value));
+    element.classList.toggle('error', !value);
+  });
+  renderWorkspaceHealth();
+}
+
+function renderWorkspaceHealth() {
+  const button = $('#workspaceHealthButton');
+  if (!button) return;
+  const synced = Boolean(activeWorkspace && lastRuntimeState?.mcpRunning);
+  button.classList.toggle('ready', synced);
+  button.classList.toggle('error', Boolean(activeWorkspace) && !synced);
+  $('#workspaceHealthName').textContent = baseName(activeWorkspace) || '未选择工作区';
+  $('#workspaceHealthPath').textContent = activeWorkspace || '-';
+  $('#workspaceHealthState').textContent = !activeWorkspace ? '未选择' : synced ? '✓ 已同步' : lastRuntimeState?.recovering ? '正在恢复' : '等待同步';
+  $('#workspaceHealthTime').textContent = lastRuntimeCheckAt ? new Date(lastRuntimeCheckAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-';
+  button.title = !activeWorkspace ? '未选择工作区' : synced ? '工作区已与 MCP 同步' : '工作区正在等待 MCP 同步';
+}
+
+async function refreshStatus() {
+  try { renderServiceState(unwrap(await withTimeout(api.lightweightStatus(), 2500, '连接状态读取'))); }
+  catch { renderServiceState(null); }
+}
+
+async function refreshTask() {
+  const strip = $('#taskStrip');
+  if (!strip) return;
+  if (taskRefreshPromise) return taskRefreshPromise;
+  taskRefreshPromise = (async () => {
+  try {
+    let runtime = null;
+    try { runtime = unwrap(await withTimeout(api.taskRuntime({ detail: 'compact' }), 2800, '任务状态读取')); } catch { runtime = null; }
+    let task = runtime?.state || null;
+    if (!task) {
+      try { task = unwrap(await withTimeout(api.taskState(), 1600, '任务状态兜底读取'))?.state || null; } catch { task = null; }
+    }
+    void refreshLocalTaskTools(task);
+    const runningOperation = Array.isArray(runtime?.operations)
+      ? runtime.operations.filter((item) => ['running', 'queued'].includes(String(item?.status || ''))).slice(-1)[0]
+      : null;
+    if (task && ['completed', 'failed', 'stopped'].includes(String(task.status || '')) && !runningOperation) {
+      const updatedAt = Date.parse(task.updated_at || task.created_at || '') || Date.now();
+      const keepVisibleMs = task.status === 'completed' ? 30000 : 120000;
+      const newerChatTurn = lastStreamState.status === 'generating' && Number(lastStreamState.updatedAt || 0) > updatedAt;
+      if (newerChatTurn || Date.now() - updatedAt > keepVisibleMs) task = null;
+    }
+    const stateAvailable = Boolean(runtime || task);
+    if (stateAvailable) {
+      progressInput = {
+        task,
+        operation: runningOperation,
+        activity: runtime?.activity || progressInput.activity,
+        runtimeLayers: runtime?.runtime_layers || progressInput.runtimeLayers,
+        feedbackCapabilities: runtime?.feedback_capabilities || progressInput.feedbackCapabilities,
+        available: true,
+        stale: !runtime
+      };
+    } else {
+      progressInput = { ...progressInput, available: false, stale: true };
+    }
+    lastTaskRefreshAt = Date.now();
+    taskRefreshWarning = stateAvailable ? '' : '暂时无法确认本地任务状态，已保留最后一次结果并自动重试';
+    renderProgress();
+    const view = taskPresentation(progressInput.task, progressInput.operation, lastStreamState, progressInput.available, progressInput.activity, progressInput.runtimeLayers);
+    strip.className = `task-strip ${view.key} tone-${view.tone}`;
+    $('#taskStatusLabel').textContent = view.label;
+    $('#taskTitle').textContent = view.detail;
+    $('#stopTask').hidden = !view.canStop;
+  } catch {
+    taskRefreshWarning = '任务状态读取失败，正在自动重试';
+    progressInput = { ...progressInput, available: false, stale: true };
+    renderProgress();
+    const view = taskPresentation(progressInput.task, progressInput.operation, lastStreamState, false, progressInput.activity);
+    strip.className = `task-strip ${view.key} tone-${view.tone}`;
+    $('#taskStatusLabel').textContent = view.label;
+    $('#taskTitle').textContent = view.detail;
+    $('#stopTask').hidden = true;
+  }
+  if (nativeLoginState.status === 'idle' && loginState.mode !== 'embedded' && taskRefreshWarning && !progressInput.task && !progressInput.operation) {
+    $('#progressDetail').textContent = taskRefreshWarning;
+  }
+  })();
+  try { return await taskRefreshPromise; } finally { taskRefreshPromise = null; }
+}
+
+async function refreshApprovals() {
+  if (!api.approvalList || !api.openApprovalWindow) return;
+  try {
+    const payload = unwrap(await api.approvalList());
+    const pending = Array.isArray(payload?.pending) ? payload.pending : [];
+    const newest = pending[0]?.request_id || '';
+    if (!newest) {
+      lastApprovalRequestId = '';
+      return;
+    }
+    if (newest === lastApprovalRequestId) return;
+    lastApprovalRequestId = newest;
+    await api.openApprovalWindow();
+  } catch { /* approval polling must never disturb ChatGPT */ }
+}
+
+function renderWorkspace(hub) {
+  workspaceHubState = hub || { workspaces: [] };
+  activeWorkspace = hub.activeWorkspace || '';
+  $('#activeWorkspace').textContent = activeWorkspace || '未选择';
+  $('#activeWorkspace').title = activeWorkspace;
+  renderWorkspaceHealth();
+  const workspaces = Array.isArray(hub.workspaces)
+    ? hub.workspaces
+    : (hub.recentWorkspaces || []).filter(Boolean).map((workspace) => ({ path: workspace, name: baseName(workspace), active: workspace === activeWorkspace, status: 'ready' }));
+  $('#workspacePickerButton').textContent = `全部工作区（${workspaces.length}）${Number(hub.invalidCount || 0) ? ` · ⚠ ${hub.invalidCount}` : ''}`;
+}
+
+async function refreshWorkspace() {
+  try { renderWorkspace(unwrap(await api.workspaceHub())); }
+  catch { /* retain the last usable workspace state */ }
+}
+
+async function switchWorkspace(workspace, showProgress = true) {
+  if (switching || !workspace || workspace === activeWorkspace) return;
+  switching = true;
+  if (showProgress) setSwitchState('正在切换工作区…');
+  try {
+    unwrap(await api.switchWorkspace(workspace));
+    setSwitchState('工作区已就绪', 'success', 1600);
+    await Promise.all([refreshWorkspace(), refreshStatus(), refreshTask()]);
+  } catch (error) {
+    setSwitchState(`切换失败：${error.message}`, 'error');
+  } finally {
+    switching = false;
+  }
+}
+
+async function navigate(action) {
+  try { unwrap(await api.navigate(action)); }
+  catch (error) { renderChatState({ error: error.message }); }
+}
+
+$('#backButton').onclick = () => navigate('back');
+$('#forwardButton').onclick = () => navigate('forward');
+$('#reloadButton').onclick = () => navigate('reload');
+$('#homeButton').onclick = () => navigate('home');
+async function runNativeLogin(method) {
+  try { nativeLoginState = unwrap(await api[method]()); }
+  catch (error) { nativeLoginState = { status: 'error', message: error.message }; }
+  renderProgress();
+  try { renderChatState(unwrap(await api.chatStatus())); } catch { /* retain the last visible login state */ }
+  if (nativeLoginState.status === 'success') {
+    setTimeout(() => {
+      if (nativeLoginState.status === 'success') { nativeLoginState = { status: 'idle', message: '' }; renderProgress(); }
+    }, 12000);
+  }
+}
+async function runLoginAction(method) {
+  try { renderChatState(unwrap(await api[method]())); }
+  catch (error) { $('#loginDialogMessage').textContent = error.message; }
+}
+function renderLogin() {
+  const dialog = $('#loginDialog');
+  if (!loginState.prompt) { if (dialog.open) dialog.close(); return; }
+  const external = loginState.mode === 'native';
+  const busy = external && ['starting', 'syncing', 'closing'].includes(nativeLoginState.status);
+  $('#loginDialogTitle').textContent = external ? nativeLoginState.status === 'syncing' ? '登录已检测到，正在自动返回' : '请在浏览器窗口完成登录'
+    : loginState.kind === 'blocked' ? '登录需要重新连接' : '在助手内登录 ChatGPT';
+  $('#loginDialogMessage').textContent = loginState.message;
+  $('#loginDialogBadge').textContent = external ? 'CHATGPT · 自动返回已开启' : 'CHATGPT · 应用内登录';
+  $('#embeddedLoginStart').hidden = external;
+  $('#embeddedLoginStart').textContent = loginState.kind === 'blocked' ? '在应用内重新登录' : '在应用内继续登录';
+  $('#loginBrowserFallback').hidden = external && Boolean(nativeLoginState.active);
+  $('#loginBrowserFallback').textContent = external ? '重新打开浏览器登录窗口' : '应用内遇到问题？使用 Chrome 备用登录';
+  $('#loginCheckNow').hidden = !external || !nativeLoginState.active;
+  $('#loginCheckNow').disabled = busy;
+  $('#loginDialogCancel').disabled = external && nativeLoginState.status === 'closing';
+  $('#loginDialogCancel').textContent = external ? '取消登录，返回助手' : '暂不登录，返回页面';
+  $('#loginDialogNote').textContent = external ? '成功后会自动同步并返回助手，无需点击右上角按钮。遇到问题可点「立即检查」。不读取日常 Chrome 配置。'
+    : '登录过程保持在应用内，账号验证完成后自动返回聊天。不会把“看到聊天页面”误当作已经登录。';
+  if (!dialog.open) dialog.showModal();
+}
+$('#nativeLoginButton').onclick = () => runLoginAction('openLogin');
+$('#embeddedLoginStart').onclick = () => runLoginAction('embeddedLogin');
+$('#loginBrowserFallback').onclick = () => runNativeLogin('nativeLoginStart');
+$('#loginCheckNow').onclick = () => runNativeLogin('nativeLoginFinish');
+$('#loginDialogCancel').onclick = () => runLoginAction('dismissLogin');
+$('#loginDialog').addEventListener('cancel', (event) => { event.preventDefault(); void runLoginAction('dismissLogin'); });
+$('#nativeLoginFinish').onclick = () => runNativeLogin('nativeLoginFinish');
+$('#nativeLoginCancel').onclick = () => runNativeLogin('nativeLoginCancel');
+$('#progressAction').onclick = async () => {
+  const action = $('#progressAction').dataset.action;
+  try {
+    if (action === 'stop-generation') {
+      await api.stopGeneration?.();
+      await refreshTask();
+    } else if (action === 'reload-page') {
+      await navigate('reload');
+    }
+  } catch (error) { $('#switchState').textContent = error.message; }
+};
+$('#activityToggle').onclick = (event) => {
+  event.stopPropagation();
+  if (activityDetailVisible && activityPopoverPinned) closeActivityPanel({ force: true });
+  else openActivityPanel($('#progressDetailTrigger'), { pin: true });
+};
+const progressDetailTrigger = $('#progressDetailTrigger');
+progressDetailTrigger?.addEventListener('mouseenter', () => scheduleActivityOpen(progressDetailTrigger));
+progressDetailTrigger?.addEventListener('mouseleave', scheduleActivityClose);
+progressDetailTrigger?.addEventListener('click', (event) => {
+  event.stopPropagation();
+  if (activityDetailVisible && activityPopoverPinned) closeActivityPanel({ force: true });
+  else openActivityPanel(progressDetailTrigger, { pin: true });
+});
+progressDetailTrigger?.addEventListener('keydown', (event) => {
+  if (!['Enter', ' '].includes(event.key)) return;
+  event.preventDefault();
+  if (activityDetailVisible && activityPopoverPinned) closeActivityPanel({ force: true });
+  else openActivityPanel(progressDetailTrigger, { pin: true });
+});
+$('#workspaceHealthButton').onclick = (event) => {
+  event.stopPropagation();
+  const popover = $('#workspaceHealthPopover');
+  const nextHidden = !popover.hidden;
+  popover.hidden = nextHidden;
+  $('#workspaceHealthButton').setAttribute('aria-expanded', String(!nextHidden));
+};
+document.addEventListener('click', (event) => {
+  const label = $('#workspaceLabel');
+  if (!label?.contains(event.target)) {
+    const popover = $('#workspaceHealthPopover');
+    if (popover && !popover.hidden) {
+      popover.hidden = true;
+      $('#workspaceHealthButton').setAttribute('aria-expanded', 'false');
+    }
+  }
+  const progressDetailTrigger = $('#progressDetailTrigger');
+  const activityToggle = $('#activityToggle');
+  if (activityPopoverPinned && !progressDetailTrigger?.contains(event.target) && !activityToggle?.contains(event.target)) closeActivityPanel({ force: true });
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && activityDetailVisible) closeActivityPanel({ force: true });
+});
+api.onActivityDetailState?.((state) => {
+  activityDetailVisible = Boolean(state?.visible);
+  activityPopoverPinned = Boolean(state?.pinned);
+  $('#activityToggle')?.setAttribute('aria-expanded', String(activityDetailVisible));
+  $('#progressDetailTrigger')?.setAttribute('aria-expanded', String(activityDetailVisible));
+  if ($('#activityToggle')) $('#activityToggle').textContent = activityPopoverPinned ? '收起详情' : '活动详情';
+});
+$('#managerButton').onclick = () => api.openManager();
+$('#workspacePickerButton').onclick = (event) => {
+  event.stopPropagation();
+  api.openWorkspaceWindow?.().catch((error) => setSwitchState(`打开失败：${error.message}`, 'error'));
+};
+$('#stopTask').onclick = async () => {
+  if (!window.confirm('停止当前正在执行的本地任务？')) return;
+  try { unwrap(await api.stopTask()); await refreshTask(); }
+  catch (error) { $('#switchState').textContent = error.message; }
+};
+$('#addAuthorizedRootQuick').onclick = async () => {
+  if (switching) return;
+  switching = true;
+  $('#switchState').textContent = '请选择要授权的额外目录…';
+  try {
+    const result = unwrap(await api.chooseAuthorizedRoot());
+    $('#switchState').textContent = result?.selected ? `已授权：${baseName(result.selected)}` : '';
+  } catch (error) {
+    $('#switchState').textContent = error.message;
+  } finally {
+    switching = false;
+  }
+};
+$('#addWorkspace').onclick = async () => {
+  if (switching) return;
+  switching = true;
+  $('#switchState').textContent = '请选择工作目录…';
+  try {
+    const result = unwrap(await api.chooseAndSwitchWorkspace());
+    if (result) {
+      $('#switchState').textContent = '工作区已添加';
+      await Promise.all([refreshWorkspace(), refreshStatus(), refreshTask()]);
+    } else {
+      $('#switchState').textContent = '';
+    }
+  } catch (error) {
+    $('#switchState').textContent = error.message;
+  } finally {
+    switching = false;
+  }
+};
+
+api.onChatState(renderChatState);
+api.onHeartbeat(renderServiceState);
+api.onTaskEvent?.(() => refreshTask());
+api.onWorkspaceChanged?.(renderWorkspace);
+api.onDownload((item) => {
+  const node = $('#downloadState');
+  const openButton = $('#openDownloadButton');
+  if (item.status === 'completed') {
+    node.textContent = `已保存：${baseName(item.path)}`;
+    if (openButton) openButton.hidden = false;
+  }
+  else if (item.status === 'progressing') node.textContent = `附件 ${item.totalBytes ? Math.round((item.receivedBytes / item.totalBytes) * 100) : 0}%`;
+  else if (item.error) { node.textContent = item.error; if (openButton) openButton.hidden = true; }
+});
+$('#openDownloadButton').onclick = () => api.openLastDownload?.().catch((error) => { $('#downloadState').textContent = error.message; });
+api.chatStatus().then((result) => renderChatState(unwrap(result))).catch(() => {});
+$('#schemaRefreshHint').onclick = (event) => {
+  dismissedSchemaMismatch = String(event.currentTarget?.dataset?.mismatchKey || '');
+  refreshSchemaHint();
+};
+refreshStatus();
+refreshWorkspace();
+refreshTask();
+refreshApprovals();
+setInterval(refreshWorkspace, 60000);
+setInterval(refreshTask, 30000);
+setInterval(renderProgress, 1000);
+setInterval(refreshApprovals, 10000);
+
+// Local console, Git, checkpoint and handoff tools retained during upstream integration.
 let lastTaskStatus = null;
 
 // WebContentsView (ChatGPT) is a native layer above HTML overlays.
@@ -51,7 +745,7 @@ function syncChatContentInsets() {
     bottom = Math.round(Math.min(rect.height || 320, window.innerHeight * 0.55));
   }
   const toolbar = $('.browser-toolbar');
-  const toolbarHeight = toolbar ? Math.round(toolbar.getBoundingClientRect().height) : 112;
+  const toolbarHeight = toolbar ? Math.round(toolbar.getBoundingClientRect().height) : 164;
   let overlayBottom = 0;
   for (const selector of hangOverlaySelectors()) {
     const el = $(selector);
@@ -309,16 +1003,6 @@ async function handleGitCommit(push = false) {
 
 $('#gitCommitBtn').onclick = () => handleGitCommit(false);
 $('#gitCommitPushBtn').onclick = () => handleGitCommit(true);
-
-function unwrap(result) {
-  if (!result?.ok) throw new Error(result?.error || '操作失败');
-  return result.data;
-}
-
-function baseName(value) {
-  return String(value || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || value || '未选择';
-}
-
 function formatBytes(bytes) {
   const n = Math.max(0, Number(bytes || 0));
   if (n < 1024) return `${n} B`;
@@ -326,123 +1010,6 @@ function formatBytes(bytes) {
   if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(2)} MB`;
   return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
-
-function formatDuration(milliseconds) {
-  const seconds = Math.max(0, Math.floor(Number(milliseconds || 0) / 1000));
-  if (seconds < 60) return `${seconds}秒`;
-  const minutes = Math.floor(seconds / 60);
-  const rest = seconds % 60;
-  if (minutes < 60) return `${minutes}分${rest}秒`;
-  return `${Math.floor(minutes / 60)}小时${minutes % 60}分`;
-}
-
-function backgroundOperationStatus(operation) {
-  const status = String(operation?.status || '');
-  if (status === 'interrupted') return '后台任务已中断，可恢复';
-  if (status === 'failed') return '后台任务执行失败';
-  if (status === 'completed') return '后台任务已完成';
-  if (status !== 'running') return '';
-  const heartbeatAge = Number(operation?.heartbeat_age_seconds ?? 0);
-  if (heartbeatAge >= 15) return `后台任务心跳异常（${heartbeatAge}秒未更新）`;
-  return '后台任务运行正常';
-}
-
-function humanizeTaskText(value) {
-  const raw = String(value || '').trim();
-  const key = raw.toLowerCase();
-  const labels = {
-    'waiting for model': '等待模型继续处理',
-    'waiting for user': '等待你处理',
-    completed: '已完成',
-    'verification failed': '验证失败',
-    'requested check failed': '检查失败',
-    'running requested checks': '正在执行检查',
-    'run complete agent workflow': '正在执行完整任务',
-    'apply workspace changes': '正在修改项目',
-    'run requested checks': '正在验证修改',
-    'finalize verified result': '正在整理结果'
-  };
-  return labels[key] || raw;
-}
-
-function progressForTask(task, status) {
-  if (status === 'completed') return 100;
-  const steps = Array.isArray(task?.steps) ? task.steps : [];
-  if (steps.length) {
-    const completed = steps.filter((step) => String(step?.status || '') === 'completed').length;
-    const active = steps.filter((step) => ['in_progress', 'active', 'running'].includes(String(step?.status || ''))).length;
-    return Math.max(status === 'active' ? 5 : 0, Math.min(95, Math.round(((completed + active * 0.5) / steps.length) * 100)));
-  }
-  const kind = String(task?.current_command?.kind || '');
-  if (kind === 'build') return 85;
-  if (kind === 'test') return 72;
-  if (kind === 'command') return 52;
-  const step = String(task?.current_step || '').toLowerCase();
-  if (step.includes('completed')) return 100;
-  if (step.includes('build')) return 82;
-  if (step.includes('test') || step.includes('verify')) return 70;
-  if (step.includes('apply') || step.includes('modify') || step.includes('patch')) return 42;
-  if (status === 'waiting') return 62;
-  if (status === 'paused') return 50;
-  if (status === 'failed' || status === 'stopped') return 100;
-  return status === 'active' ? 18 : 0;
-}
-
-function progressLabelForTask(task, status, runningOperation, command) {
-  if (runningOperation || (command && String(command.status || '') === 'running')) return '运行中';
-  if (status === 'completed') return '100%';
-  if (status === 'failed') return '失败';
-  if (status === 'stopped') return '已停止';
-  if (status === 'paused') return '已暂停';
-  if (status === 'waiting') return '等待';
-  const steps = Array.isArray(task?.steps) ? task.steps : [];
-  if (steps.length) {
-    const completed = steps.filter((step) => String(step?.status || '') === 'completed').length;
-    return `${completed}/${steps.length}`;
-  }
-  return status === 'active' ? '进行中' : '';
-}
-
-function renderChatState(state) {
-  if (!state) return;
-  $('#backButton').disabled = !state.canGoBack;
-  $('#forwardButton').disabled = !state.canGoForward;
-  const element = $('#pageState');
-  element.classList.toggle('loading', Boolean(state.loading));
-  element.classList.toggle('ready', !state.loading && !state.error);
-  element.classList.toggle('error', Boolean(state.error));
-  element.querySelector('span').textContent = state.error
-    ? `加载失败：${state.error}`
-    : state.loading ? '正在切换页面…' : 'ChatGPT 已就绪';
-}
-
-function renderServiceState(state) {
-  lastRuntimeState = state || null;
-  lastRuntimeCheckAt = Date.now();
-  const connectionRunning = state?.tunnelRunning;
-  const label = $('#connectionStateLabel');
-  if (label) label.textContent = '连接通道';
-  [['#mcpState', state?.mcpRunning], ['#tunnelState', connectionRunning]].forEach(([selector, value]) => {
-    const element = $(selector);
-    element.classList.toggle('ready', Boolean(value));
-    element.classList.toggle('error', !value);
-  });
-  renderWorkspaceHealth();
-}
-
-function renderWorkspaceHealth() {
-  const button = $('#workspaceHealthButton');
-  if (!button) return;
-  const synced = Boolean(activeWorkspace && lastRuntimeState?.mcpRunning);
-  button.classList.toggle('ready', synced);
-  button.classList.toggle('error', Boolean(activeWorkspace) && !synced);
-  $('#workspaceHealthName').textContent = baseName(activeWorkspace) || '未选择工作区';
-  $('#workspaceHealthPath').textContent = activeWorkspace || '-';
-  $('#workspaceHealthState').textContent = !activeWorkspace ? '未选择' : synced ? '✓ 已同步' : lastRuntimeState?.recovering ? '正在恢复' : '等待同步';
-  $('#workspaceHealthTime').textContent = lastRuntimeCheckAt ? new Date(lastRuntimeCheckAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-';
-  button.title = !activeWorkspace ? '未选择工作区' : synced ? '工作区已与 MCP 同步' : '工作区正在等待 MCP 同步';
-}
-
 function renderContextUsage(usage) {
   if (!usage) return;
   const dot = $('#contextUsageButton .context-dot');
@@ -553,7 +1120,8 @@ async function refreshTaskHistoryList() {
   }
   list.innerHTML = '<div class="task-history-empty">加载中…</div>';
   try {
-    const items = unwrap(await api.taskHistory());
+    const history = unwrap(await api.taskHistory());
+    const items = Array.isArray(history) ? history : (history?.items || []);
     if (!Array.isArray(items) || items.length === 0) {
       list.innerHTML = '<div class="task-history-empty">暂无历史任务。任务完成后会归档到工作区 .coding-tools/task-history.json。</div>';
       return;
@@ -650,373 +1218,6 @@ async function refreshContextUsage() {
     renderContextUsage(result);
   } catch { /* ignore if not available */ }
 }
-
-async function refreshStatus() {
-  try { renderServiceState(unwrap(await api.lightweightStatus())); }
-  catch { renderServiceState(null); }
-}
-
-async function refreshTask() {
-  try {
-    let runtime = null;
-    if (api.taskRuntime) {
-      try { runtime = unwrap(await api.taskRuntime()); } catch { runtime = null; }
-    }
-    let fallbackPayload = null;
-    if (!runtime?.state) {
-      try { fallbackPayload = unwrap(await api.taskState()); } catch { fallbackPayload = null; }
-    }
-    let task = runtime?.state || fallbackPayload?.state || null;
-    const activeWorktree = runtime?.active_worktree && runtime.active_worktree.exists !== false ? runtime.active_worktree : null;
-    const runningOperation = Array.isArray(runtime?.operations)
-      ? runtime.operations.filter((item) => item?.status === 'running').slice(-1)[0]
-      : null;
-    const now = Date.now();
-    let status = String(task?.status || (runningOperation ? 'active' : 'idle'));
-    if (task && ['completed', 'failed', 'stopped'].includes(status) && !runningOperation && !activeWorktree) {
-      const terminalUpdatedAt = Date.parse(task.updated_at || task.created_at || '') || now;
-      const keepVisibleMs = status === 'completed' ? 30000 : status === 'failed' ? 600000 : 120000;
-      if (now - terminalUpdatedAt > keepVisibleMs) {
-        task = null;
-        status = 'idle';
-      }
-    }
-    const strip = $('#taskStrip');
-    strip.className = `task-strip ${status}`;
-    strip.classList.toggle('isolated', Boolean(activeWorktree));
-    $('#taskTitle').textContent = task?.objective || (runningOperation ? '后台任务运行中' : '暂无任务');
-    if ((!task || status === 'idle') && !runningOperation) {
-      $('#taskStep').textContent = '';
-      $('#taskProgressBar').style.width = '0%';
-      $('#taskProgressText').textContent = '';
-      strip.title = '';
-      return;
-    }
-    const createdAt = Date.parse(task.created_at || task.updated_at || '') || now;
-    const updatedAt = Date.parse(task.updated_at || task.created_at || '') || createdAt;
-    const elapsed = formatDuration(now - createdAt);
-    const idleFor = now - updatedAt;
-    const progress = progressForTask(task, status);
-    const parts = [humanizeTaskText(task?.current_step || task?.next_step) || '任务处理中'];
-    if (activeWorktree) parts.unshift('安全隔离中');
-    if (runningOperation) {
-      const operationStartedAt = Date.parse(runningOperation.started_at || '') || (now - Number(runningOperation.elapsed_seconds || 0) * 1000);
-      const heartbeatAt = Date.parse(runningOperation.heartbeat_at || '');
-      const heartbeatAge = Number.isFinite(heartbeatAt)
-        ? Math.max(0, Math.floor((now - heartbeatAt) / 1000))
-        : Number(runningOperation.heartbeat_age_seconds || 0);
-      const heartbeatText = heartbeatAge >= 15 ? `心跳偏慢 ${heartbeatAge}秒前` : `心跳 ${heartbeatAge}秒前`;
-      parts.unshift(`${backgroundOperationStatus({ ...runningOperation, heartbeat_age_seconds: heartbeatAge })} · 已运行 ${formatDuration(now - operationStartedAt)} · ${heartbeatText}`);
-    }
-    const command = task?.current_command && typeof task.current_command === 'object' ? task.current_command : null;
-    if (command && String(command.status || '') === 'running') {
-      const commandStartedAt = Date.parse(command.started_at || '') || now;
-      const kind = { build: '构建', test: '测试', command: '命令' }[String(command.kind || '')] || '命令';
-      parts.unshift(`${kind} ${formatDuration(now - commandStartedAt)}`);
-    }
-    if (['active', 'paused'].includes(status)) parts.push(`已运行 ${elapsed}`);
-    if (status === 'active' && idleFor >= 30000 && !runningOperation) parts.push(`最近活动 ${formatDuration(idleFor)}前`);
-    if (status === 'active' && idleFor >= 120000 && !runningOperation) parts.push('较长时间没有新的任务状态，正在等待下一次更新');
-    const failureText = String(task?.failure || '').trim();
-    if (status === 'failed' || status === 'stopped' || failureText) {
-      const reason = failureText && !/^agent_workflow:\s*completed\.?$/i.test(failureText)
-        ? failureText
-        : (failureText ? `Runtime 未写入具体原因（${failureText}）` : '未记录 failure 字段');
-      parts.push(`失败原因：${reason}`);
-      const failedCmd = task?.last_command;
-      if (failedCmd?.command) parts.push(`最后命令：${failedCmd.command}`);
-    }
-    $('#taskStep').textContent = parts.filter(Boolean).join(' · ');
-    $('#taskProgressBar').style.width = `${progress}%`;
-    $('#taskProgressText').textContent = progressLabelForTask(task, status, runningOperation, command);
-    strip.title = `状态：${status}；阶段进度：${progress}%；最后更新：${new Date(updatedAt).toLocaleString('zh-CN')}${failureText ? `\n失败原因：${failureText}` : ''}`;
-
-    const modifiedFiles = Array.isArray(task?.modified_files) ? task.modified_files : [];
-    const changesBtn = $('#taskChangesBtn');
-    if (changesBtn) {
-      if (modifiedFiles.length > 0) {
-        changesBtn.hidden = false;
-        changesBtn.textContent = `📝 ${modifiedFiles.length} 文件`;
-        changesBtn.title = `本次任务已修改 ${modifiedFiles.length} 个文件，点击查看详情`;
-      } else {
-        changesBtn.hidden = true;
-      }
-    }
-    $('#consoleFilesCount').textContent = String(modifiedFiles.length);
-    renderModifiedFilesList(modifiedFiles);
-
-    const rollbackBtn = $('#rollbackCapsuleBtn');
-    const capsuleBadge = $('#capsuleStatusBadge');
-    if (rollbackBtn) {
-      // Enabled only when a three-way-baseline capsule exists (checked below).
-      rollbackBtn.disabled = true;
-      rollbackBtn.textContent = '⏪ 安全回滚';
-      rollbackBtn.title = '基于任务前基线安全回滚；不会 git checkout HEAD，不会重置暂存区';
-    }
-    if (api.getCheckpointStatus) {
-      api.getCheckpointStatus().then((res) => {
-        if (res?.ok && res.data) {
-          if (capsuleBadge) {
-            if (res.data.hasCapsule) {
-              const time = res.data.capsule?.createdAt ? new Date(res.data.capsule.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-              capsuleBadge.textContent = time ? `💾 胶囊已就绪 (${time})` : '💾 胶囊已就绪';
-              capsuleBadge.classList.add('ready');
-              capsuleBadge.title = `安全基线已建立：${res.data.capsule?.description || ''}`;
-            } else {
-              capsuleBadge.textContent = '胶囊未创建';
-              capsuleBadge.classList.remove('ready');
-              capsuleBadge.title = '尚未为当前工作区创建任务前安全基线';
-            }
-          }
-          if (rollbackBtn) {
-            const can = Boolean(res.data.canRollback);
-            rollbackBtn.disabled = !can;
-            rollbackBtn.textContent = can ? '⏪ 安全回滚' : '⏪ 回滚（先建基线）';
-            rollbackBtn.title = can
-              ? '基于任务前基线安全回滚；不会 git checkout HEAD，不会重置暂存区'
-              : (res.data.rollbackDisabledReason || '请先创建安全基线检查点');
-          }
-        }
-      }).catch(() => {});
-    }
-
-    // 任务状态转换音效提醒
-    if (lastTaskStatus && lastTaskStatus !== status) {
-      if (status === 'completed') {
-        playTaskCompletionSound();
-      }
-    }
-    lastTaskStatus = status;
-  } catch { /* no active workspace/task yet */ }
-}
-
-function renderWorkspace(hub) {
-  activeWorkspace = hub.activeWorkspace || '';
-  recentWorkspaceHub = hub;
-  $('#activeWorkspace').textContent = activeWorkspace || '未选择';
-  $('#activeWorkspace').title = activeWorkspace;
-  renderWorkspaceHealth();
-  renderWorkspaceClean(hub);
-  const select = $('#workspaceSelect');
-  select.replaceChildren();
-  const placeholder = document.createElement('option');
-  placeholder.value = '';
-  placeholder.textContent = `\u5168\u90e8\u5de5\u4f5c\u533a（${(hub.recentWorkspaces || []).length}）`;
-  select.appendChild(placeholder);
-  (hub.recentWorkspaces || []).filter(Boolean).forEach((workspace) => {
-    const option = document.createElement('option');
-    option.value = workspace;
-    option.textContent = workspace === activeWorkspace ? `\u5f53\u524d：${baseName(workspace)}` : baseName(workspace);
-    option.title = workspace;
-    select.appendChild(option);
-  });
-  select.value = '';
-}
-
-function renderWorkspaceClean(hub) {
-  const list = $('#workspaceCleanList');
-  list.replaceChildren();
-  const entries = (hub.recentWorkspaces || []).filter(Boolean);
-  const cleanActiveBtn = $('#workspaceCleanActive');
-  if (cleanActiveBtn) {
-    cleanActiveBtn.disabled = !activeWorkspace;
-    cleanActiveBtn.title = activeWorkspace ? `退出并解除当前工作区绑定：${activeWorkspace}` : '当前未选择工作区';
-  }
-  if (!entries.length) {
-    const empty = document.createElement('p');
-    empty.textContent = '暂无最近工作区记录。';
-    list.appendChild(empty);
-    $('#workspaceCleanAll').disabled = true;
-    return;
-  }
-  $('#workspaceCleanAll').disabled = false;
-  entries.forEach((workspace) => {
-    const row = document.createElement('div');
-    row.className = 'workspace-clean-row';
-    const isCurrent = workspaceKeyEquals(workspace, activeWorkspace);
-    const name = document.createElement('code');
-    name.textContent = baseName(workspace);
-    name.title = workspace;
-    row.appendChild(name);
-    if (isCurrent) {
-      const tag = document.createElement('span');
-      tag.className = 'workspace-clean-current';
-      tag.textContent = '当前';
-      row.appendChild(tag);
-      const remove = document.createElement('button');
-      remove.type = 'button';
-      remove.textContent = '✕';
-      remove.title = '退出并清空当前工作区';
-      remove.onclick = () => handleClearActiveWorkspace();
-      row.appendChild(remove);
-    } else {
-      const remove = document.createElement('button');
-      remove.type = 'button';
-      remove.textContent = '✕';
-      remove.title = `移除记录：${workspace}`;
-      remove.onclick = () => removeRecentWorkspaces([workspace]);
-      row.appendChild(remove);
-    }
-    list.appendChild(row);
-  });
-}
-
-function workspaceKeyEquals(left, right) {
-  const key = (value) => String(value || '').trim().replace(/[\\/]+$/, '').toLowerCase();
-  return Boolean(left && right) && key(left) === key(right);
-}
-
-function toggleWorkspaceCleanPopover(show) {
-  const popover = $('#workspaceCleanPopover');
-  const nextHidden = typeof show === 'boolean' ? !show : !popover.hidden;
-  popover.hidden = nextHidden;
-  $('#workspaceCleanButton').setAttribute('aria-expanded', String(!nextHidden));
-  requestAnimationFrame(syncChatContentInsets);
-}
-
-async function handleClearActiveWorkspace() {
-  if (switching) return;
-  if (!activeWorkspace) {
-    toggleWorkspaceCleanPopover(false);
-    return;
-  }
-  if (!window.confirm(`确定退出并解除当前绑定的工作区（${baseName(activeWorkspace)}）吗？\n退出后将不关联任何本地工作区。`)) return;
-  switching = true;
-  $('#switchState').textContent = '正在解除当前工作区绑定…';
-  try {
-    const result = unwrap(await api.clearActiveWorkspace());
-    renderWorkspace(result);
-    $('#switchState').textContent = '已退出工作区';
-    await Promise.all([refreshWorkspace(), refreshStatus(), refreshTask()]);
-    toggleWorkspaceCleanPopover(false);
-    setTimeout(() => { $('#switchState').textContent = ''; }, 1800);
-  } catch (error) {
-    $('#switchState').textContent = error.message;
-  } finally {
-    switching = false;
-  }
-}
-
-async function removeRecentWorkspaces(targets) {
-  try {
-    const result = unwrap(await api.removeRecentWorkspaces(targets));
-    renderWorkspace({ activeWorkspace: result.activeWorkspace, recentWorkspaces: result.recentWorkspaces });
-    $('#switchState').textContent = '最近工作区记录已更新';
-    setTimeout(() => { $('#switchState').textContent = ''; }, 1800);
-  } catch (error) {
-    $('#switchState').textContent = error.message;
-  }
-}
-
-async function refreshWorkspace() {
-  try { renderWorkspace(unwrap(await api.workspaceHub())); }
-  catch { /* retain the last usable workspace state */ }
-}
-
-async function switchWorkspace(workspace, showProgress = true) {
-  if (switching || !workspace || workspace === activeWorkspace) return;
-  switching = true;
-  if (showProgress) $('#switchState').textContent = 'MCP 正在后台切换工作区…';
-  try {
-    unwrap(await api.switchWorkspace(workspace));
-    $('#switchState').textContent = '工作区已就绪';
-    await Promise.all([refreshWorkspace(), refreshStatus(), refreshTask()]);
-    setTimeout(() => { $('#switchState').textContent = ''; }, 1800);
-  } catch (error) {
-    $('#switchState').textContent = error.message;
-  } finally {
-    switching = false;
-  }
-}
-
-async function navigate(action) {
-  try { unwrap(await api.navigate(action)); }
-  catch (error) { renderChatState({ error: error.message }); }
-}
-
-$('#backButton').onclick = () => navigate('back');
-$('#forwardButton').onclick = () => navigate('forward');
-$('#reloadButton').onclick = () => navigate('reload');
-$('#homeButton').onclick = () => navigate('home');
-$('#workspaceHealthButton').onclick = (event) => {
-  event.stopPropagation();
-  const popover = $('#workspaceHealthPopover');
-  const nextHidden = !popover.hidden;
-  popover.hidden = nextHidden;
-  $('#workspaceHealthButton').setAttribute('aria-expanded', String(!nextHidden));
-  requestAnimationFrame(syncChatContentInsets);
-};
-document.addEventListener('click', (event) => {
-  const label = $('#workspaceLabel');
-  if (label?.contains(event.target)) return;
-  const popover = $('#workspaceHealthPopover');
-  if (popover && !popover.hidden) {
-    popover.hidden = true;
-    $('#workspaceHealthButton').setAttribute('aria-expanded', 'false');
-    requestAnimationFrame(syncChatContentInsets);
-  }
-});
-$('#managerButton').onclick = () => api.openManager();
-$('#workspaceSelect').onchange = () => { const workspace = $('#workspaceSelect').value; $('#workspaceSelect').value = ''; if (workspace) switchWorkspace(workspace, true); };
-$('#workspaceCleanButton').onclick = (event) => { event.stopPropagation(); toggleWorkspaceCleanPopover(); };
-document.addEventListener('click', (event) => {
-  const wrap = $('.workspace-clean-wrap');
-  if (wrap?.contains(event.target)) return;
-  const popover = $('#workspaceCleanPopover');
-  if (popover && !popover.hidden) toggleWorkspaceCleanPopover(false);
-});
-document.addEventListener('click', (event) => {
-  const wrap = $('.task-history-wrap');
-  if (wrap?.contains(event.target)) return;
-  const popover = $('#taskHistoryPopover');
-  if (popover && !popover.hidden) toggleTaskHistory(false);
-});
-$('#workspaceCleanActive').onclick = () => handleClearActiveWorkspace();
-$('#workspaceCleanAll').onclick = async () => {
-  const entries = ((recentWorkspaceHub?.recentWorkspaces) || [])
-    .filter((item) => item && !workspaceKeyEquals(item, activeWorkspace));
-  if (!entries.length) {
-    alert('当前没有可清理的其他历史记录。如需解除当前工作区，请点击“清空当前工作区”。');
-    return;
-  }
-  if (!window.confirm(`确定清理 ${entries.length} 条最近工作区记录吗？当前工作区会保留。`)) return;
-  await removeRecentWorkspaces(entries);
-  toggleWorkspaceCleanPopover(false);
-};
-$('#pauseTask').onclick = async () => { try { unwrap(await api.pauseTask()); await refreshTask(); } catch (error) { $('#switchState').textContent = error.message; } };
-$('#resumeTask').onclick = async () => { try { unwrap(await api.resumeTask()); await refreshTask(); } catch (error) { $('#switchState').textContent = error.message; } };
-$('#stopTask').onclick = async () => { try { unwrap(await api.stopTask()); await refreshTask(); } catch (error) { $('#switchState').textContent = error.message; } };
-$('#addAuthorizedRootQuick').onclick = async () => {
-  if (switching) return;
-  switching = true;
-  $('#switchState').textContent = '请选择要授权的额外目录…';
-  try {
-    const result = unwrap(await api.chooseAuthorizedRoot());
-    $('#switchState').textContent = result?.selected ? `已授权：${baseName(result.selected)}` : '';
-  } catch (error) {
-    $('#switchState').textContent = error.message;
-  } finally {
-    switching = false;
-  }
-};
-$('#addWorkspace').onclick = async () => {
-  if (switching) return;
-  switching = true;
-  $('#switchState').textContent = '请选择工作目录…';
-  try {
-    const result = unwrap(await api.chooseAndSwitchWorkspace());
-    if (result) {
-      $('#switchState').textContent = '工作区已添加';
-      await Promise.all([refreshWorkspace(), refreshStatus(), refreshTask()]);
-    } else {
-      $('#switchState').textContent = '';
-    }
-  } catch (error) {
-    $('#switchState').textContent = error.message;
-  } finally {
-    switching = false;
-  }
-};
 
 $('#contextUsageButton').onclick = (event) => {
   event.stopPropagation();
@@ -1263,37 +1464,42 @@ $('#taskChangesBtn').onclick = (event) => {
   switchConsoleTab('files');
 };
 
-api.onChatState(renderChatState);
-api.onHeartbeat(renderServiceState);
-if (api.onContextUsage) {
-  api.onContextUsage((usage) => renderContextUsage(usage));
+
+async function refreshLocalTaskTools(task) {
+  const modifiedFiles = Array.isArray(task?.modified_files) ? task.modified_files : [];
+  const changesBtn = $('#taskChangesBtn');
+  changesBtn.hidden = modifiedFiles.length === 0;
+  changesBtn.textContent = `📝 ${modifiedFiles.length} 文件`;
+  $('#consoleFilesCount').textContent = String(modifiedFiles.length);
+  renderModifiedFilesList(modifiedFiles);
+  const status = String(task?.status || 'idle');
+  if (lastTaskStatus && lastTaskStatus !== status && status === 'completed') playTaskCompletionSound();
+  lastTaskStatus = status;
+  const rollbackBtn = $('#rollbackCapsuleBtn');
+  const capsuleBadge = $('#capsuleStatusBadge');
+  try {
+    const checkpoint = unwrap(await api.getCheckpointStatus());
+    capsuleBadge.textContent = checkpoint.hasCapsule ? '💾 胶囊已就绪' : '胶囊未创建';
+    capsuleBadge.classList.toggle('ready', Boolean(checkpoint.hasCapsule));
+    rollbackBtn.disabled = !checkpoint.canRollback;
+    rollbackBtn.title = checkpoint.rollbackDisabledReason || '基于任务前基线安全回滚';
+  } catch {
+    rollbackBtn.disabled = true;
+    capsuleBadge.textContent = '检查点状态暂不可用';
+  }
 }
-if (api.onThemeChanged) {
-  api.onThemeChanged((theme) => {
-    const next = theme === 'light' ? 'light' : 'dark';
-    document.body.dataset.theme = next;
-    document.documentElement.dataset.theme = next;
-  });
-}
-api.onDownload((item) => {
-  const node = $('#downloadState');
-  if (item.status === 'completed') node.textContent = `已保存：${baseName(item.path)}`;
-  else if (item.status === 'progressing') node.textContent = `附件 ${item.totalBytes ? Math.round((item.receivedBytes / item.totalBytes) * 100) : 0}%`;
-  else if (item.error) node.textContent = item.error;
-});
-api.chatStatus().then((result) => renderChatState(unwrap(result))).catch(() => {});
-refreshStatus();
-refreshWorkspace();
-refreshTask();
+api.onContextUsage?.(renderContextUsage);
 refreshContextUsage();
-setInterval(refreshWorkspace, 15000);
-setInterval(refreshTask, 3000);
 setInterval(refreshContextUsage, 10000);
+document.addEventListener('click', (event) => {
+  if (!$('.task-history-wrap')?.contains(event.target)) toggleTaskHistory(false);
+});
 window.addEventListener('resize', () => {
   if (!$('#taskConsoleDrawer')?.hidden || hangOverlaysOpen()) requestAnimationFrame(syncChatContentInsets);
 });
-// Recompute insets after first layout and when toolbar metrics change.
-window.addEventListener('load', () => requestAnimationFrame(syncChatContentInsets));
-if (document.fonts?.ready) {
-  document.fonts.ready.then(() => requestAnimationFrame(syncChatContentInsets)).catch(() => {});
-}
+
+api.onThemeChanged?.((mode) => {
+  const theme = mode === 'system' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : mode;
+  document.body.dataset.theme = theme;
+  document.documentElement.dataset.theme = theme;
+});

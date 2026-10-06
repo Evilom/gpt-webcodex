@@ -8,8 +8,8 @@ const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
 
 test('workspace bar and task strip do not overflow with flex shrink rules', () => {
   const css = read('renderer/browser.css');
-  // Fixed toolbar height must stay 112px.
-  assert.match(css, /\.browser-toolbar\{[^}]*height:112px/);
+  // Fixed toolbar height must stay 164px.
+  assert.match(css, /\.browser-toolbar\{[^}]*height:var\(--toolbar-height\)/);
   // Workspace bar items shrink instead of deforming the row.
   assert.match(css, /\.workspace-bar\{[^}]*overflow:visible/);
   assert.match(css, /\.task-strip\{[^}]*min-width:0/);

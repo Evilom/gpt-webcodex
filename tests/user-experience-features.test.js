@@ -38,7 +38,7 @@ test('task modified files tree and completion audio are wired into the browser U
   assert.match(css, /\.workspace-quick-tools/);
   assert.match(css, /\.console-tabs/);
   assert.match(css, /\.console-files-view/);
-  assert.match(css, /\.browser-toolbar\{[^}]*height:112px/);
+  assert.match(css, /\.browser-toolbar\{[^}]*height:var\(--toolbar-height\)/);
 
   // Verify JS logic
   assert.match(js, /playTaskCompletionSound/);
@@ -83,7 +83,7 @@ test('git diff, commit assistant and task context snapshot handoff are wired end
   assert.match(css, /\.console-git-commit-bar/);
   assert.match(css, /\.diff-line-add/);
   assert.match(css, /\.diff-line-del/);
-  assert.match(css, /\.browser-toolbar\{[^}]*height:112px/);
+  assert.match(css, /\.browser-toolbar\{[^}]*height:var\(--toolbar-height\)/);
 });
 
 test('task checkpoint and one-click time capsule rollback are wired end to end', () => {
@@ -122,7 +122,7 @@ test('task checkpoint and one-click time capsule rollback are wired end to end',
   assert.match(css, /\.capsule-badge/);
   assert.match(css, /\.btn-capsule/);
   assert.match(css, /\.btn-capsule-rollback/);
-  assert.match(css, /\.browser-toolbar\{[^}]*height:112px/);
+  assert.match(css, /\.browser-toolbar\{[^}]*height:var\(--toolbar-height\)/);
 });
 
 test('checkpoint physical fallback handles backup, restore and file deletion safely', async () => {

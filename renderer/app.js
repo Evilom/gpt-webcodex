@@ -1,1117 +1,1510 @@
-﻿const api = window.mcpAssistant || createPreviewApi();
-
-function createPreviewApi() {
-  const previewSettings = {
-    connectionMode: 'official', bridgeRemovedNotice: false, workspace: 'C:\\Users\\示例用户\\Desktop\\my-project', permissionMode: 'safe', toolMode: 'smart',
-    mcpPort: 18765, healthPort: 18081, proxyMode: 'auto', proxyUrl: '', tunnelId: 'tunnel_demo',
-    theme: 'light', startWithWindows: false, progressReportSeconds: 90, keepRunningOnClose: true, autoStartServices: false, taskNotifications: true, taskNotificationOnlyWhenUnfocused: false, taskNotificationSound: true, taskNotificationMinSeconds: 0, firstRunCompleted: true, guideProgress: {}, authorizedRoots: []
-  };
-  const snapshot = {
-    settings: previewSettings,
-    secrets: { runtimeApiKey: true, mcpAuthToken: true },
-    environment: {
-      python: { installed: true, version: 'Python 3.12.10' },
-      proxy: { mode: 'auto', configured: false, reachable: true, source: 'auto-direct', url: '' }, tunnelClient: { installed: true },
-      workspace: { configured: true, exists: true }, ports: { mcpListening: true, tunnelListening: true }
-    },
-    status: { busy: false, runtimeRunning: true, tunnelRunning: true, connectionRunning: true, connectionMode: 'official', fullyReady: true, localMcpUrl: 'http://127.0.0.1:18765/mcp', tunnelUiUrl: 'http://127.0.0.1:18081/ui' }
-  };
-  const ok = (data) => Promise.resolve({ ok: true, data });
-  return {
-    snapshot: () => ok(snapshot), chooseWorkspace: () => ok(snapshot.settings.workspace), switchWorkspace: (workspace) => { snapshot.settings.workspace=workspace; return ok(snapshot); }, updateAuthorizedRoots: (roots) => { snapshot.settings.authorizedRoots=roots; return ok(snapshot); }, closeManager: () => ok(true),
-    saveSettings: (patch) => { Object.assign(snapshot.settings, patch); return ok(snapshot.settings); },
-    saveRuntimeKey: () => ok(snapshot.secrets), removeRuntimeKey: () => ok(snapshot.secrets), regenerateMcpToken: () => ok(snapshot.secrets),
-    start: () => ok(snapshot), stop: () => ok(snapshot), restart: () => ok(snapshot),
-    logs: () => ok([{ time: new Date().toISOString(), level: 'info', message: '静态界面预览模式' }]), clearLogs: () => ok(true),
-    taskState: () => ok({ exists: false, state: null }), taskRuntime: () => ok({ state: { status: 'completed', run_id: 'run_demo_1234', objective: '示例后台任务' }, active_worktree: { run_id: 'run_demo_1234', objective: '示例后台任务', branch: 'coding-tools/run-demo', path: 'C:\\demo\\.coding-tools\\worktrees\\demo', exists: true, clean: false, snapshot_dirty: true, snapshot_changed_count: 3, created_at: new Date().toISOString() }, operations: [] }), taskWorktrees: () => ok({ worktrees: [{ run_id: 'run_demo_1234', objective: '示例后台任务', branch: 'coding-tools/run-demo', path: 'C:\\demo\\.coding-tools\\worktrees\\demo', exists: true, clean: false, snapshot_dirty: true, snapshot_changed_count: 3, snapshot_untracked_count: 1, created_at: new Date().toISOString(), status: 'active' }] }), taskWorktreeDiff: () => ok({ worktree_diff: { run_id: 'run_demo_1234', changed_count: 2, diff: 'diff --git a/app.js b/app.js\n+示例隔离修改\n' } }), applyTaskWorktree: () => ok({ apply_result: { applied: true, changed_count: 2, primary_index_untouched: true }, worktree: { status: 'applied' } }), discardTaskWorktree: () => ok({ worktree: { discarded: true } }), testTaskNotification: () => ok(true), clearTaskState: () => ok(true), pauseTask: () => ok({}), resumeTask: () => ok({}), stopTask: () => ok({}), taskHistory: () => ok([]), performanceTrace: () => ok(null), clearPerformanceTrace: () => ok(true),
-    workspaceContext: () => ok({ project: { type: 'electron', name: 'demo', version: '0.2.4', entrypoint: 'electron/main.js' }, project_instructions: { root_files: [{ path: 'AGENTS.md', truncated: false }], nested_files: [], nested_count: 0, warnings: [] }, core_entries: ['electron/main.js', 'package.json'], context_pressure: { level: 'normal', tool_calls: 8, files_read: 5, response_megabytes: 0.4, recommend_new_chat: false } }),
-    codingToolsGuide: () => ok({ custom_instructions: '当请求涉及本地代码工作区时，请优先使用 Coding Tools MCP；快速了解项目使用 workspace_context，修改、测试和构建优先使用 agent_workflow。' }),
-    inspectBuild: () => ok({ type: 'electron', name: 'demo', version: '0.1.0', testCommand: 'npm test', buildCommand: 'npm run dist', artifacts: ['dist'] }), runBuild: () => ok({ overallStatus: 'passed', project: { type: 'electron', name: 'demo', version: '0.1.0' }, testResult: { status: 'passed' }, buildResult: { status: 'passed' }, artifacts: [] }), inspectHealth: () => ok({ healthy: true, checks: [] }), repairHealth: () => ok({ healthy: true, checks: [], actions: [], unresolved: [] }),
-    openExternal: () => ok(true), installPython: () => ok(true), detectProxy: () => ok(snapshot.environment.proxy), onProgress: () => () => {}, onLog: () => () => {}, onStatus: () => () => {}, onHeartbeat: () => () => {}, onBuildProgress: () => () => {}
-  };
-}
+const api = window.mcpAssistant;
+const $ = (selector, root = document) => root.querySelector(selector);
+const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
 const pageMeta = {
-  overview: ['主页', '运行总览', '集中查看本地工具、连接通道与当前工作区。'],
-  deploy: ['连接配置', '运行与连接', '管理本地工具服务与 ChatGPT 连接通道。'],
-  workspace: ['访问与权限', '工作区与权限', '管理主工作区、额外授权目录与命令权限。'],
-  task: ['任务中心', '任务执行状态', '查看当前目标、执行步骤、测试、文件修改和后台任务。'],
-  build: ['自动验证', '构建与验证', '自动识别项目并选择合适的测试与构建方式。'],
-  health: ['系统诊断', '诊断与修复', '检查运行环境并修复助手能够安全处理的问题。'],
-  guide: ['接入帮助', '接入指南', '查看 ChatGPT 官方 MCP 的接入步骤。'],
-  logs: ['诊断记录', '运行日志', '查看本地工具与连接通道的运行记录。'],
-  settings: ['偏好设置', '偏好设置', '只保留日常使用中真正需要调整的选项。']
+  status: ['运行', '首页', '运行状态、当前任务与最近异常集中在这里。'],
+  workspace: ['项目', '工作区', '查看当前主工作区与额外授权边界。'],
+  memory: ['上下文', '长期上下文', '管理由模型主动总结并持续复用的用户画像、长期偏好和项目背景。'],
+  settings: ['配置', '设置与诊断', '常用设置保持简单，连接、教程和故障处理按需展开。'],
+  'setup-guide': ['配置', '配置教程', '按新版 OpenAI Platform 与 ChatGPT 插件流程完成首次接入。']
+};
+
+const startupStages = [
+  { id: 'config', label: '检查配置' },
+  { id: 'environment', label: '检查环境与网络' },
+  { id: 'runtime', label: '启动 Runtime' },
+  { id: 'mcp', label: '验证本地 MCP' },
+  { id: 'tunnel', label: '启动 Tunnel' },
+  { id: 'upstream', label: '验证 OpenAI 通道' },
+  { id: 'chat', label: '检查 ChatGPT MCP' }
+];
+
+const progressStageMap = {
+  'config-check': { stage: 'config', status: 'running' },
+  'config-ready': { stage: 'config', status: 'done' },
+  preflight: { stage: 'environment', status: 'running' },
+  'proxy-detect': { stage: 'environment', status: 'running' },
+  'proxy-ready': { stage: 'environment', status: 'done' },
+  'runtime-stop-old': { stage: 'runtime', status: 'running' },
+  'native-start': { stage: 'runtime', status: 'running' },
+  'runtime-ready': { stage: 'runtime', status: 'done' },
+  'mcp-health': { stage: 'mcp', status: 'running' },
+  'mcp-ready': { stage: 'mcp', status: 'done' },
+  'tunnel-start': { stage: 'tunnel', status: 'running' },
+  'tunnel-ready': { stage: 'tunnel', status: 'done' },
+  'upstream-check': { stage: 'upstream', status: 'running' },
+  'upstream-ready': { stage: 'upstream', status: 'done' }
 };
 
 const state = {
   snapshot: null,
-  currentPage: 'overview',
-  selectedWorkspace: '',
-  logFilter: 'all',
+  workspaceHub: null,
+  currentPage: 'status',
+  formsReady: false,
   logs: [],
-  busy: false,
-  initializedForms: false
+  taskRuntime: null,
+  taskRuntimeError: null,
+  worktrees: [],
+  activeWorktree: null,
+  memory: {
+    items: [],
+    candidates: [],
+    view: 'active',
+    page: 1,
+    pageSize: 12,
+    selected: new Set(),
+    status: null
+  },
+  startup: {
+    active: false,
+    startedAt: 0,
+    current: '',
+    message: '',
+    failed: false,
+    stages: Object.fromEntries(startupStages.map((item) => [item.id, { status: 'waiting', startedAt: 0, endedAt: 0, message: '' }]))
+  }
 };
 
-const $ = (selector, root = document) => root.querySelector(selector);
-const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+function managerAssistantState() {
+  const runtime = state.taskRuntime;
+  const task = runtime?.state || null;
+  const operation = Array.isArray(runtime?.operations)
+    ? runtime.operations.filter((item) => ['running', 'queued'].includes(String(item?.status || ''))).slice(-1)[0]
+    : null;
+  const view = window.assistantState?.describe
+    ? window.assistantState.describe(task, operation, null, Date.now(), !state.taskRuntimeError, null, Boolean(state.taskRuntimeError), runtime?.runtime_layers)
+    : { userState: 'idle', key: 'idle', message: '当前没有运行中的本地任务', detail: '' };
+  const label = window.assistantState?.labelFor ? window.assistantState.labelFor(view) : '空闲';
+  const tone = window.assistantState?.toneFor ? window.assistantState.toneFor(view) : 'neutral';
+  return {
+    userState: String(view?.userState || view?.key || 'idle'),
+    label: state.taskRuntimeError && task ? `${label} · 状态待确认` : label,
+    tone: state.taskRuntimeError && task ? 'warning' : tone,
+    message: String(view?.message || ''),
+    detail: String(view?.detail || ''),
+    canStop: Boolean(view?.canStop),
+    heartbeatAgeSeconds: Number(runtime?.runtime_layers?.user?.heartbeat_age_seconds ?? -1),
+    taskId: String(task?.task_id || ''),
+    runId: String(task?.run_id || operation?.run_id || '')
+  };
+}
+
+function managerServiceState() {
+  const snapshot = state.snapshot || {};
+  const status = snapshot.status || {};
+  const attachmentState = attachmentHealth(snapshot.chat?.mcpAttachment || {}, Boolean(status.connectionRunning));
+  return window.assistantState.serviceState({
+    workspaceReady: Boolean(snapshot.settings?.workspace),
+    runtimeRunning: Boolean(status.runtimeRunning),
+    tunnelRunning: Boolean(status.tunnelRunning),
+    connectionRunning: Boolean(status.connectionRunning),
+    attachmentReady: Boolean(attachmentState.ready && !attachmentState.firstUsePending),
+    attachmentPending: Boolean(attachmentState.firstUsePending),
+    recovering: Boolean(status.recovering),
+    startupActive: Boolean(state.startup.active),
+    startupFailed: Boolean(state.startup.failed)
+  });
+}
+
+function publishManagerState() {
+  const detail = {
+    page: state.currentPage,
+    snapshot: state.snapshot,
+    workspaceHub: state.workspaceHub,
+    taskRuntime: state.taskRuntime,
+    memoryStatus: state.memory.status,
+    assistantState: managerAssistantState(),
+    serviceState: managerServiceState()
+  };
+  window.__MCP_MANAGER_STATE__ = detail;
+  window.dispatchEvent(new CustomEvent('mcp-manager-state', { detail }));
+}
 
 function unwrap(result) {
-  if (!result?.ok) throw new Error(result?.error || '操作失败');
+  if (!result?.ok) {
+    const error = new Error(result?.error || '操作失败');
+    error.code = String(result?.code || '');
+    error.details = result?.details && typeof result.details === 'object' ? result.details : null;
+    throw error;
+  }
   return result.data;
 }
 
+function memoryResult(response) {
+  const data = unwrap(response);
+  if (data?.canceled) return data;
+  if (data && data.ok === false) {
+    const error = new Error(data.error || '长期上下文操作失败');
+    error.code = String(data.code || '');
+    throw error;
+  }
+  return data?.result ?? data;
+}
+
+function textOr(value, fallback = '—') {
+  return String(value ?? '').trim() || fallback;
+}
+
+function baseName(value) {
+  return String(value || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || value || '未选择';
+}
+
+function maskTunnelId(value) {
+  const id = String(value || '').trim();
+  if (!id) return '';
+  const prefix = id.startsWith('tunnel_') ? 'tunnel_' : '';
+  const body = id.slice(prefix.length);
+  if (!body) return prefix;
+  if (body.length <= 8) return prefix + body.slice(0, 2) + '…' + body.slice(-2);
+  return prefix + body.slice(0, 4) + '…' + body.slice(-4);
+}
+
+function formatDuration(ms) {
+  const seconds = Math.max(0, Math.floor(Number(ms || 0) / 1000));
+  if (seconds < 60) return `${seconds} 秒`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} 分 ${seconds % 60} 秒`;
+  return `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分`;
+}
+
+function relativeTime(value) {
+  const time = Date.parse(value || '');
+  if (!Number.isFinite(time)) return '—';
+  const diff = Math.max(0, Date.now() - time);
+  if (diff < 5000) return '刚刚';
+  if (diff < 60000) return `${Math.floor(diff / 1000)} 秒前`;
+  if (diff < 3600000) return `${Math.floor(diff / 60000)} 分钟前`;
+  return new Date(time).toLocaleString('zh-CN', { hour12: false });
+}
+
 function toast(title, message = '', type = 'success') {
-  const element = document.createElement('div');
-  element.className = `toast ${type}`;
+  const stack = $('#toastStack');
+  if (!stack) return;
+  const node = document.createElement('div');
+  node.className = `toast ${type}`;
   const heading = document.createElement('b');
   heading.textContent = title;
   const detail = document.createElement('span');
   detail.textContent = message;
-  element.append(heading, detail);
-  $('#toastStack').appendChild(element);
-  setTimeout(() => element.remove(), 4200);
+  node.append(heading, detail);
+  stack.appendChild(node);
+  setTimeout(() => node.remove(), 4300);
 }
 
-function setBusy(value, overlay = false) {
-  state.busy = value;
-  $('#busyOverlay').classList.toggle('visible', value && overlay);
-  ['#topStartButton', '#heroStartButton', '#deployNow', '#overviewRestart', '#overviewStop'].forEach((selector) => {
-    const element = $(selector);
-    if (element) element.disabled = value;
-  });
+function setBusy(value) {
+  $('#busyOverlay')?.classList.toggle('visible', Boolean(value));
 }
 
-function setDot(element, status) {
-  if (!element) return;
-  element.classList.remove('ready', 'warn', 'error');
-  if (status) element.classList.add(status);
+function setDot(node, status) {
+  if (!node) return;
+  node.classList.remove('ready', 'warn', 'error');
+  if (status) node.classList.add(status);
+}
+
+function attachmentHealth(attachment = {}, upstreamReady = false) {
+  const status = String(attachment?.status || 'unknown');
+  const detail = String(attachment?.detail || '');
+  const firstUsePending = detail === 'waiting-first-attachment';
+  const ready = ['attached', 'available'].includes(status) || (firstUsePending && upstreamReady);
+  const unavailable = status === 'unavailable';
+  const label = status === 'attached' ? '已挂载' : ready ? '就绪' : unavailable ? '未挂载' : '检测中';
+  const meta = firstUsePending
+    ? '页面已就绪，首次调用后会确认本条消息的 MCP 挂载'
+    : detail || '当前 ChatGPT 页面';
+  return { status, detail, firstUsePending, ready, unavailable, label, meta };
+}
+
+function applyTheme(theme) {
+  const mode = ['light', 'dark', 'system'].includes(theme) ? theme : 'light';
+  const value = mode === 'system'
+    ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    : mode;
+  document.body.dataset.theme = value;
+  document.body.dataset.themeMode = mode;
+  document.documentElement.dataset.theme = value;
+  if ($('#themeSelect')) $('#themeSelect').value = mode;
 }
 
 function navigate(page) {
   if (!pageMeta[page]) return;
   state.currentPage = page;
-  if (location.hash !== `#${page}`) history.replaceState(null, '', `#${page}`);
   $$('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.page === page));
   $$('.page').forEach((item) => item.classList.toggle('active', item.dataset.pageView === page));
   const [eyebrow, title, subtitle] = pageMeta[page];
   $('#pageEyebrow').textContent = eyebrow;
   $('#pageTitle').textContent = title;
   $('#pageSubtitle').textContent = subtitle;
+  if (location.hash !== `#${page}`) history.replaceState(null, '', `#${page}`);
   $('.content-viewport').scrollTop = 0;
-  if (page === 'logs') loadLogs();
-  if (page === 'task') loadTaskState();
-  if (page === 'build') inspectBuild();
-  if (page === 'health') inspectHealth();
-  if (page === 'workspace') loadWorkspaceContext();
-  if (page === 'guide') loadCodingToolsGuide();
+  if (page === 'workspace') refreshWorkspaceHub();
+  if (page === 'memory') loadMemoryPage();
+  if (page === 'settings') loadLogs();
+  if (page === 'setup-guide') renderSetupGuide();
+  publishManagerState();
 }
 
-function textOr(value, fallback = '—') { return String(value ?? '').trim() || fallback; }
-
-function statusLabel(value) {
-  const key = String(value || '').trim().toLowerCase();
-  return ({
-    idle: '暂无任务', active: '执行中', running: '执行中', waiting: '等待中', waiting_model: '等待模型',
-    needs_user: '等待你处理', paused: '已暂停', stopped: '已停止', cancelled: '已取消', interrupted: '已中断',
-    completed: '已完成', passed: '通过', failed: '失败', unavailable: '不可用', skipped: '已跳过', blocked: '已阻止',
-    pending: '等待中', in_progress: '进行中'
-  })[key] || textOr(value, '未知');
-}
-
-function projectTypeLabel(value) {
-  const key = String(value || '').toLowerCase();
-  return ({
-    electron: '桌面应用', node: 'Node.js 项目', python: 'Python 项目', rust: 'Rust 项目', go: 'Go 项目',
-    maven: 'Java 项目', dotnet: '.NET 项目', unknown: '未知项目'
-  })[key] || textOr(value, '未知项目');
-}
-
-function toolLabel(value) {
-  const key = String(value || '');
-  return ({
-    coding_tools_guide: '工具指南', workspace_context: '工作区检查', agent_workflow: '自动工作流', task_control: '任务控制',
-    document_workflow: '文档处理', exec_command: '命令执行', command_control: '命令管理', request_permissions: '权限请求', view_image: '查看图片'
-  })[key] || key || '本地工具';
-}
-
-function humanizeTaskText(value) {
-  const raw = String(value || '').trim();
-  const key = raw.toLowerCase();
-  return ({
-    'waiting for model': '等待模型继续处理', 'waiting for user': '等待你处理', completed: '已完成',
-    'verification failed': '验证失败', 'requested check failed': '检查失败', 'running requested checks': '正在执行检查',
-    'run complete agent workflow': '正在执行完整任务', 'apply workspace changes': '正在修改项目',
-    'run requested checks': '正在验证修改', 'finalize verified result': '正在整理结果'
-  })[key] || raw;
-}
-
-function renderTaskList(container, items, render) {
-  container.replaceChildren();
-  if (!items?.length) {
-    const empty = document.createElement('span'); empty.className = 'task-muted'; empty.textContent = '暂无记录'; container.appendChild(empty); return;
-  }
-  items.forEach((item) => container.appendChild(render(item)));
-}
-
-function renderTaskState(payload) {
-  const task = payload?.state;
-  const hasTask = Boolean(task && (
-    textOr(task.objective, '') ||
-    textOr(task.current_step, '') ||
-    textOr(task.next_step, '') ||
-    (Array.isArray(task.steps) && task.steps.length) ||
-    (task.status && task.status !== 'idle')
-  ));
-  $('#taskStateEmpty').hidden = hasTask;
-  $('#taskStateContent').hidden = !hasTask;
-  if (!hasTask) return;
-  $('#taskObjective').textContent = textOr(task.objective, '未填写当前目标');
-  $('#taskId').textContent = textOr(task.task_id);
-  $('#taskStatus').textContent = statusLabel(task.lifecycle_state || task.status);
-  $('#taskCurrentStep').textContent = humanizeTaskText(task.current_step) || '—';
-  $('#taskNextStep').textContent = humanizeTaskText(task.next_step) || '—';
-  $('#taskFailureRow').hidden = !task.failure;
-  $('#taskFailure').textContent = textOr(task.failure);
-  const steps = Array.isArray(task.steps) ? task.steps : [];
-  const done = steps.filter((item) => item.status === 'completed').length;
-  $('#taskStepCount').textContent = `${done} / ${steps.length}`;
-  renderTaskList($('#taskSteps'), steps, (item) => { const row=document.createElement('div'); row.className=`task-step ${item.status || 'pending'}`; const mark=document.createElement('i'); mark.textContent=item.status==='completed'?'✓':item.status==='in_progress'?'→':item.status==='failed'?'!':'•'; const label=document.createElement('span'); label.textContent=textOr(item.text); row.append(mark,label); return row; });
-  const command = task.current_command;
-  $('#taskCommand').textContent = command ? `${textOr(command.command)}\n${statusLabel(command.status)} · 工作目录 ${textOr(command.workdir, '.')}` : '当前没有运行中的命令';
-  const tests = Array.isArray(task.test_results) ? task.test_results.slice(-5).reverse() : [];
-  renderTaskList($('#taskTests'), tests, (item) => { const row=document.createElement('div'); row.className=`task-result ${item.status}`; row.textContent=`${item.status === 'passed' ? '通过' : '失败'} · ${textOr(item.command, '测试')} · ${item.duration_ms ?? 0} ms`; return row; });
-  const files = Array.isArray(task.modified_files) ? task.modified_files.slice().reverse() : [];
-  $('#taskFileCount').textContent = String(files.length);
-  renderTaskList($('#taskFiles'), files, (item) => { const row=document.createElement('div'); row.className='task-file'; const op=document.createElement('b'); op.textContent=({add:'新增',create:'新增',update:'修改',delete:'删除',remove:'删除',move:'移动'})[String(item.operation || '').toLowerCase()] || '修改'; const file=document.createElement('span'); file.textContent=textOr(item.path); row.append(op,file); return row; });
-  const report = task.last_build_report;
-  const build = $('#taskBuild'); build.replaceChildren();
-  if (!report) { build.textContent='尚未执行构建验证。'; }
-  else {
-    const summary=document.createElement('div'); summary.className=`build-summary ${report.overall_status}`; summary.textContent=`${report.overall_status === 'passed' ? '验证通过' : '验证失败'} · ${projectTypeLabel(report.project?.type)} · v${textOr(report.project?.version)}`; build.appendChild(summary);
-    (report.artifacts || []).slice(0,8).forEach((item) => { const row=document.createElement('div'); row.className='task-artifact'; const path=document.createElement('span'); path.textContent=textOr(item.path); const hash=document.createElement('code'); hash.textContent=textOr(item.sha256 || item.sha384 || item.sha512).slice(0,16); row.append(path,hash); build.appendChild(row); });
-    if (!(report.artifacts || []).length) { const empty=document.createElement('span'); empty.className='task-muted'; empty.textContent=textOr(report.failure, '没有找到构建产物'); build.appendChild(empty); }
-  }
-}
-
-function renderTaskOperations(runtime) {
-  const container = $('#taskOperations');
-  if (!container) return;
-  const operations = Array.isArray(runtime?.operations) ? runtime.operations.slice().reverse() : [];
-  renderTaskList(container, operations, (operation) => {
-    const row = document.createElement('div');
-    row.className = `task-history-item task-operation ${operation.status || 'unknown'}`;
-    const copy = document.createElement('div');
-    const title = document.createElement('b');
-    const labels = { running: '后台运行中', completed: '已完成', failed: '失败', interrupted: '已中断，可恢复' };
-    title.textContent = `${toolLabel(operation.tool)} · ${labels[operation.status] || statusLabel(operation.status)}`;
-    const meta = document.createElement('small');
-    const cadence = Number(operation.progress_report_seconds || 0);
-    const heartbeatAge = Number(operation.heartbeat_age_seconds ?? 0);
-    const heartbeat = operation.status === 'running' ? (heartbeatAge >= 15 ? ` · 心跳异常 ${heartbeatAge}秒` : ' · 心跳正常') : '';
-    meta.textContent = `已运行 ${formatDuration(Number(operation.elapsed_seconds || 0) * 1000)}${heartbeat}${cadence ? ` · 汇报间隔 ${cadence} 秒` : ''}`;
-    copy.append(title, meta);
-    row.append(copy);
-    return row;
-  });
-}
-
-function shortRunId(value) {
-  const text = String(value || '');
-  return text.length > 10 ? `${text.slice(0, 8)}…` : text || '—';
-}
-
-function renderTaskIsolation(runtime, worktreePayload = null) {
-  const currentRunId = String(runtime?.state?.run_id || '');
-  const current = runtime?.active_worktree && runtime.active_worktree.exists !== false ? runtime.active_worktree : null;
-  const badge = $('#taskIsolationBadge');
-  if (badge) {
-    badge.hidden = !current;
-    badge.title = current ? `隔离分支：${textOr(current.branch)}\n${textOr(current.path)}` : '';
-  }
-  const container = $('#taskWorktrees');
-  if (!container) return;
-  container.replaceChildren();
-  const worktrees = Array.isArray(worktreePayload?.worktrees) ? worktreePayload.worktrees : (current ? [current] : []);
-  if (!worktrees.length) {
-    const empty = document.createElement('span');
-    empty.className = 'task-muted';
-    empty.textContent = '当前没有隔离任务；支持的代码任务会自动在安全隔离区中执行。';
-    container.append(empty);
-    return;
-  }
-  worktrees.slice().reverse().forEach((item) => {
-    const row = document.createElement('article');
-    row.className = `task-worktree-item${String(item.run_id || '') === currentRunId ? ' current' : ''}`;
-    const head = document.createElement('div'); head.className = 'task-worktree-head';
-    const copy = document.createElement('div');
-    const title = document.createElement('b'); title.textContent = textOr(item.objective, '隔离代码任务');
-    const meta = document.createElement('small');
-    const snapshot = item.snapshot_dirty ? `基于未提交工作区快照 · ${Number(item.snapshot_changed_count || 0)} 项` : '基于已提交代码';
-    meta.textContent = `${shortRunId(item.run_id)} · ${textOr(item.branch, '隔离分支')} · ${snapshot}`;
-    copy.append(title, meta);
-    const itemState = document.createElement('span');
-    const alreadyApplied = String(item.status || '') === 'applied';
-    itemState.className = `status-pill ${item.exists !== false && (item.clean || alreadyApplied) ? 'positive' : ''}`;
-    itemState.textContent = item.exists === false ? '目录已丢失' : alreadyApplied ? '已应用到主工作区' : item.clean ? '暂无助手改动' : '有助手改动';
-    head.append(copy, itemState);
-    const details = document.createElement('div'); details.className = 'task-worktree-meta';
-    const created = item.created_at ? new Date(item.created_at).toLocaleString('zh-CN') : '—';
-    details.textContent = `创建：${created} · 快照新增文件 ${Number(item.snapshot_untracked_count || 0)} 个`;
-    const actions = document.createElement('div'); actions.className = 'inline-actions task-worktree-actions';
-    const diffButton = document.createElement('button'); diffButton.className = 'secondary-button'; diffButton.textContent = '查看差异';
-    const applyButton = document.createElement('button'); applyButton.className = 'primary-button'; applyButton.textContent = alreadyApplied ? '已应用' : item.clean ? '暂无修改' : '应用到主工作区';
-    applyButton.disabled = alreadyApplied || Boolean(item.clean) || item.exists === false;
-    const discardButton = document.createElement('button'); discardButton.className = 'danger-button'; discardButton.textContent = '放弃隔离任务';
-    const diffDetails = document.createElement('details'); diffDetails.className = 'task-worktree-diff';
-    const diffSummary = document.createElement('summary'); diffSummary.textContent = '助手修改差异';
-    const pre = document.createElement('pre'); pre.textContent = '点击“查看差异”后加载。';
-    diffDetails.append(diffSummary, pre);
-    diffButton.addEventListener('click', async () => {
-      try {
-        diffButton.disabled = true; diffButton.textContent = '读取中…';
-        const result = unwrap(await api.taskWorktreeDiff(item.run_id));
-        const diff = result?.worktree_diff || result || {};
-        pre.textContent = diff.diff || '当前没有助手修改。';
-        diffSummary.textContent = `助手修改差异 · ${Number(diff.changed_count || 0)} 项`;
-        diffDetails.open = true;
-      } catch (error) { toast('无法读取隔离差异', error.message, 'error'); }
-      finally { diffButton.disabled = false; diffButton.textContent = '查看差异'; }
-    });
-    applyButton.addEventListener('click', async () => {
-      const confirmed = window.confirm('只会把这个隔离任务产生的助手修改应用到主工作区；不会改变 Git 暂存区。若同一文件在任务快照之后被你修改，系统会在写入前拒绝，不会覆盖你的修改。是否继续？');
-      if (!confirmed) return;
-      try {
-        applyButton.disabled = true; applyButton.textContent = '安全检查中…';
-        const result = unwrap(await api.applyTaskWorktree(item.run_id));
-        const applied = result?.apply_result || result || {};
-        toast('已应用到主工作区', `${Number(applied.changed_count || 0)} 个文件已更新；Git 暂存区保持不变。隔离区仍保留，可继续查看或放弃。`);
-        await loadTaskState();
-      } catch (error) {
-        const message = String(error?.message || '');
-        if (/WORKTREE_APPLY_CONFLICT|Primary workspace changed/i.test(message)) {
-          toast('检测到主工作区冲突', '主工作区存在同文件的新修改，系统已拒绝写入，没有覆盖你的内容。', 'error');
-        } else if (/WORKTREE_NOT_READY|Only a completed isolated task/i.test(message)) {
-          toast('任务尚未完成', '任务尚未完成，不能应用到主工作区。', 'error');
-        } else if (/WORKTREE_BUSY|still running/i.test(message)) {
-          toast('任务仍在运行', '任务仍在后台运行，请等待完成后再应用。', 'error');
-        } else {
-          toast('无法应用到主工作区', message || '安全应用失败。', 'error');
-        }
-      } finally {
-        if (document.body.contains(applyButton) && !alreadyApplied) {
-          applyButton.disabled = Boolean(item.clean);
-          applyButton.textContent = item.clean ? '暂无修改' : '应用到主工作区';
-        }
-      }
-    });
-    discardButton.addEventListener('click', async () => {
-      if (!window.confirm('确定放弃这个隔离任务吗？隔离区中的助手修改会被永久删除，但主工作区不会被改动。')) return;
-      try {
-        discardButton.disabled = true;
-        unwrap(await api.discardTaskWorktree(item.run_id));
-        toast('隔离任务已放弃', '主工作区没有被修改。');
-        await loadTaskState();
-      } catch (error) { toast('无法放弃隔离任务', error.message, 'error'); }
-      finally { discardButton.disabled = false; }
-    });
-    actions.append(diffButton, applyButton, discardButton);
-    row.append(head, details, actions, diffDetails);
-    container.append(row);
-  });
-}
-
-async function loadTaskState() {
-  try {
-    const [taskPayload] = await Promise.all([api.taskState(), loadTaskHistory(), loadPerformanceTrace()]);
-    let runtime = null;
-    if (api.taskRuntime) {
-      try { runtime = unwrap(await api.taskRuntime({ detail: 'full' })); } catch { runtime = null; }
-    }
-    let worktreePayload = null;
-    if (api.taskWorktrees) {
-      try { worktreePayload = unwrap(await api.taskWorktrees()); } catch { worktreePayload = null; }
-    }
-    renderTaskState(runtime?.state ? { state: runtime.state } : unwrap(taskPayload));
-    renderTaskOperations(runtime);
-    renderTaskIsolation(runtime, worktreePayload);
-  }
-  catch (error) { toast('任务状态读取失败', error.message, 'error'); }
-}
-
-function formatDuration(ms) {
-  const value = Number(ms || 0);
-  if (value < 1000) return `${value} ms`;
-  if (value < 60000) return `${(value / 1000).toFixed(1)} 秒`;
-  return `${Math.floor(value / 60000)} 分 ${Math.round((value % 60000) / 1000)} 秒`;
-}
-
-function renderPerformanceTrace(trace) {
-  const metrics = $('#performanceMetrics');
-  const timeline = $('#performanceTimeline');
-  metrics.replaceChildren(); timeline.replaceChildren();
-  if (!trace || !trace.tool_calls) {
-    const empty = document.createElement('span'); empty.className = 'task-muted'; empty.textContent = '暂无性能记录'; metrics.append(empty); return;
-  }
-  const items = [
-    ['工具调用', trace.tool_calls], ['本机执行', formatDuration(trace.local_execution_ms)],
-    ['估算等待', formatDuration(trace.estimated_wait_ms)], ['缓存命中', trace.cache_hits || 0],
-    ['读取文件', trace.files_read || 0], ['MCP 输出', `${(Number(trace.response_bytes || 0) / (1024 * 1024)).toFixed(1)} MB`],
-    ['重复拦截', trace.deduplicated_calls || 0], ['失败', trace.errors || 0]
-  ];
-  items.forEach(([label, value]) => { const card=document.createElement('div'); card.className='performance-metric'; const b=document.createElement('b'); b.textContent=String(value); const span=document.createElement('span'); span.textContent=label; card.append(b,span); metrics.append(card); });
-  (trace.recent || []).slice(-30).reverse().forEach((event) => {
-    const row=document.createElement('div'); row.className='performance-event';
-    const tool=document.createElement('b'); tool.textContent=toolLabel(event.tool);
-    const local=document.createElement('span'); local.textContent=`本机 ${formatDuration(event.duration_ms)}`;
-    const wait=document.createElement('span'); wait.textContent=`等待 ${formatDuration(event.wait_before_ms)}`;
-    const flag=document.createElement('span'); flag.textContent=event.deduplicated ? '已去重' : event.cache_hit ? '缓存' : event.ok ? '完成' : '失败'; if (event.cache_hit || event.deduplicated) flag.className='cache-hit';
-    row.append(tool,local,wait,flag); timeline.append(row);
-  });
-}
-
-async function loadPerformanceTrace() {
-  try { renderPerformanceTrace(unwrap(await api.performanceTrace())); }
-  catch (error) { renderPerformanceTrace(null); }
-}
-
-async function loadTaskHistory() {
-  const container = $('#taskHistory');
-  try {
-    const items = unwrap(await api.taskHistory());
-    renderTaskList(container, items, (task) => {
-      const row = document.createElement('div'); row.className = 'task-history-item';
-      const copy = document.createElement('div');
-      const title = document.createElement('b'); title.textContent = textOr(task.objective, '未命名任务');
-      const meta = document.createElement('small'); meta.textContent = `${textOr(task.status, 'unknown')} · ${textOr(task.task_id)} · ${new Date(task.archived_at || task.updated_at || Date.now()).toLocaleString('zh-CN')}`;
-      copy.append(title, meta); row.append(copy); return row;
-    });
-  } catch (error) { container.textContent = `读取失败：${error.message}`; }
-}
-
-function applyTheme(theme) {
-  document.body.dataset.theme = theme === 'light' ? 'light' : 'dark';
-  $('#themeSelect').value = theme === 'light' ? 'light' : 'dark';
-}
-
-function renderMigrationNotice(settings) {
-  const notice = $('#bridgeRemovedNotice');
-  if (notice) notice.hidden = !settings?.bridgeRemovedNotice;
-}
-
-function applyFormValues(snapshot, force = false) {
-  if (state.initializedForms && !force) return;
-  const settings = snapshot.settings;
-  state.selectedWorkspace = settings.workspace;
-  $('#tunnelIdInput').value = settings.tunnelId || '';
-  $('#proxyModeSelect').value = settings.proxyMode || 'auto';
-  $('#proxyUrlInput').value = settings.proxyUrl || '';
-  $('#mcpPortInput').value = settings.mcpPort;
-  $('#healthPortInput').value = settings.healthPort;
+function populateForms(snapshot, force = false) {
+  if (!snapshot || (state.formsReady && !force)) return;
+  const settings = snapshot.settings || {};
+  $('#themeSelect').value = ['light', 'dark', 'system'].includes(settings.theme) ? settings.theme : 'light';
   $('#startWithWindowsToggle').checked = Boolean(settings.startWithWindows);
-  $('#keepRunningToggle').checked = settings.keepRunningOnClose;
-  $('#autoStartToggle').checked = settings.autoStartServices;
-  $('#progressReportSelect').value = String(settings.progressReportSeconds || 90);
+  $('#autoStartToggle').checked = Boolean(settings.autoStartServices);
+  $('#keepRunningToggle').checked = settings.keepRunningOnClose !== false;
   $('#taskNotificationsToggle').checked = settings.taskNotifications !== false;
   $('#taskNotificationSoundToggle').checked = settings.taskNotificationSound !== false;
-  if ($('#toolModeSelect')) $('#toolModeSelect').value = 'smart';
-  $$('input[name="permission"]').forEach((input) => {
-    input.checked = input.value === settings.permissionMode;
-    input.closest('.choice').classList.toggle('selected', input.checked);
-  });
+  $('#tunnelIdInput').value = settings.tunnelId || '';
+  if ($('#setupTunnelIdInput')) {
+    $('#setupTunnelIdInput').value = '';
+    $('#setupTunnelIdInput').placeholder = settings.tunnelId
+      ? '当前已保存 ' + maskTunnelId(settings.tunnelId) + '；如需更换请粘贴新 ID'
+      : 'tunnel_...';
+  }
+  $('#proxyModeSelect').value = settings.proxyMode || 'auto';
+  $('#proxyUrlInput').value = settings.proxyUrl || '';
+  $('#mcpPortInput').value = Number(settings.mcpPort || 18765);
+  $('#healthPortInput').value = Number(settings.healthPort || 18081);
+  $('#manualProxyField').hidden = $('#proxyModeSelect').value !== 'manual';
   applyTheme(settings.theme);
-  restoreGuideProgress(settings.guideProgress || {});
-  renderProxyControls();
-  state.initializedForms = true;
+  state.formsReady = true;
 }
 
-function renderSnapshot(snapshot, options = {}) {
-  state.snapshot = snapshot;
-  applyFormValues(snapshot, options.forceForms);
-  const { settings, secrets, environment, status } = snapshot;
-  state.selectedWorkspace = settings.workspace;
-  renderMigrationNotice(settings);
-  const ready = status.fullyReady;
-  const connectionRunning = status.tunnelRunning;
-  const connectionLabel = '连接通道';
 
-  $('#sideRuntimeText').textContent = ready ? '服务已就绪' : status.runtimeRunning ? `等待 ${connectionLabel}` : '服务未运行';
-  setDot($('#sideRuntimeDot'), ready ? 'ready' : status.runtimeRunning ? 'warn' : 'error');
-  $('#sideWorkspace').textContent = settings.workspace || '尚未选择工作目录';
-  $('#sideMcp').textContent = status.runtimeRunning ? '正常' : '停止';
-  $('#sideTunnel').textContent = connectionRunning ? '已连' : '断开';
+function renderSetupGuide(snapshot = state.snapshot) {
+  if (!snapshot || !$('#setupOverallState')) return;
+  const settings = snapshot.settings || {};
+  const status = snapshot.status || {};
+  const attachment = snapshot.chat?.mcpAttachment || {};
+  const hasKey = Boolean(snapshot.secrets?.runtimeApiKey);
+  const hasTunnel = Boolean(settings.tunnelId);
+  const workspaceReady = Boolean(settings.workspace);
+  const runtimeOk = Boolean(status.runtimeRunning);
+  const tunnelOk = Boolean(status.tunnelRunning && status.connectionRunning);
+  const attachmentState = attachmentHealth(attachment, tunnelOk);
+  const attachOk = attachmentState.ready;
+  const configured = hasKey && hasTunnel;
+  const servicesReady = runtimeOk && tunnelOk;
+  const prerequisitesReady = configured && workspaceReady;
+  const tunnelDisplay = maskTunnelId(settings.tunnelId);
 
-  $('#runtimeStatus').textContent = environment.python.installed ? '环境正常' : '运行时缺失';
-  $('#runtimeMeta').textContent = environment.python.version || '未找到内置 Python';
-  setDot($('#runtimeDot'), environment.python.installed ? 'ready' : 'error');
+  $('#setupApiKeyState').textContent = hasKey ? '已使用 Windows 安全存储保存' : '尚未保存';
+  $('#setupTunnelState').textContent = hasTunnel ? '已保存（ID 已脱敏）' : '尚未保存';
+  $('#setupTunnelEcho').textContent = tunnelDisplay || '尚未保存 Tunnel ID';
+  $('#setupPlatformState').textContent = configured ? '第 1 步完成' : '需要保存两项配置';
+  $('#setupPlatformState').className = 'soft-badge ' + (configured ? 'positive' : 'warning');
 
-  $('#mcpStatus').textContent = status.runtimeRunning ? '正常运行' : '未启动';
-  $('#mcpMeta').textContent = status.localMcpUrl;
-  setDot($('#mcpDot'), status.runtimeRunning ? 'ready' : 'error');
-  $('#tunnelStatus').textContent = connectionRunning
-    ? '已连接'
-    : '未连接';
-  $('#tunnelMeta').textContent = settings.tunnelId || '尚未填写连接通道 ID（Tunnel ID）';
-  setDot($('#tunnelDot'), connectionRunning ? 'ready' : 'warn');
-  $('#workspaceStatus').textContent = environment.workspace.exists ? '已授权' : '未选择';
-  $('#workspaceMeta').textContent = settings.workspace || '仅所选目录可被 MCP 访问';
-  setDot($('#workspaceDot'), environment.workspace.exists ? 'ready' : 'error');
-  $('#selectedWorkspace').textContent = settings.workspace || '尚未选择目录';
-  renderAuthorizedRoots(settings.authorizedRoots || []);
+  $('#setupWorkspaceState').textContent = workspaceReady ? '第 2 步完成' : '需要设置';
+  $('#setupWorkspaceState').className = 'soft-badge ' + (workspaceReady ? 'positive' : 'warning');
+  $('#setupWorkspacePath').textContent = settings.workspace || '尚未选择工作区';
 
-  $('#heroBadge').textContent = ready ? '全部服务运行正常' : '尚未完成部署';
-  $('#heroTitle').textContent = ready ? '网页编程工作区已经准备好' : '让网页聊天安全访问你的代码目录';
-  $('#heroText').textContent = ready
-    ? '当前通过本地工具协议（MCP）与 OpenAI 连接通道（Tunnel）运行，网页只可访问所选工作目录。'
-    : '选择一个工作目录并配置连接通道，然后由助手完成本地工具的启动、鉴权、健康检查和故障诊断。';
-  $('#heroStartButton').textContent = ready ? '重新部署' : '开始部署';
-  $('#topStartButton').textContent = ready ? '重新部署' : '一键启动';
+  $('#setupRuntimeStatus').textContent = runtimeOk ? '正常' : '未启动';
+  $('#setupTunnelStatus').textContent = tunnelOk ? '已连接' : status.tunnelRunning ? '等待上游' : '未启动';
+  $('#setupAttachmentStatus').textContent = attachOk ? '已就绪' : attachmentState.unavailable ? '未挂载' : '等待识别';
+  $('#setupAttachmentState').textContent = attachOk ? '已识别' : servicesReady ? '等待首次调用' : '等待服务';
+  $('#setupAttachmentState').className = 'soft-badge ' + (attachOk ? 'positive' : servicesReady ? 'neutral' : 'warning');
 
-  $('#runtimeKeyHint').textContent = secrets.runtimeApiKey ? '已使用 Windows 安全存储保存' : '尚未保存';
-  $('#runtimeKeyHint').style.color = secrets.runtimeApiKey ? 'var(--green)' : '';
-  $('#settingsKeyState').textContent = secrets.runtimeApiKey ? '已加密保存' : '尚未保存';
-  $('#guideLocalUrl').textContent = status.localMcpUrl;
-  $('#guideTunnelId').textContent = settings.tunnelId || '尚未填写';
-  renderEnvironment(environment);
-  renderDeploySummary();
-}
-
-function renderAuthorizedRoots(roots) {
-  const container = $('#authorizedRootsList');
-  if (!container) return;
-  container.replaceChildren();
-  if (!roots.length) {
-    const empty = document.createElement('span');
-    empty.className = 'task-muted';
-    empty.textContent = '尚未添加额外授权目录';
-    container.appendChild(empty);
-    return;
+  if (servicesReady) {
+    $('#setupServiceState').textContent = '服务已就绪';
+    $('#setupServiceState').className = 'soft-badge positive';
+  } else if (runtimeOk) {
+    $('#setupServiceState').textContent = '正在连接 Tunnel';
+    $('#setupServiceState').className = 'soft-badge warning';
+  } else if (prerequisitesReady) {
+    $('#setupServiceState').textContent = '可以启动';
+    $('#setupServiceState').className = 'soft-badge neutral';
+  } else {
+    $('#setupServiceState').textContent = '等待前置配置';
+    $('#setupServiceState').className = 'soft-badge warning';
   }
-  roots.forEach((root) => {
-    const row = document.createElement('div');
-    row.className = 'authorized-root-row';
-    const code = document.createElement('code');
-    code.textContent = root;
-    code.title = root;
-    const remove = document.createElement('button');
-    remove.type = 'button';
-    remove.className = 'danger-button';
-    remove.textContent = '移除';
-    remove.addEventListener('click', () => removeAuthorizedRoot(root));
-    row.append(code, remove);
-    container.appendChild(row);
-  });
-}
 
-function renderWorkspaceContext(context, guide = null) {
-  const instructions = context?.project_instructions || {};
-  const guideRoots = Array.isArray(guide?.project_instructions?.root_files) ? guide.project_instructions.root_files : [];
-  const instructionContents = new Map(guideRoots.filter((item) => item?.path).map((item) => [String(item.path).toLowerCase(), String(item.content || '')]));
-  const rootFiles = Array.isArray(instructions.root_files) ? instructions.root_files : [];
-  const nestedFiles = Array.isArray(instructions.nested_files) ? instructions.nested_files : [];
-  const instructionCount = rootFiles.length + nestedFiles.length;
-  $('#projectInstructionsStatus').textContent = instructionCount
-    ? `已检测 ${instructionCount} 个指令文件${nestedFiles.length ? `（含 ${nestedFiles.length} 个嵌套规则）` : ''}`
-    : '未检测到 AGENTS.md / CLAUDE.md';
-  setDot($('#projectInstructionsDot'), instructionCount ? 'ready' : 'warn');
+  $('#setupStartServices').disabled = !prerequisitesReady;
+  $('#setupStartServices').textContent = runtimeOk ? '重新启动服务' : '启动服务';
+  if (!configured) $('#setupStartHint').textContent = '请先完成第 1 步：保存 Tunnel ID 和 API Key';
+  else if (!workspaceReady) $('#setupStartHint').textContent = '请先完成第 2 步：添加 / 选择工作区';
+  else if (servicesReady) $('#setupStartHint').textContent = 'Runtime 与 Tunnel 已就绪，现在继续第 4、5 步';
+  else $('#setupStartHint').textContent = '前置配置完整，可以启动服务';
 
-  const project = context?.project || {};
-  const coreEntries = Array.isArray(context?.core_entries) ? context.core_entries : [];
-  const entryText = project.entrypoint || coreEntries.slice(0, 4).join('、') || `${project.type || 'unknown'} 项目`;
-  $('#projectEntrypointStatus').textContent = entryText;
-  setDot($('#projectEntrypointDot'), entryText ? 'ready' : 'warn');
-
-  const pressure = context?.context_pressure || {};
-  const pressureText = `${pressure.tool_calls || 0} 次工具调用 · ${pressure.files_read || 0} 个文件 · ${pressure.response_megabytes || 0} MB 输出`;
-  $('#contextPressureStatus').textContent = pressure.recommend_new_chat ? `${pressureText} · 建议新建会话` : pressureText;
-  setDot($('#contextPressureDot'), pressure.level === 'high' ? 'error' : pressure.level === 'elevated' ? 'warn' : 'ready');
-
-  const list = $('#projectInstructionsList');
-  list.replaceChildren();
-  const items = [
-    ...rootFiles.map((item) => ({ path: item?.path, kind: '根目录规则', truncated: item?.truncated })),
-    ...nestedFiles.map((path) => ({ path, kind: '嵌套规则', truncated: false }))
-  ].filter((item) => item.path);
-  if (!items.length) {
-    const empty = document.createElement('span');
-    empty.className = 'task-muted';
-    empty.textContent = '当前项目没有 AGENTS.md / CLAUDE.md；本地工具将使用内置工作流规则。';
-    list.appendChild(empty);
-    return;
+  if (attachOk && servicesReady) {
+    $('#setupOverallState').textContent = '配置完成';
+    $('#setupOverallState').className = 'soft-badge positive';
+  } else if (servicesReady) {
+    $('#setupOverallState').textContent = '服务已就绪 · 继续 ChatGPT 配置';
+    $('#setupOverallState').className = 'soft-badge positive';
+  } else if (prerequisitesReady) {
+    $('#setupOverallState').textContent = '下一步：启动服务';
+    $('#setupOverallState').className = 'soft-badge neutral';
+  } else if (configured) {
+    $('#setupOverallState').textContent = '下一步：设置工作区';
+    $('#setupOverallState').className = 'soft-badge neutral';
+  } else {
+    $('#setupOverallState').textContent = '先完成 Tunnel / API Key';
+    $('#setupOverallState').className = 'soft-badge warning';
   }
-  items.forEach((item) => {
-    const content = instructionContents.get(String(item.path).toLowerCase()) || '';
-    if (content) {
-      const details = document.createElement('details');
-      details.className = 'instruction-details';
-      const summary = document.createElement('summary');
-      summary.textContent = `${item.path} · ${item.kind}${item.truncated ? ' · 内容已截断' : ''}`;
-      const pre = document.createElement('pre');
-      pre.textContent = content;
-      details.append(summary, pre);
-      list.appendChild(details);
-      return;
-    }
-    const row = document.createElement('div');
-    row.className = 'task-file';
-    const code = document.createElement('code'); code.textContent = item.path;
-    const meta = document.createElement('span'); meta.textContent = `${item.kind}${item.truncated ? ' · 内容已截断' : ''}`;
-    row.append(code, meta);
-    list.appendChild(row);
-  });
+
+  if (!$('#setupTunnelIdInput').value) {
+    $('#setupTunnelIdInput').placeholder = hasTunnel
+      ? '当前已保存 ' + tunnelDisplay + '；如需更换请粘贴新 ID'
+      : 'tunnel_...';
+  }
 }
 
-async function loadWorkspaceContext() {
-  if (!api.workspaceContext) return;
+async function saveSetupTunnelId() {
+  const tunnelId = $('#setupTunnelIdInput').value.trim();
+  if (!tunnelId) return toast('请先填写 Tunnel ID', '通常以 tunnel_ 开头。', 'error');
   try {
-    const [contextResult, guideResult] = await Promise.all([
-      api.workspaceContext(),
-      api.codingToolsGuide ? api.codingToolsGuide({ include_project_instructions: true }) : Promise.resolve(null)
-    ]);
-    const context = unwrap(contextResult);
-    const guide = guideResult?.ok ? guideResult.data : null;
-    renderWorkspaceContext(context, guide);
+    unwrap(await api.saveSettings({ tunnelId }));
+    $('#tunnelIdInput').value = tunnelId;
+    $('#setupTunnelIdInput').value = '';
+    toast('Tunnel ID 已保存');
+    await refreshSnapshot({ force: true, forceForms: true, quiet: true });
+    renderSetupGuide();
   } catch (error) {
-    $('#projectInstructionsStatus').textContent = '本地工具未运行或暂不可读';
-    $('#projectEntrypointStatus').textContent = '启动 MCP 后检测';
-    $('#contextPressureStatus').textContent = '暂无统计';
-    setDot($('#projectInstructionsDot'), 'warn');
-    setDot($('#projectEntrypointDot'), 'warn');
-    setDot($('#contextPressureDot'), 'warn');
+    toast('Tunnel ID 保存失败', error.message, 'error');
   }
 }
 
-async function loadCodingToolsGuide() {
-  if (!api.codingToolsGuide) return;
+async function saveSetupRuntimeKey() {
+  const value = $('#setupRuntimeKeyInput').value.trim();
+  if (!value) return toast('请先粘贴 API Key', '创建后请立即复制并保存。', 'error');
   try {
-    const guide = unwrap(await api.codingToolsGuide());
-    if (guide?.custom_instructions) $('#customInstructionsText').textContent = guide.custom_instructions;
-    $('#codingToolsGuideStatus').textContent = '已从本地工具读取最新使用规则。';
-  } catch {
-    $('#codingToolsGuideStatus').textContent = 'MCP 尚未运行，当前显示内置推荐版本；启动后可再次刷新。';
+    unwrap(await api.saveRuntimeKey(value));
+    $('#setupRuntimeKeyInput').value = '';
+    toast('API Key 已安全保存', '密钥已写入 Windows 安全存储。');
+    await refreshSnapshot({ force: true, forceForms: true, quiet: true });
+    renderSetupGuide();
+  } catch (error) {
+    toast('API Key 保存失败', error.message, 'error');
   }
 }
 
-async function addAuthorizedRoot() {
-  try {
-    const selected = unwrap(await api.chooseWorkspace());
-    if (!selected) return;
-    const current = state.snapshot?.settings?.authorizedRoots || [];
-    if (current.some((item) => item.toLowerCase() === selected.toLowerCase())) {
-      toast('目录已授权', selected);
-      return;
-    }
-    const snapshot = unwrap(await api.updateAuthorizedRoots([...current, selected]));
-    renderSnapshot(snapshot, { forceForms: true });
-    toast('已添加授权目录', selected);
-  } catch (error) { toast('授权目录失败', error.message, 'error'); }
+function serviceState(card, valueNode, metaNode, status, value, meta) {
+  const cardNode = $(card);
+  if (cardNode) {
+    cardNode.classList.remove('ready', 'warn', 'error');
+    if (status) cardNode.classList.add(status);
+  }
+  $(valueNode).textContent = value;
+  $(metaNode).textContent = meta || '—';
 }
 
-async function removeAuthorizedRoot(root) {
-  try {
-    const current = state.snapshot?.settings?.authorizedRoots || [];
-    const snapshot = unwrap(await api.updateAuthorizedRoots(current.filter((item) => item !== root)));
-    renderSnapshot(snapshot, { forceForms: true });
-    toast('已移除授权目录', root);
-  } catch (error) { toast('移除授权失败', error.message, 'error'); }
-}
-
-function renderEnvironment(environment) {
-  setDot($('#envPythonDot'), environment.python.installed ? 'ready' : 'error');
-  $('#envPythonText').textContent = environment.python.installed ? environment.python.version : '未找到 Python 3.11+';
-  const proxy = environment.proxy;
-  const sourceLabels = {
-    'auto-direct': '自动检测 · 直连', 'auto-system': '自动检测 · Windows 系统代理', 'auto-local': '自动检测 · 本地代理',
-    'system': 'Windows 系统代理', 'system-direct': '系统未设代理 · 直连', manual: '手动代理', direct: '强制直连',
-    'auto-unavailable': '未找到可用网络路径', error: '代理检测失败'
-  };
-  setDot($('#envProxyDot'), proxy.reachable ? 'ready' : 'error');
-  $('#envProxyText').textContent = `${sourceLabels[proxy.source] || '网络检测'}${proxy.url ? ` · ${proxy.url}` : ''}`;
-  $('#proxyHint').textContent = proxy.reachable ? '当前网络路径已通过实际连通性验证。' : '当前路径未通过验证，可重新检测或选择手动代理。';
-}
-
-function renderProxyControls() {
-  const manual = $('#proxyModeSelect').value === 'manual';
-  $('#manualProxyField').classList.toggle('disabled', !manual);
-  $('#proxyUrlInput').disabled = !manual;
-}
-
-function renderDeploySummary() {
-  const snapshot = state.snapshot;
+function renderSnapshot(snapshot, forceForms = false) {
   if (!snapshot) return;
-  const missing = [];
-  const workspace = state.selectedWorkspace || snapshot.settings.workspace;
-  const tunnelId = $('#tunnelIdInput').value.trim();
-  if (!workspace) missing.push('工作目录');
-  if (!tunnelId) missing.push('Tunnel ID');
-  if (!snapshot.secrets.runtimeApiKey && !$('#runtimeKeyInput').value.trim()) missing.push('Runtime API Key');
-  $('#deploySummary').textContent = missing.length
-    ? `还需要填写：${missing.join('、')}`
-    : '官方 MCP 已完成必要配置。';
+  state.snapshot = snapshot;
+  publishManagerState();
+  populateForms(snapshot, forceForms);
+
+  const appVersion = String(snapshot.appVersion || '').trim();
+  const brandVersion = $('#brandVersion');
+  const aboutVersion = $('#aboutVersion');
+  if (brandVersion) {
+    brandVersion.hidden = !appVersion;
+    brandVersion.textContent = appVersion ? `· ${appVersion}` : '';
+  }
+  if (aboutVersion) {
+    aboutVersion.hidden = !appVersion;
+    aboutVersion.textContent = appVersion ? `v${appVersion}` : '';
+  }
+
+  const settings = snapshot.settings || {};
+  const status = snapshot.status || {};
+  const environment = snapshot.environment || {};
+  const chat = snapshot.chat || {};
+  const attachment = chat.mcpAttachment || {};
+  const workspace = settings.workspace || '';
+  const runtimeOk = Boolean(status.runtimeRunning);
+  const tunnelOk = Boolean(status.tunnelRunning);
+  const upstreamOk = Boolean(status.connectionRunning);
+  const attachmentState = attachmentHealth(attachment, upstreamOk);
+  const attachmentOk = attachmentState.ready;
+  const canonicalService = managerServiceState();
+  const fullyReady = canonicalService.fullyReady;
+
+  $('#sideRuntimeText').textContent = fullyReady ? '全部就绪' : runtimeOk ? '服务运行中' : '服务未运行';
+  setDot($('#sideRuntimeDot'), fullyReady ? 'ready' : runtimeOk && upstreamOk ? 'ready' : runtimeOk ? 'warn' : 'error');
+  $('#sideWorkspace').textContent = workspace || '尚未选择工作区';
+  $('#sideWorkspace').title = workspace;
+  $('#sideMcp').textContent = runtimeOk ? '正常' : '停止';
+  $('#sideTunnel').textContent = upstreamOk ? '已连' : tunnelOk ? '等待' : '断开';
+
+  $('#overallTitle').textContent = canonicalService.title;
+  $('#overallMeta').textContent = workspace && canonicalService.fullyReady
+    ? `${baseName(workspace)} · ${canonicalService.message}`
+    : canonicalService.message;
+  $('#overallOrb').className = `hero-orb ${canonicalService.tone === 'positive' ? 'ready' : canonicalService.tone === 'danger' ? 'error' : 'warn'}`;
+
+  $('#runtimeActionButton').textContent = runtimeOk ? '重启服务' : '启动服务';
+  $('#statusRuntimeButton').textContent = runtimeOk ? '重启服务' : '启动服务';
+
+  serviceState('#serviceWorkspace', '#serviceWorkspaceValue', '#serviceWorkspaceMeta',
+    workspace ? 'ready' : 'warn', workspace ? baseName(workspace) : '未选择', workspace || '打开工作区中心选择项目');
+  serviceState('#serviceRuntime', '#serviceRuntimeValue', '#serviceRuntimeMeta',
+    runtimeOk ? 'ready' : 'error', runtimeOk ? '正常' : '未运行', status.localMcpUrl || `端口 ${settings.mcpPort || 18765}`);
+  serviceState('#serviceTunnel', '#serviceTunnelValue', '#serviceTunnelMeta',
+    tunnelOk ? 'ready' : 'error', tunnelOk ? '运行中' : '未连接', status.tunnelDiagnostics?.tunnelName || maskTunnelId(settings.tunnelId) || '尚未配置 Tunnel ID');
+  serviceState('#serviceUpstream', '#serviceUpstreamValue', '#serviceUpstreamMeta',
+    upstreamOk ? 'ready' : tunnelOk ? 'warn' : 'error', upstreamOk ? '可达' : tunnelOk ? '等待上游' : '不可用',
+    status.tunnelDiagnostics?.mainChannelReady ? 'main channel 正常' : textOr(status.tunnelDiagnostics?.mainChannelProbe, 'Control Plane'));
+  serviceState('#serviceAttachment', '#serviceAttachmentValue', '#serviceAttachmentMeta',
+    attachmentState.ready ? 'ready' : upstreamOk ? 'warn' : 'error',
+    attachmentState.label,
+    attachmentState.meta);
+
+  $('#runtimeKeyHint').textContent = snapshot.secrets?.runtimeApiKey ? '已使用 Windows 安全存储保存' : '尚未保存 Runtime API Key';
+  $('#settingsKeyState').textContent = snapshot.secrets?.runtimeApiKey ? '已加密保存' : '尚未保存';
+  const proxy = environment.proxy || {};
+  $('#proxyStatus').textContent = proxy.reachable === true ? (proxy.resolvedUrl || proxy.source || '当前网络路径可用') : proxy.reachable === false ? '当前网络路径不可用' : '等待检测';
+  if (!workspace || !snapshot.secrets?.runtimeApiKey || !settings.tunnelId) $('#connectionSettings').open = true;
+
+  renderDiagnostics(snapshot);
+  renderWorkspaceSummary();
+  syncStartupFromSnapshot(snapshot);
+  $('#startupPanel').hidden = !managerServiceState().showStartup;
+  renderSetupGuide();
 }
 
 async function refreshSnapshot(options = {}) {
   try {
-    const snapshot = unwrap(await api.snapshot());
-    renderSnapshot(snapshot, options);
+    const snapshot = unwrap(await api.snapshot({ force: Boolean(options.force) }));
+    renderSnapshot(snapshot, Boolean(options.forceForms));
     return snapshot;
   } catch (error) {
-    toast('状态检测失败', error.message, 'error');
+    $('#sideRuntimeText').textContent = '状态读取失败';
+    setDot($('#sideRuntimeDot'), 'error');
+    if (!options.quiet) toast('状态读取失败', error.message, 'error');
     return null;
   }
 }
 
-function collectSettings() {
-  return {
-    workspace: state.selectedWorkspace,
-    permissionMode: $('input[name="permission"]:checked')?.value || 'safe',
-    toolMode: 'smart',
-    mcpPort: Number($('#mcpPortInput').value),
-    healthPort: Number($('#healthPortInput').value),
-    proxyMode: $('#proxyModeSelect').value,
-    proxyUrl: $('#proxyUrlInput').value.trim(),
-    tunnelId: $('#tunnelIdInput').value.trim(),
-    theme: $('#themeSelect').value,
-    startWithWindows: $('#startWithWindowsToggle').checked,
-    keepRunningOnClose: $('#keepRunningToggle').checked,
-    autoStartServices: $('#autoStartToggle').checked,
-    progressReportSeconds: Number($('#progressReportSelect').value || 90),
-    taskNotifications: $('#taskNotificationsToggle').checked,
-    taskNotificationOnlyWhenUnfocused: false,
-    taskNotificationSound: $('#taskNotificationSoundToggle').checked,
-    taskNotificationMinSeconds: 0,
-    guideProgress: collectGuideProgress()
-  };
+async function refreshWorkspaceHub() {
+  try {
+    state.workspaceHub = unwrap(await api.workspaceHub());
+    renderWorkspaceSummary();
+    renderSetupGuide();
+    return state.workspaceHub;
+  } catch (error) {
+    if (state.currentPage === 'workspace') toast('工作区状态读取失败', error.message, 'error');
+    return null;
+  }
 }
 
-async function saveSettings(showToast = true) {
-  const saved = unwrap(await api.saveSettings(collectSettings()));
-  if (showToast) toast('设置已保存', '新的配置会在下一次部署时生效。');
-  if (state.snapshot) state.snapshot.settings = saved;
-  return saved;
+function renderWorkspaceSummary() {
+  const hub = state.workspaceHub;
+  const snapshot = state.snapshot;
+  const current = hub?.activeWorkspace || snapshot?.settings?.workspace || '';
+  $('#workspacePageName').textContent = current ? baseName(current) : '尚未选择';
+  $('#workspacePagePath').textContent = current || '—';
+  $('#workspacePagePath').title = current;
+  const active = (hub?.workspaces || []).find((item) => item.active);
+  $('#workspacePageHealth').textContent = !current ? '未配置' : active?.status === 'ready' || !active ? '可用' : active.status === 'missing' ? '目录不存在' : '需要检查';
+  $('#workspacePageHealth').className = `soft-badge ${current && (active?.status === 'ready' || !active) ? 'positive' : 'warning'}`;
+  $('#recentWorkspaceCount').textContent = String((hub?.workspaces || []).length);
+  $('#authorizedRootCount').textContent = String((hub?.authorizedRoots || []).length);
+  $('#invalidWorkspaceCount').textContent = String(Number(hub?.invalidCount || 0) + Number(hub?.invalidAuthorizedRootCount || 0));
+  publishManagerState();
+
+  const target = $('#workspaceAuthPreview');
+  target.replaceChildren();
+  const roots = hub?.authorizedRootDetails || [];
+  if (!roots.length) {
+    const empty = document.createElement('div');
+    empty.className = 'workspace-auth-empty';
+    empty.textContent = '当前没有额外授权目录。';
+    target.appendChild(empty);
+    return;
+  }
+  for (const item of roots.slice(0, 8)) {
+    const row = document.createElement('div');
+    row.className = `workspace-auth-row ${item.status || ''}`;
+    const copy = document.createElement('div');
+    const name = document.createElement('b'); name.textContent = item.name || baseName(item.path);
+    const code = document.createElement('code'); code.textContent = item.path;
+    copy.append(name, code);
+    const status = document.createElement('span');
+    status.textContent = item.status === 'ready' ? '已授权' : item.status === 'missing' ? '目录不存在' : item.status === 'unavailable' ? '不可访问' : '需要检查';
+    row.append(copy, status);
+    target.appendChild(row);
+  }
 }
 
-async function saveKeyIfPresent() {
-  const key = $('#runtimeKeyInput').value.trim();
-  if (!key) return false;
-  unwrap(await api.saveRuntimeKey(key));
-  $('#runtimeKeyInput').value = '';
+function resetStartup() {
+  state.startup.active = true;
+  state.startup.startedAt = Date.now();
+  state.startup.current = 'config';
+  state.startup.message = '正在开始服务启动流程…';
+  state.startup.failed = false;
+  state.startup.stages = Object.fromEntries(startupStages.map((item) => [item.id, { status: 'waiting', startedAt: 0, endedAt: 0, message: '' }]));
+  state.startup.stages.config = { status: 'running', startedAt: Date.now(), endedAt: 0, message: '正在检查必要配置' };
+  renderStartup();
+}
+
+function setStartupStage(stageId, status, message = '') {
+  const stage = state.startup.stages[stageId];
+  if (!stage) return;
+  if (status === 'running' && !stage.startedAt) stage.startedAt = Date.now();
+  if (['done', 'failed'].includes(status) && !stage.endedAt) stage.endedAt = Date.now();
+  stage.status = status;
+  if (message) stage.message = message;
+}
+
+function startupStageIndex(stageId) {
+  return startupStages.findIndex((item) => item.id === stageId);
+}
+
+function startupPrerequisitesDone(stageId) {
+  const index = startupStageIndex(stageId);
+  if (index <= 0) return true;
+  return startupStages.slice(0, index).every((item) => state.startup.stages[item.id]?.status === 'done');
+}
+
+function applyStartupProgress(stageId, status, message = '') {
+  if (!stageId || !state.startup.stages[stageId]) return false;
+  if (!startupPrerequisitesDone(stageId)) return false;
+  if (status === 'running') {
+    const current = state.startup.stages[stageId];
+    if (current.status !== 'done') setStartupStage(stageId, 'running', message);
+  } else if (status === 'done') {
+    setStartupStage(stageId, 'done', message);
+  }
+  state.startup.current = stageId;
   return true;
 }
 
-function updateProgress(payload) {
-  const percent = Math.max(0, Math.min(100, Number(payload.percent || 0)));
-  $('#progressPercent').textContent = `${percent}%`;
-  $('#progressBar').style.width = `${percent}%`;
-  $('#progressRing').style.setProperty('--value', `${percent * 3.6}deg`);
-  $('#progressTitle').textContent = payload.step === 'failed' ? '部署失败' : payload.step === 'complete' ? '部署完成' : '正在执行部署任务';
-  $('#progressMessage').textContent = payload.message;
-  $('#progressBadge').textContent = payload.step === 'failed' ? '需要处理' : payload.step === 'complete' ? '已完成' : '运行中';
-  if (payload.step === 'failed') toast('部署失败', payload.message, 'error');
+function handleProgress(payload) {
+  if (!payload) return;
+  const ignored = ['stopped', 'stop-connection', 'stop-runtime'];
+  if (!state.startup.active && !ignored.includes(payload.step) && payload.step !== 'complete') resetStartup();
+  state.startup.message = payload.message || '';
+
+  if (payload.step === 'failed') {
+    state.startup.failed = true;
+    state.startup.active = false;
+    const current = state.startup.current || startupStages.find((item) => state.startup.stages[item.id]?.status !== 'done')?.id || 'config';
+    setStartupStage(current, 'failed', payload.message || '启动失败');
+    const failedIndex = startupStageIndex(current);
+    startupStages.slice(failedIndex + 1).forEach((item) => setStartupStage(item.id, 'waiting', '等待前置步骤'));
+  } else if (payload.step === 'complete') {
+    state.startup.active = false;
+    state.startup.current = '';
+  } else {
+    const transition = progressStageMap[payload.step];
+    if (transition) applyStartupProgress(transition.stage, transition.status, payload.message || '');
+  }
+
+  renderStartup();
+  if (payload.step === 'complete' || payload.step === 'failed') {
+    setTimeout(() => refreshSnapshot({ force: true, quiet: true }), 350);
+  }
+}
+
+function syncStartupFromSnapshot(snapshot) {
+  if (state.startup.active || state.startup.failed) {
+    renderStartup();
+    return;
+  }
+
+  const settings = snapshot.settings || {};
+  const status = snapshot.status || {};
+  const env = snapshot.environment || {};
+  const attachment = snapshot.chat?.mcpAttachment || {};
+  const configured = Boolean(settings.workspace && snapshot.secrets?.runtimeApiKey && settings.tunnelId);
+  const environmentOk = env.python?.installed !== false && env.workspace?.exists !== false;
+  const runtimeAndMcpOk = Boolean(status.runtimeRunning);
+  const tunnelOk = Boolean(status.tunnelRunning);
+  const upstreamOk = Boolean(status.connectionRunning);
+  const attachmentState = attachmentHealth(attachment, upstreamOk);
+
+  const readiness = {
+    config: { ready: configured, done: '必要配置已就绪', wait: '需要补全配置' },
+    environment: { ready: environmentOk, done: '运行环境与网络检查通过', wait: '等待环境检查' },
+    runtime: { ready: runtimeAndMcpOk, done: 'Runtime 已启动', wait: '待启动' },
+    mcp: { ready: runtimeAndMcpOk, done: '本地 MCP 已通过健康检查', wait: '待验证' },
+    tunnel: { ready: tunnelOk, done: 'Tunnel 已启动', wait: '待启动' },
+    upstream: { ready: upstreamOk, done: 'OpenAI 通道可达', wait: '待验证' },
+    chat: { ready: attachmentState.ready, done: attachmentState.firstUsePending ? '页面可用，首次调用时确认挂载' : attachmentState.meta, wait: upstreamOk ? '首次调用时确认 MCP 挂载' : '等待 OpenAI 通道' }
+  };
+
+  let prefixReady = true;
+  let firstBlocked = '';
+  for (const item of startupStages) {
+    const probe = readiness[item.id];
+    const done = prefixReady && Boolean(probe.ready);
+    if (done) {
+      setStartupStage(item.id, 'done', probe.done);
+    } else {
+      if (!firstBlocked) firstBlocked = item.label;
+      prefixReady = false;
+      const stage = state.startup.stages[item.id];
+      stage.startedAt = 0;
+      stage.endedAt = 0;
+      setStartupStage(item.id, 'waiting', probe.wait);
+    }
+  }
+  const allDone = startupStages.every((item) => state.startup.stages[item.id]?.status === 'done');
+  state.startup.current = '';
+  state.startup.message = allDone
+    ? '服务链路已按顺序全部验证完成。'
+    : `当前按顺序验证服务链路；下一项：${firstBlocked || '等待状态刷新'}。`;
+  renderStartup();
+}
+
+function renderStartup() {
+  const target = $('#startupStageList');
+  target.replaceChildren();
+  for (const item of startupStages) {
+    const value = state.startup.stages[item.id] || {};
+    const row = document.createElement('div');
+    row.className = `stage-row ${value.status || 'waiting'}`;
+    const icon = document.createElement('i');
+    icon.textContent = value.status === 'done' ? '✓' : value.status === 'failed' ? '!' : value.status === 'running' ? '•' : '○';
+    const copy = document.createElement('div');
+    const title = document.createElement('b'); title.textContent = item.label;
+    const detail = document.createElement('small'); detail.textContent = value.message || (value.status === 'waiting' ? '待执行' : value.status === 'done' ? '已完成' : value.status === 'running' ? '进行中' : '失败');
+    copy.append(title, detail);
+    const time = document.createElement('span');
+    if (value.startedAt) {
+      const end = value.endedAt || Date.now();
+      time.textContent = formatDuration(end - value.startedAt);
+    } else time.textContent = '';
+    row.append(icon, copy, time);
+    target.appendChild(row);
+  }
+
+  $('#startupMessage').textContent = state.startup.message || '尚未开始新的启动流程。';
+  if (state.startup.failed) {
+    $('#startupBadge').textContent = '失败';
+    $('#startupBadge').className = 'soft-badge danger';
+  } else if (state.startup.active) {
+    $('#startupBadge').textContent = '进行中';
+    $('#startupBadge').className = 'soft-badge warning';
+  } else {
+    const allDone = startupStages.every((item) => state.startup.stages[item.id]?.status === 'done');
+    $('#startupBadge').textContent = allDone ? '全部就绪' : '实时状态';
+    $('#startupBadge').className = `soft-badge ${allDone ? 'positive' : 'neutral'}`;
+  }
+  $('#startupPanel').hidden = !managerServiceState().showStartup;
+  publishManagerState();
 }
 
 async function runRuntime(action) {
-  setBusy(true, false);
-  navigate('overview');
+  resetStartup();
+  const buttons = [$('#runtimeActionButton'), $('#statusRuntimeButton')].filter(Boolean);
+  buttons.forEach((button) => { button.disabled = true; });
   try {
-    const result = unwrap(await api[action]());
-    renderSnapshot(result, { forceForms: true });
-    toast(action === 'stop' ? '服务已停止' : '操作完成', action === 'stop' ? '本地工具与连接通道已安全停止。' : '本地工具与连接通道已通过健康检查。');
+    const fn = action === 'start' ? api.start : action === 'stop' ? api.stop : api.restart;
+    unwrap(await fn());
+    await Promise.all([refreshSnapshot({ force: true, quiet: true }), refreshWorkspaceHub(), refreshTaskRuntime()]);
+    toast(action === 'start' ? '服务已启动' : action === 'stop' ? '服务已停止' : '服务已重启');
   } catch (error) {
-    toast('操作失败', error.message, 'error');
-    if (/工作目录|Runtime API Key|Tunnel ID|Python/.test(error.message)) navigate('deploy');
+    state.startup.active = false;
+    state.startup.failed = true;
+    state.startup.message = error.message;
+    const current = state.startup.current || 'config';
+    setStartupStage(current, 'failed', error.message);
+    renderStartup();
+    toast('启动流程失败', error.message, 'error');
   } finally {
-    setBusy(false);
-    await refreshSnapshot();
+    buttons.forEach((button) => { button.disabled = false; });
   }
 }
 
-async function deployNow() {
-  setBusy(true, false);
+function taskStatusView(task, operation, runtimeLayers = null) {
+  const view = window.assistantState.describe(task, operation, null, Date.now(), !state.taskRuntimeError, null, Boolean(state.taskRuntimeError), runtimeLayers);
+  return [window.assistantState.labelFor(view), window.assistantState.toneFor(view), view];
+}
+
+function worktreeHasPendingChanges(worktree) {
+  if (!worktree || worktree.exists === false) return false;
+  const status = String(worktree.status || '').toLowerCase();
+  if (status.includes('conflict')) return true;
+  if (worktree.has_unapplied_changes === true) return true;
+  if (Number(worktree.changed_count || 0) > 0) return true;
+  if (worktree.clean === true && Number(worktree.changed_count || 0) === 0) return false;
+  return false;
+}
+
+function renderTaskRuntime() {
+  const runtime = state.taskRuntime;
+  const task = runtime?.state || null;
+  const operation = Array.isArray(runtime?.operations)
+    ? runtime.operations.filter((item) => ['running', 'queued'].includes(String(item?.status || ''))).slice(-1)[0]
+    : null;
+  const unified = runtime?.runtime_layers?.user || {};
+  let [label, tone, assistantView] = taskStatusView(task, operation, runtime?.runtime_layers);
+  if (state.taskRuntimeError && task) {
+    label = `${label} · 状态待确认`;
+    tone = 'warning';
+  }
+  $('#taskBadge').textContent = label;
+  $('#taskBadge').className = `soft-badge ${tone}`;
+
+  if (!task || (!task.task_id && label === '空闲')) {
+    $('#taskEmpty').hidden = false;
+    $('#taskContent').hidden = true;
+    return;
+  }
+  $('#taskEmpty').hidden = true;
+  $('#taskContent').hidden = false;
+  $('#taskObjective').textContent = textOr(task.objective, '未命名任务');
+  $('#taskCurrentStep').textContent = textOr(task.current_step || task.next_step, label);
+  const created = Date.parse(task.created_at || task.updated_at || '');
+  $('#taskElapsed').textContent = Number.isFinite(created) ? formatDuration(Date.now() - created) : '—';
+  const lastActivity = relativeTime(task.last_heartbeat_at || task.updated_at);
+  $('#taskActivity').textContent = state.taskRuntimeError
+    ? `状态读取暂时失败，保留上次进度 · ${lastActivity}`
+    : assistantView?.userState === 'stalled'
+      ? `${Math.max(0, Number(unified.heartbeat_age_seconds || 0))} 秒无活动，建议查看诊断`
+      : lastActivity;
+  $('#taskId').textContent = textOr(task.task_id);
+  $('#taskRunId').textContent = textOr(task.run_id);
+  $('#taskOperation').textContent = textOr(operation?.operation_id || runtime?.background_operation?.operation_id);
+
+  const command = task.current_command && typeof task.current_command === 'object' ? task.current_command : null;
+  $('#taskCommandRow').hidden = !command || String(command.status || '') !== 'running';
+  if (command) $('#taskCommand').textContent = command.command || command.cmd || command.kind || '正在执行命令';
+
+  const failure = String(task.failure || '').trim();
+  $('#taskFailureRow').hidden = !failure;
+  $('#taskFailure').textContent = failure || '—';
+}
+
+async function refreshTaskRuntime() {
   try {
-    await saveKeyIfPresent();
-    await saveSettings(false);
-    navigate('overview');
-    const result = unwrap(await api.start());
-    renderSnapshot(result, { forceForms: true });
-    toast('部署完成', '现在可以按照指导页面在 ChatGPT 中创建或测试 MCP。');
+    state.taskRuntime = unwrap(await api.taskRuntime({ detail: 'full' }));
+    state.taskRuntimeError = null;
+    publishManagerState();
+    renderTaskRuntime();
+    await refreshWorktrees();
   } catch (error) {
-    toast('部署失败', error.message, 'error');
-  } finally {
-    setBusy(false);
-    await refreshSnapshot();
-  }
-}
-
-async function chooseWorkspace() {
-  try {
-    const selected = unwrap(await api.chooseWorkspace());
-    if (!selected) return;
-    state.selectedWorkspace = selected;
-    $('#selectedWorkspace').textContent = selected;
-    renderDeploySummary();
-    toast('正在切换工作目录', 'MCP 会在后台热切换目录，ChatGPT 与 Tunnel 不会关闭。');
-    const switched = unwrap(await api.switchWorkspace(selected));
-    renderSnapshot(switched, { forceForms: true });
-    await loadWorkspaceContext();
-    toast('工作目录已切换', selected);
-  } catch (error) { toast('无法选择目录', error.message, 'error'); }
-}
-
-async function copyText(text) {
-  try { await navigator.clipboard.writeText(text); toast('已复制', text.length > 70 ? '内容已复制到剪贴板。' : text); }
-  catch { toast('复制失败', '请手动选择并复制。', 'error'); }
-}
-
-function collectGuideProgress() {
-  return Object.fromEntries($$('[data-guide-check]').map((input) => [input.dataset.guideCheck, input.checked]));
-}
-
-function restoreGuideProgress(progress) {
-  $$('[data-guide-check]').forEach((input) => { input.checked = Boolean(progress[input.dataset.guideCheck]); });
-  renderGuideProgress();
-}
-
-function renderGuideProgress() {
-  const checks = $$('[data-guide-check]');
-  const done = checks.filter((input) => input.checked).length;
-  const percent = Math.round((done / checks.length) * 100);
-  $('#guideProgressPercent').textContent = `${percent}%`;
-  $('#guideProgressBar').style.width = `${percent}%`;
-  checks.forEach((input, index) => {
-    input.closest('.guide-step').classList.toggle('done', input.checked);
-    $$('#guideChecklist li')[index]?.classList.toggle('done', input.checked);
-  });
-}
-
-function appendBuildOutput(text) {
-  const consoleElement = $('#buildConsole');
-  const next = `${consoleElement.textContent === '尚未执行构建验证。' ? '' : consoleElement.textContent}${text}`;
-  consoleElement.textContent = next.slice(-60000);
-  consoleElement.scrollTop = consoleElement.scrollHeight;
-}
-
-function applyBuildProject(project) {
-  $('#buildProjectType').textContent = `${projectTypeLabel(project.type)} · ${textOr(project.name)}`;
-  $('#buildTestCommand').value = project.testCommand || '';
-  $('#buildCommand').value = project.buildCommand || '';
-  $('#buildArtifacts').value = (project.artifacts || []).join(', ');
-  $('#buildPlanProject').textContent = `${textOr(project.name)} · ${projectTypeLabel(project.type)}`;
-  $('#buildPlanTest').textContent = project.testCommand ? `自动使用：${project.testCommand}` : '未检测到可用测试；不会盲目执行';
-  $('#buildPlanBuild').textContent = project.buildCommand ? `自动使用：${project.buildCommand}` : '未检测到可用构建命令';
-  $('#buildPlanArtifacts').textContent = (project.artifacts || []).length ? (project.artifacts || []).join('、') : '自动检查项目产物';
-}
-
-async function inspectBuild() {
-  try { applyBuildProject(unwrap(await api.inspectBuild())); }
-  catch (error) { toast('项目识别失败', error.message, 'error'); }
-}
-
-function renderBuildReport(report) {
-  $('#buildReportStatus').textContent = report.overallStatus === 'passed' ? '验证通过' : '验证失败';
-  const container = $('#buildReport'); container.replaceChildren();
-  const summary = document.createElement('div'); summary.className = `build-report-summary ${report.overallStatus}`;
-  summary.textContent = `${textOr(report.project?.name)} · ${projectTypeLabel(report.project?.type)} · v${textOr(report.project?.version)} · 测试${statusLabel(report.testResult?.status)} · 构建${statusLabel(report.buildResult?.status)}`;
-  container.append(summary);
-  (report.artifacts || []).forEach((artifact) => {
-    const row = document.createElement('div'); row.className = 'build-report-artifact';
-    const name = document.createElement('b'); name.textContent = textOr(artifact.path);
-    const size = document.createElement('span'); size.textContent = `${Number(artifact.size || 0).toLocaleString()} bytes`;
-    const hash = document.createElement('code'); hash.textContent = textOr(artifact.sha256);
-    row.append(name, size, hash); container.append(row);
-  });
-  if (!(report.artifacts || []).length) {
-    const empty = document.createElement('span'); empty.className = 'task-muted'; empty.textContent = '未找到构建产物。'; container.append(empty);
-  }
-}
-
-async function runBuildVerification() {
-  $('#buildConsole').textContent = '';
-  $('#buildStatus').textContent = '正在执行';
-  $('#runBuild').disabled = true;
-  try {
-    const options = {
-      testCommand: $('#buildTestCommand').value.trim(),
-      buildCommand: $('#buildCommand').value.trim(),
-      artifacts: $('#buildArtifacts').value.split(',').map((item) => item.trim()).filter(Boolean),
-      runTests: $('#buildRunTests').checked,
-      runBuild: $('#buildRunBuild').checked
+    state.taskRuntimeError = {
+      message: String(error?.message || '任务状态读取失败'),
+      at: Date.now()
     };
-    const report = unwrap(await api.runBuild(options));
-    renderBuildReport(report);
-    $('#buildStatus').textContent = report.overallStatus === 'passed' ? '已通过' : '未通过';
-    toast(report.overallStatus === 'passed' ? '构建验证通过' : '构建验证未通过', `${report.artifacts?.length || 0} 个产物已校验`, report.overallStatus === 'passed' ? 'success' : 'error');
+    renderTaskRuntime();
+    if (!state.taskRuntime) $('#worktreePanel').hidden = true;
+  }
+}
+
+function unresolvedWorktree() {
+  const task = state.taskRuntime?.state || {};
+  const terminal = ['completed', 'failed', 'stopped', 'paused', 'waiting'].includes(String(task.status || ''))
+    || ['completed', 'failed', 'cancelled', 'needs_user', 'waiting_user'].includes(String(task.lifecycle_state || ''));
+  const active = state.taskRuntime?.active_worktree;
+  if (active && terminal && worktreeHasPendingChanges(active)) return active;
+  return (state.worktrees || []).find((item) =>
+    !['applied', 'discarded', 'cleaned', 'removed'].includes(String(item?.status || '').toLowerCase())
+    && terminal
+    && worktreeHasPendingChanges(item)
+  ) || null;
+}
+
+function renderWorktree() {
+  const worktree = unresolvedWorktree();
+  state.activeWorktree = worktree;
+  $('#worktreePanel').hidden = !worktree;
+  if (!worktree) {
+    $('#worktreeDiff').hidden = true;
+    $('#worktreeDiff').textContent = '';
+    return;
+  }
+  const task = state.taskRuntime?.state || {};
+  $('#worktreeObjective').textContent = textOr(task.objective || worktree.objective, '隔离任务');
+  $('#worktreePath').textContent = textOr(worktree.path);
+  $('#worktreePath').title = textOr(worktree.path);
+  $('#worktreeSummary').textContent = String(worktree.status || '').toLowerCase().includes('conflict')
+    ? '应用隔离修改时检测到冲突，需要先查看 Diff 再决定。'
+    : '任务留下了尚未应用回主工作区的隔离修改。';
+}
+
+async function refreshWorktrees() {
+  try {
+    const payload = unwrap(await api.taskWorktrees());
+    state.worktrees = Array.isArray(payload?.worktrees) ? payload.worktrees : [];
+    renderWorktree();
+  } catch {
+    state.worktrees = [];
+    renderWorktree();
+  }
+}
+
+async function viewWorktreeDiff() {
+  const worktree = state.activeWorktree;
+  if (!worktree) return;
+  try {
+    const payload = unwrap(await api.taskWorktreeDiff(worktree.run_id || state.taskRuntime?.state?.run_id || ''));
+    const diff = payload?.worktree_diff?.diff || payload?.worktree_diff?.patch || payload?.diff || '没有可显示的文本差异。';
+    $('#worktreeDiff').textContent = diff;
+    $('#worktreeDiff').hidden = false;
   } catch (error) {
-    $('#buildStatus').textContent = '执行失败'; appendBuildOutput(`\n${error.message}\n`); toast('构建验证失败', error.message, 'error');
-  } finally { $('#runBuild').disabled = false; }
+    toast('读取隔离修改失败', error.message, 'error');
+  }
 }
 
-function renderHealth(report) {
-  $('#healthSummary').textContent = report.healthy ? '全部正常' : '需要处理';
-  const container = $('#healthList'); container.replaceChildren();
-  (report.checks || []).forEach((check) => {
-    const row = document.createElement('div'); row.className = `health-item ${check.ok ? 'passed' : 'failed'}`;
-    const mark = document.createElement('i'); mark.textContent = check.ok ? '✓' : '!';
-    const copy = document.createElement('div'); const title = document.createElement('b'); title.textContent = check.label; const detail = document.createElement('small'); detail.textContent = check.detail; copy.append(title, detail);
-    const status = document.createElement('span'); status.textContent = check.ok ? '正常' : '待处理'; row.append(mark, copy, status); container.append(row);
-  });
-  (report.actions || []).forEach((action) => {
-    const row = document.createElement('div'); row.className = 'health-item passed';
-    const mark = document.createElement('i'); mark.textContent = '↻';
-    const copy = document.createElement('div'); const title = document.createElement('b'); title.textContent = '已执行修复'; const detail = document.createElement('small'); detail.textContent = action; copy.append(title, detail);
-    const status = document.createElement('span'); status.textContent = '完成'; row.append(mark, copy, status); container.append(row);
-  });
+async function applyWorktree() {
+  const worktree = state.activeWorktree;
+  if (!worktree) return;
+  if (!confirm('把这个隔离任务的修改安全应用回主工作区？\n\n如果主目录发生冲突，Runtime 会拒绝覆盖。')) return;
+  setBusy(true);
+  try {
+    unwrap(await api.applyTaskWorktree(worktree.run_id || state.taskRuntime?.state?.run_id || ''));
+    toast('隔离修改已应用');
+    await refreshTaskRuntime();
+  } catch (error) {
+    if (error.code === 'LOCAL_APPROVAL_REQUIRED' && api.openApprovalWindow) {
+      await api.openApprovalWindow();
+      toast('需要本地确认', '请在弹出的风险确认窗口中处理这次 Git 写入。');
+    } else {
+      toast('应用失败', error.message, 'error');
+    }
+  } finally {
+    setBusy(false);
+  }
 }
 
-async function inspectHealth() {
-  try { renderHealth(unwrap(await api.inspectHealth())); }
-  catch (error) { toast('系统体检失败', error.message, 'error'); }
+async function discardWorktree() {
+  const worktree = state.activeWorktree;
+  if (!worktree) return;
+  if (!confirm('丢弃这个隔离任务及其未应用修改？\n\n这不会修改主工作区，但隔离修改将无法恢复。')) return;
+  setBusy(true);
+  try {
+    unwrap(await api.discardTaskWorktree(worktree.run_id || state.taskRuntime?.state?.run_id || ''));
+    toast('隔离修改已丢弃');
+    await refreshTaskRuntime();
+  } catch (error) {
+    if (error.code === 'LOCAL_APPROVAL_REQUIRED' && api.openApprovalWindow) await api.openApprovalWindow();
+    else toast('丢弃失败', error.message, 'error');
+  } finally {
+    setBusy(false);
+  }
+}
+
+function renderIssueFromLogs() {
+  const issue = [...state.logs].reverse().find((entry) => ['error', 'warn', 'warning'].includes(String(entry?.level || '').toLowerCase()));
+  $('#issuePanel').hidden = !issue;
+  if (!issue) return;
+  $('#issueText').textContent = String(issue.message || issue.msg || '检测到运行异常');
+  $('#issueTime').textContent = issue.time ? new Date(issue.time).toLocaleString('zh-CN', { hour12: false }) : '—';
+}
+
+async function saveCommonSettings() {
+  const saved = unwrap(await api.saveSettings({
+    theme: ['light', 'dark', 'system'].includes($('#themeSelect').value) ? $('#themeSelect').value : 'light',
+    startWithWindows: $('#startWithWindowsToggle').checked,
+    autoStartServices: $('#autoStartToggle').checked,
+    keepRunningOnClose: $('#keepRunningToggle').checked,
+    taskNotifications: $('#taskNotificationsToggle').checked,
+    taskNotificationSound: $('#taskNotificationSoundToggle').checked
+  }));
+  if (state.snapshot) state.snapshot.settings = { ...state.snapshot.settings, ...saved };
+}
+
+async function saveConnectionSettings() {
+  unwrap(await api.saveSettings({
+    tunnelId: $('#tunnelIdInput').value.trim(),
+    proxyMode: $('#proxyModeSelect').value,
+    proxyUrl: $('#proxyUrlInput').value.trim(),
+    mcpPort: Number($('#mcpPortInput').value || 18765),
+    healthPort: Number($('#healthPortInput').value || 18081)
+  }));
+  toast('连接配置已保存');
+  await refreshSnapshot({ force: true, forceForms: true, quiet: true });
+}
+
+async function detectProxy() {
+  try {
+    unwrap(await api.saveSettings({ proxyMode: $('#proxyModeSelect').value, proxyUrl: $('#proxyUrlInput').value.trim() }));
+    const result = unwrap(await api.detectProxy());
+    $('#proxyStatus').textContent = result?.reachable ? (result.resolvedUrl || result.url || result.source || '当前网络路径可用') : '未检测到可用网络路径';
+    toast(result?.reachable ? '网络路径可用' : '网络路径不可用', result?.resolvedUrl || result?.source || '', result?.reachable ? 'success' : 'error');
+    await refreshSnapshot({ force: true, quiet: true });
+  } catch (error) {
+    toast('网络检测失败', error.message, 'error');
+  }
+}
+
+function renderDiagnostics(snapshot = state.snapshot) {
+  if (!snapshot) return;
+  const status = snapshot.status || {};
+  const tunnel = status.tunnelDiagnostics || {};
+  const attachment = snapshot.chat?.mcpAttachment || {};
+  const runtimeOk = Boolean(status.runtimeRunning);
+  const tunnelOk = Boolean(status.tunnelRunning);
+  const upstreamOk = Boolean(status.connectionRunning);
+  const attachmentState = attachmentHealth(attachment, upstreamOk);
+  const attachOk = attachmentState.ready;
+  $('#diagRuntime').textContent = runtimeOk ? '正常' : '停止';
+  $('#diagRuntimeMeta').textContent = status.localMcpUrl || '本地 Runtime 未启动';
+  $('#diagTunnel').textContent = tunnelOk ? '运行中' : '停止';
+  $('#diagTunnelMeta').textContent = tunnel.tunnelName || maskTunnelId(tunnel.tunnelId) || 'OpenAI Tunnel';
+  $('#diagUpstream').textContent = upstreamOk ? '可达' : tunnelOk ? '等待上游' : '不可用';
+  $('#diagUpstreamMeta').textContent = tunnel.mainChannelReady ? 'main channel 正常' : textOr(tunnel.mainChannelProbe, 'Control Plane');
+  $('#diagAttachment').textContent = attachmentState.label;
+  $('#diagAttachmentMeta').textContent = attachmentState.meta;
+  const allGood = runtimeOk && tunnelOk && upstreamOk && attachOk;
+  $('#diagnosticSummary').textContent = allGood ? '全部链路正常' : runtimeOk && tunnelOk && upstreamOk ? '基础链路正常，首次调用时确认 MCP' : '检测到连接或运行异常';
+  $('#diagnosticMeta').textContent = allGood ? '无需处理，可以直接回到 ChatGPT 使用。' : '运行一键诊断获取具体证据和处理建议。';
+  $('#diagnosticOrb').className = 'diagnostic-orb ' + (allGood ? 'ready' : runtimeOk ? 'warn' : 'error');
+}
+
+function renderDoctor(result) {
+  const target = $('#doctorResults');
+  target.replaceChildren();
+  const checks = Array.isArray(result?.checks) ? result.checks : [];
+  if (!checks.length) {
+    const empty = document.createElement('span');
+    empty.className = 'task-muted';
+    empty.textContent = result?.summary || '没有额外诊断详情。';
+    target.appendChild(empty);
+  }
+  for (const item of checks) {
+    const row = document.createElement('div');
+    row.className = `diagnostic-detail-row ${item.state || 'warn'}`;
+    const dot = document.createElement('i');
+    const copy = document.createElement('div');
+    const title = document.createElement('b'); title.textContent = item.label || item.id || '诊断项';
+    const evidence = document.createElement('small'); evidence.textContent = item.evidence || item.detail || '';
+    const suggestion = document.createElement('em'); suggestion.textContent = item.suggestion || '';
+    copy.append(title, evidence, suggestion);
+    const status = document.createElement('strong'); status.textContent = item.state === 'ready' ? '正常' : item.state === 'error' ? '异常' : '注意';
+    row.append(dot, copy, status);
+    target.appendChild(row);
+  }
+  const ready = String(result?.severity || '') === 'ready';
+  $('#diagnosticSummary').textContent = result?.summary || (ready ? '全部链路正常' : '诊断发现异常');
+  $('#diagnosticOrb').className = `diagnostic-orb ${ready ? 'ready' : result?.severity === 'error' ? 'error' : 'warn'}`;
+  $('#doctorDetails').open = !ready;
+}
+
+async function runDiagnostics() {
+  setBusy(true);
+  try {
+    const [doctorResponse, healthResponse] = await Promise.all([api.doctorInspect(), api.inspectHealth()]);
+    const doctor = unwrap(doctorResponse);
+    const health = unwrap(healthResponse);
+    renderDoctor(doctor || { severity: health?.healthy ? 'ready' : 'warn', summary: health?.healthy ? '系统检查正常' : '系统检查发现问题', checks: health?.checks || [] });
+    navigate('settings');
+    await refreshSnapshot({ force: true, quiet: true });
+    toast('诊断完成', doctor?.summary || (health?.healthy ? '全部检查通过' : '请查看诊断详情'));
+  } catch (error) {
+    toast('诊断失败', error.message, 'error');
+  } finally {
+    setBusy(false);
+  }
 }
 
 async function repairHealth() {
-  $('#repairHealth').disabled = true;
+  setBusy(true);
   try {
-    const report = unwrap(await api.repairHealth()); renderHealth(report);
-    toast(report.healthy ? '一键修复完成' : '已完成可自动处理的项目', report.unresolved?.length ? `仍需手动处理：${report.unresolved.join('、')}` : '当前环境已通过体检。', report.healthy ? 'success' : 'error');
-  } catch (error) { toast('一键修复失败', error.message, 'error'); }
-  finally { $('#repairHealth').disabled = false; }
+    const result = unwrap(await api.repairHealth());
+    toast(result?.healthy ? '修复完成' : '修复后仍有未解决项', Array.isArray(result?.actions) ? result.actions.join('；') : '');
+    await runDiagnostics();
+  } catch (error) {
+    toast('修复失败', error.message, 'error');
+  } finally {
+    setBusy(false);
+  }
 }
 
-function applyHeartbeat(status) {
-  if (!state.snapshot || !status) return;
-  state.snapshot.status.runtimeRunning = Boolean(status.mcpRunning);
-  state.snapshot.status.tunnelRunning = Boolean(status.tunnelRunning);
-  state.snapshot.status.connectionRunning = Boolean(status.connectionRunning);
-  state.snapshot.status.fullyReady = Boolean(status.fullyReady);
-  const connectionRunning = Boolean(status.tunnelRunning);
-  const connectionLabel = '连接通道';
-  const ready = state.snapshot.status.fullyReady;
-  $('#sideMcp').textContent = status.mcpRunning ? '正常' : '停止';
-  $('#sideTunnel').textContent = connectionRunning ? '已连' : '断开';
-  $('#mcpStatus').textContent = status.mcpRunning ? '正常运行' : '未启动';
-  $('#tunnelStatus').textContent = connectionRunning
-    ? '已连接'
-    : '未连接';
-  setDot($('#mcpDot'), status.mcpRunning ? 'ready' : 'error');
-  setDot($('#tunnelDot'), connectionRunning ? 'ready' : 'error');
-  $('#sideRuntimeText').textContent = ready ? '服务已就绪' : status.mcpRunning ? `等待 ${connectionLabel}` : '服务未运行';
-  setDot($('#sideRuntimeDot'), ready ? 'ready' : status.mcpRunning ? 'warn' : 'error');
+function renderLogs() {
+  const target = $('#logOutput');
+  target.replaceChildren();
+  $('#logCount').textContent = `${state.logs.length} 条日志`;
+  if (!state.logs.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    const b = document.createElement('b'); b.textContent = '暂无日志';
+    const span = document.createElement('span'); span.textContent = '出现运行或连接异常时再查看。';
+    empty.append(b, span);
+    target.appendChild(empty);
+    renderIssueFromLogs();
+    return;
+  }
+  state.logs.slice(-200).reverse().forEach((entry) => {
+    const row = document.createElement('div');
+    row.className = `log-line ${String(entry?.level || 'info').toLowerCase()}`;
+    const meta = document.createElement('span');
+    meta.textContent = `${entry?.time ? new Date(entry.time).toLocaleTimeString('zh-CN', { hour12: false }) : '--:--:--'}  ${String(entry?.level || 'info').toUpperCase()}`;
+    const code = document.createElement('code');
+    code.textContent = String(entry?.message || entry?.msg || '');
+    row.append(meta, code);
+    target.appendChild(row);
+  });
+  renderIssueFromLogs();
 }
 
 async function loadLogs() {
   try {
-    state.logs = unwrap(await api.logs());
+    state.logs = unwrap(await api.logs()) || [];
     renderLogs();
-  } catch (error) { toast('日志读取失败', error.message, 'error'); }
+  } catch (error) {
+    toast('日志读取失败', error.message, 'error');
+  }
 }
 
-function renderLogs() {
-  const output = $('#logOutput');
-  const list = state.logFilter === 'all' ? state.logs : state.logs.filter((item) => item.level === state.logFilter);
-  output.replaceChildren();
-  if (!list.length) {
-    const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.innerHTML = '<b>暂无匹配日志</b><span>执行部署或切换筛选条件后再查看。</span>';
-    output.appendChild(empty);
+function memoryDate(value) {
+  const date = new Date(value || 0);
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('zh-CN', { hour12: false });
+}
+
+function memoryScopeLabel(value) {
+  return ({ global: '全局', project: '当前项目', task: '任务' })[String(value || '')] || '本地';
+}
+
+function memoryTypeLabel(value) {
+  return ({ core_preference: '核心偏好', working_style: '工作方式', project_summary: '项目摘要', architecture: '架构', decision: '技术决策', open_loop: '未闭环', pitfall: '已知坑', task_summary: '任务摘要', note: '备注' })[String(value || '')] || '记忆';
+}
+
+function renderMemoryStatus(status) {
+  state.memory.status = status || null;
+  publishManagerState();
+  $('#memoryTotal').textContent = String(status?.count ?? 0);
+  $('#memoryActive').textContent = String(status?.active_count ?? 0);
+  $('#memoryArchived').textContent = String(status?.archived_count ?? 0);
+  $('#memoryCandidateCount').textContent = String(status?.candidate_count ?? 0);
+  const sourceCounts = status?.source_counts || {};
+  $('#memoryModelWritten').textContent = String(sourceCounts.model_summary ?? 0);
+  $('#memoryUpdated').textContent = status?.last_updated ? memoryDate(status.last_updated) : '尚无记忆';
+  $('#memoryProfile').textContent = textOr(status?.profile, 'local-default');
+  const mode = ['off', 'suggest', 'auto'].includes(status?.config?.auto_memory) ? status.config.auto_memory : 'off';
+  $('#memoryAutoMode').value = mode;
+  const capture = status?.auto_capture || {};
+  $('#memoryAutoCaptureStatus').textContent = mode === 'off'
+    ? '自动发现已关闭（模型仍可主动写入长期上下文）'
+    : `候选发现运行中 · 已扫描 ${Number(capture.processed || 0)} 轮 · 发现 ${Number(capture.discovered || 0)} 条 · 跳过 ${Number(capture.skipped || 0)} 条 · 错误 ${Number(capture.errors || 0)} 次`;
+}
+
+function memoryButton(label, className, handler) {
+  const button = document.createElement('button');
+  button.className = className;
+  button.type = 'button';
+  button.textContent = label;
+  button.addEventListener('click', handler);
+  return button;
+}
+
+async function updateMemoryItem(item, changes) {
+  memoryResult(await api.memoryUpdate(item.memory_id, changes));
+  toast('记忆已更新');
+  await loadMemoryPage();
+}
+
+function renderMemoryPagination(total) {
+  const pageSize = Math.max(1, Number(state.memory.pageSize) || 12);
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  state.memory.page = Math.min(Math.max(1, state.memory.page), pageCount);
+  const pageLabel = $('#memoryPageLabel');
+  if (pageLabel) pageLabel.textContent = `第 ${state.memory.page} / ${pageCount} 页`;
+  const previous = $('#memoryPrevPage');
+  const next = $('#memoryNextPage');
+  if (previous) previous.disabled = state.memory.page <= 1;
+  if (next) next.disabled = state.memory.page >= pageCount;
+}
+
+function syncMemorySelection(items) {
+  const validIds = new Set(state.memory.items.map((item) => String(item.memory_id)));
+  state.memory.selected = new Set([...state.memory.selected].filter((id) => validIds.has(String(id))));
+  const selectPage = $('#memorySelectPage');
+  const pageIds = items.map((item) => String(item.memory_id));
+  if (selectPage) {
+    selectPage.checked = pageIds.length > 0 && pageIds.every((id) => state.memory.selected.has(id));
+    selectPage.indeterminate = !selectPage.checked && pageIds.some((id) => state.memory.selected.has(id));
+  }
+  const batch = $('#memoryBatchArchive');
+  if (batch) batch.disabled = state.memory.selected.size === 0;
+}
+
+function renderMemoryItems(items) {
+  const target = $('#memoryList');
+  target.replaceChildren();
+  const pageSize = Math.max(1, Number(state.memory.pageSize) || 12);
+  const start = (state.memory.page - 1) * pageSize;
+  const pageItems = items.slice(start, start + pageSize);
+  const archivedView = state.memory.view === 'archived';
+  if (!pageItems.length) {
+    const empty = document.createElement('span');
+    empty.className = 'task-muted';
+    empty.textContent = '没有匹配的长期上下文。';
+    target.appendChild(empty);
+    syncMemorySelection([]);
+    renderMemoryPagination(items.length);
     return;
   }
-  list.forEach((item) => {
-    const row = document.createElement('div');
-    row.className = `log-line ${item.level}`;
-    const time = document.createElement('time');
-    time.textContent = new Date(item.time).toLocaleString('zh-CN', { hour12: false });
-    const level = document.createElement('em');
-    level.textContent = item.level;
-    const message = document.createElement('span');
-    message.textContent = item.message;
-    row.append(time, level, message);
-    output.appendChild(row);
-  });
-  output.scrollTop = output.scrollHeight;
+  for (const item of pageItems) {
+    const card = document.createElement('article');
+    card.className = `memory-card${archivedView ? ' archived' : ''}`;
+    const head = document.createElement('div'); head.className = 'memory-card-head';
+    const selector = document.createElement('label'); selector.className = 'memory-select-item'; selector.title = '选择这条记忆';
+    const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.checked = state.memory.selected.has(String(item.memory_id)); checkbox.dataset.memoryId = String(item.memory_id); checkbox.setAttribute('aria-label', `选择记忆：${textOr(item.title, '未命名记忆')}`);
+    checkbox.addEventListener('change', () => { if (checkbox.checked) state.memory.selected.add(String(item.memory_id)); else state.memory.selected.delete(String(item.memory_id)); syncMemorySelection(pageItems); });
+    selector.appendChild(checkbox);
+    const details = document.createElement('details'); details.className = 'memory-card-details';
+    const summary = document.createElement('summary'); summary.className = 'memory-card-summary';
+    const copy = document.createElement('div');
+    const title = document.createElement('b'); title.textContent = textOr(item.title, '未命名记忆');
+    const meta = document.createElement('small');
+    meta.textContent = archivedView
+      ? `${memoryScopeLabel(item.scope)} · ${memoryTypeLabel(item.memory_type)} · 归档于 ${memoryDate(item.archived_at || item.updated_at)} · ${textOr(item.archive_reason, '未记录归档原因')}`
+      : `${memoryScopeLabel(item.scope)} · ${memoryTypeLabel(item.memory_type)} · ${memoryDate(item.updated_at)}`;
+    copy.append(title, meta);
+    const isCoreProfile = Boolean(item.pinned && item.scope === 'global' && ['core_preference', 'working_style'].includes(String(item.memory_type || '')));
+    const badge = document.createElement('span');
+    badge.className = `soft-badge ${isCoreProfile ? 'positive' : 'neutral'}`;
+    badge.textContent = archivedView ? '已归档' : isCoreProfile ? '核心画像' : item.scope === 'project' ? '项目记忆' : '长期记忆';
+    summary.append(copy, badge);
+    const body = document.createElement('pre'); body.className = 'memory-content'; body.textContent = textOr(item.content, '（空内容）');
+    const actions = document.createElement('div'); actions.className = 'memory-actions';
+    const editor = document.createElement('div'); editor.className = 'memory-editor'; editor.hidden = true;
+    const coreEligible = item.scope === 'global' && ['core_preference', 'working_style'].includes(String(item.memory_type || ''));
+    if (!archivedView && coreEligible) {
+      actions.append(memoryButton(
+        item.pinned ? '移出核心画像' : '设为核心画像',
+        'secondary-button',
+        () => updateMemoryItem(item, { pinned: !item.pinned }).catch((error) => toast('更新失败', error.message, 'error'))
+      ));
+    }
+    if (archivedView) {
+      actions.append(
+        memoryButton('恢复为有效', 'primary-button', async () => {
+          try { memoryResult(await api.memoryUnarchive(item.memory_id)); await loadMemoryPage(); } catch (error) { toast('恢复失败', error.message, 'error'); }
+        }),
+        memoryButton('永久删除', 'danger-button', async () => {
+          if (!confirm('永久删除这条已归档记忆？此操作不可恢复。')) return;
+          try { memoryResult(await api.memoryDelete(item.memory_id)); await loadMemoryPage(); } catch (error) { toast('删除失败', error.message, 'error'); }
+        })
+      );
+    } else {
+      actions.append(
+        memoryButton('编辑', 'secondary-button', () => { editor.hidden = !editor.hidden; }),
+        memoryButton('归档', 'secondary-button', async () => {
+          if (!confirm('归档这条记忆？')) return;
+          try { memoryResult(await api.memoryArchive(item.memory_id)); state.memory.selected.delete(String(item.memory_id)); await loadMemoryPage(); } catch (error) { toast('归档失败', error.message, 'error'); }
+        }),
+        memoryButton('删除', 'danger-button', async () => {
+          if (!confirm('永久删除这条记忆？')) return;
+          try { memoryResult(await api.memoryDelete(item.memory_id)); state.memory.selected.delete(String(item.memory_id)); await loadMemoryPage(); } catch (error) { toast('删除失败', error.message, 'error'); }
+        })
+      );
+    }
+    const titleInput = document.createElement('input'); titleInput.value = item.title || '';
+    const contentInput = document.createElement('textarea'); contentInput.value = item.content || ''; contentInput.rows = 6;
+    const save = memoryButton('保存修改', 'primary-button', () => updateMemoryItem(item, { title: titleInput.value.trim(), content: contentInput.value }).catch((error) => toast('保存失败', error.message, 'error')));
+    editor.append(titleInput, contentInput, save);
+    details.append(summary, body, actions);
+    if (!archivedView) details.append(editor);
+    if (!archivedView) head.append(selector);
+    head.append(details);
+    card.append(head);
+    target.appendChild(card);
+  }
+  syncMemorySelection(pageItems);
+  renderMemoryPagination(items.length);
+}
+
+async function archiveSelectedMemories() {
+  const ids = [...state.memory.selected];
+  if (!ids.length) return;
+  if (!confirm(`归档已选择的 ${ids.length} 条记忆？`)) return;
+  setBusy(true);
+  let archived = 0;
+  try {
+    for (const memoryId of ids) {
+      memoryResult(await api.memoryArchive(memoryId));
+      archived += 1;
+    }
+    state.memory.selected.clear();
+    toast('批量归档完成', `已归档 ${archived} 条记忆`);
+    await loadMemoryPage();
+  } catch (error) {
+    toast('批量归档未完成', `已归档 ${archived} 条：${error.message}`, 'error');
+    await loadMemoryPage();
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function loadMemoryItems({ resetPage = false } = {}) {
+  const scope = $('#memoryScope').value;
+  const query = $('#memorySearch').value.trim();
+  if (resetPage) state.memory.page = 1;
+  const archivedView = state.memory.view === 'archived';
+  const options = { limit: 200, archived: archivedView };
+  if (scope !== 'all') options.scope = scope;
+  const listing = memoryResult(await api.memoryList(options));
+  let items = Array.isArray(listing?.items) ? listing.items : [];
+  if (query) {
+    const needle = query.toLocaleLowerCase('zh-CN');
+    items = items.filter((item) => `${item.title || ''}\n${item.content || ''}\n${item.archive_reason || ''}`.toLocaleLowerCase('zh-CN').includes(needle));
+  }
+  state.memory.items = items;
+  const pageCount = Math.max(1, Math.ceil(items.length / Math.max(1, Number(state.memory.pageSize) || 12)));
+  state.memory.page = Math.min(Math.max(1, state.memory.page), pageCount);
+  $('#memoryListMeta').textContent = `${items.length} 条${archivedView ? '已归档记忆' : '有效记忆'}${query ? ` · 搜索“${query}”` : ''} · 第 ${state.memory.page} 页仅显示 ${Math.min(state.memory.pageSize, items.length)} 条`;
+  renderMemoryItems(items);
+}
+
+async function confirmCandidate(candidate, resolution = '') {
+  try {
+    let result = memoryResult(await api.memoryConfirm(candidate.candidate_id, resolution));
+    if (result?.status === 'conflict' && !resolution) {
+      if (confirm('发现相似记忆，覆盖现有记忆？')) result = memoryResult(await api.memoryConfirm(candidate.candidate_id, 'update'));
+      else if (confirm('改为另存一条新记忆？')) result = memoryResult(await api.memoryConfirm(candidate.candidate_id, 'create_new'));
+      else return;
+    }
+    await loadMemoryPage();
+  } catch (error) {
+    toast('候选处理失败', error.message, 'error');
+  }
+}
+
+function renderCandidates(items) {
+  const values = Array.isArray(items) ? items : [];
+  const target = $('#memoryCandidates');
+  target.replaceChildren();
+  if (!values.length) {
+    const empty = document.createElement('span'); empty.className = 'task-muted'; empty.textContent = '当前没有需要确认的候选。'; target.appendChild(empty); return;
+  }
+  for (const candidate of values) {
+    const card = document.createElement('article'); card.className = 'memory-card candidate';
+    const title = document.createElement('b'); title.textContent = textOr(candidate.title, '未命名候选');
+    const comparison = candidate.existing_memory || candidate.conflicting_candidate || null;
+    if (candidate.status === 'conflict' && comparison) {
+      const hint = document.createElement('p'); hint.className = 'memory-conflict-hint'; hint.textContent = '发现同主题但内容不同的信息，请比较后决定如何保留。';
+      const compare = document.createElement('div'); compare.className = 'memory-conflict-grid';
+      const oldSide = document.createElement('div'); const oldLabel = document.createElement('span'); oldLabel.textContent = '已有内容'; const oldBody = document.createElement('pre'); oldBody.textContent = textOr(comparison.content, '（无可比较内容）'); oldSide.append(oldLabel, oldBody);
+      const newSide = document.createElement('div'); const newLabel = document.createElement('span'); newLabel.textContent = '新内容'; const newBody = document.createElement('pre'); newBody.textContent = textOr(candidate.content, '（空内容）'); newSide.append(newLabel, newBody);
+      compare.append(oldSide, newSide); card.append(title, hint, compare);
+    } else {
+      const body = document.createElement('pre'); body.className = 'memory-content'; body.textContent = textOr(candidate.content, '（空内容）'); card.append(title, body);
+    }
+    const actions = document.createElement('div'); actions.className = 'memory-actions';
+    if (candidate.status === 'conflict') {
+      actions.append(memoryButton('采用新内容', 'primary-button', () => confirmCandidate(candidate, 'update')), memoryButton('两条都保留', 'secondary-button', () => confirmCandidate(candidate, 'create_new')));
+    } else actions.append(memoryButton('确认', 'primary-button', () => confirmCandidate(candidate)));
+    actions.append(memoryButton('拒绝新内容', 'danger-button', async () => { memoryResult(await api.memoryReject(candidate.candidate_id)); await loadMemoryPage(); }));
+    card.append(actions);
+    target.appendChild(card);
+  }
+}
+
+function syncMemoryView() {
+  const view = ['active', 'candidates', 'archived'].includes(state.memory.view) ? state.memory.view : 'active';
+  const tabs = { active: $('#memoryViewActive'), candidates: $('#memoryViewCandidates'), archived: $('#memoryViewArchived') };
+  for (const [key, button] of Object.entries(tabs)) {
+    if (!button) continue;
+    const active = key === view;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', String(active));
+  }
+  $('#memoryCandidatePanel').hidden = view !== 'candidates';
+  $('#memoryLibraryPanel').hidden = view === 'candidates';
+  $('#memoryBulkToolbar').hidden = view !== 'active';
+  if (view === 'archived') {
+    $('#memoryLibraryTitle').textContent = '已归档长期上下文';
+    $('#memoryLibraryDescription').textContent = '归档不会立即删除内容。你可以查看归档原因与时间、恢复为有效记忆，或确认后永久删除。';
+  } else {
+    $('#memoryLibraryTitle').textContent = '长期画像与项目上下文';
+    $('#memoryLibraryDescription').textContent = '“核心画像”是跨项目长期上下文，会优先提供给助手；“项目上下文”只在相关工作区使用。模型主动总结和自动画像都会在这里汇总、去重。';
+  }
+}
+
+async function setMemoryView(view) {
+  state.memory.view = ['active', 'candidates', 'archived'].includes(view) ? view : 'active';
+  state.memory.page = 1;
+  state.memory.selected.clear();
+  syncMemoryView();
+  if (state.memory.view === 'candidates') renderCandidates(state.memory.candidates);
+  else await loadMemoryItems({ resetPage: true });
+}
+
+async function loadMemoryPage() {
+  try {
+    const [statusResponse, candidateResponse] = await Promise.all([api.memoryStatus(), api.memoryCandidates()]);
+    renderMemoryStatus(memoryResult(statusResponse));
+    const candidates = memoryResult(candidateResponse);
+    state.memory.candidates = candidates?.items || [];
+    renderCandidates(state.memory.candidates);
+    syncMemoryView();
+    if (state.memory.view !== 'candidates') await loadMemoryItems();
+  } catch (error) {
+    $('#memoryListMeta').textContent = '长期上下文读取失败';
+    $('#memoryList').textContent = `读取失败：${error.message}`;
+  }
 }
 
 function bindEvents() {
-  $('#closeManager')?.addEventListener('click', () => api.closeManager());
   $$('.nav-item').forEach((button) => button.addEventListener('click', () => navigate(button.dataset.page)));
-  $$('[data-nav]').forEach((button) => button.addEventListener('click', () => navigate(button.dataset.nav)));
-  $$('[data-open]').forEach((button) => button.addEventListener('click', async () => {
-    try { unwrap(await api.openExternal(button.dataset.open)); }
-    catch (error) { toast('无法打开页面', error.message, 'error'); }
-  }));
-  $$('input[name="permission"]').forEach((input) => input.addEventListener('change', () => {
-    $$('.choice').forEach((choice) => choice.classList.toggle('selected', choice.contains(input) && input.checked));
-  }));
-  $('#ackBridgeRemoved')?.addEventListener('click', async () => {
-    try {
-      const saved = unwrap(await api.saveSettings({ bridgeRemovedNotice: false }));
-      if (state.snapshot) state.snapshot.settings = saved;
-      renderMigrationNotice(saved);
-    } catch (error) { toast('无法关闭提示', error.message, 'error'); }
+  $('#closeManager').onclick = () => api.closeManager();
+  $('#refreshButton').onclick = async () => {
+    await Promise.all([refreshSnapshot({ force: true, forceForms: true }), refreshWorkspaceHub(), refreshTaskRuntime(), loadLogs()]);
+  };
+  $('#runtimeActionButton').onclick = () => runRuntime(state.snapshot?.status?.runtimeRunning ? 'restart' : 'start');
+  $('#statusRuntimeButton').onclick = () => runRuntime(state.snapshot?.status?.runtimeRunning ? 'restart' : 'start');
+  $('#statusWorkspaceButton').onclick = () => api.openWorkspaceWindow();
+  $('#openWorkspacePageCenter').onclick = () => api.openWorkspaceWindow();
+  $('#openWorkspaceAuth').onclick = () => api.openWorkspaceWindow();
+  $('#openGuideTop').onclick = () => navigate('setup-guide');
+  $('#openGuideSettings').onclick = () => navigate('setup-guide');
+  $('#setupRefresh').onclick = async () => {
+    await refreshSnapshot({ force: true, forceForms: true, quiet: true });
+    renderSetupGuide();
+  };
+  $('#setupSaveTunnelId').onclick = saveSetupTunnelId;
+  $('#setupSaveRuntimeKey').onclick = saveSetupRuntimeKey;
+  $('#setupOpenWorkspace').onclick = () => api.openWorkspaceWindow();
+  $('#setupRecheckWorkspace').onclick = async () => {
+    await refreshSnapshot({ force: true, forceForms: true, quiet: true });
+    renderSetupGuide();
+  };
+  $$('.setup-link').forEach((button) => {
+    button.onclick = async () => {
+      try { unwrap(await api.openSetupLink(button.dataset.setupLink)); }
+      catch (error) { toast('打开页面失败', error.message, 'error'); }
+    };
   });
+  $$('.setup-copy').forEach((button) => {
+    button.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(button.dataset.copyValue || '');
+        toast('已复制', button.dataset.copyValue || '');
+      } catch {
+        toast('复制失败', '请手动复制。', 'error');
+      }
+    };
+  });
+  $('#setupStartServices').onclick = () => {
+    const snapshot = state.snapshot || {};
+    const settings = snapshot.settings || {};
+    if (!snapshot.secrets?.runtimeApiKey || !settings.tunnelId) {
+      return toast('请先完成第 1 步', '保存 Tunnel ID 和 API Key 后才能启动服务。', 'error');
+    }
+    if (!settings.workspace) {
+      return toast('请先设置工作区', '点击第 2 步的“添加 / 选择工作区”。', 'error');
+    }
+    return runRuntime(snapshot.status?.runtimeRunning ? 'restart' : 'start');
+  };
+  $('#setupBackToChat').onclick = () => api.closeManager();
 
-  $('#refreshButton').addEventListener('click', () => refreshSnapshot());
-  $('#topStartButton').addEventListener('click', () => runRuntime(state.snapshot?.status.fullyReady ? 'restart' : 'start'));
-  $('#heroStartButton').addEventListener('click', () => state.snapshot?.status.fullyReady ? runRuntime('restart') : navigate('deploy'));
-  $('#overviewRestart').addEventListener('click', () => runRuntime('restart'));
-  $('#overviewStop').addEventListener('click', () => runRuntime('stop'));
-  $('#deployNow').addEventListener('click', deployNow);
-  $('#chooseWorkspace').addEventListener('click', chooseWorkspace);
-  $('#addAuthorizedRoot').addEventListener('click', addAuthorizedRoot);
-  $('#refreshWorkspaceContext')?.addEventListener('click', loadWorkspaceContext);
-  $('#refreshCodingToolsGuide')?.addEventListener('click', loadCodingToolsGuide);
-  $('#copyCustomInstructions')?.addEventListener('click', () => copyText($('#customInstructionsText').textContent));
-  $('#testTaskNotification')?.addEventListener('click', async () => {
-    try {
-      await api.testTaskNotification();
-      toast('测试通知已发送', '如果 Windows 通知未被系统勿扰模式拦截，你会在右下角看到提醒。');
-    } catch (error) { toast('无法发送测试通知', error.message, 'error'); }
-  });
-  $('#saveDeploySettings').addEventListener('click', async () => {
-    try { await saveKeyIfPresent(); await saveSettings(); await refreshSnapshot({ forceForms: true }); }
-    catch (error) { toast('保存失败', error.message, 'error'); }
-  });
-  $('#saveWorkspace').addEventListener('click', async () => {
-    try { await saveSettings(); await refreshSnapshot({ forceForms: true }); }
-    catch (error) { toast('保存失败', error.message, 'error'); }
-  });
-  $('#saveWorkspaceRestart').addEventListener('click', async () => {
-    try { await saveSettings(false); await runRuntime('restart'); }
-    catch (error) { toast('重新部署失败', error.message, 'error'); }
-  });
-  $('#saveRuntimeKey').addEventListener('click', async () => {
-    try {
-      if (!(await saveKeyIfPresent())) throw new Error('请先粘贴 Runtime API Key。');
-      toast('密钥已安全保存', '密钥已使用 Windows 安全存储加密。');
-      await refreshSnapshot();
-    } catch (error) { toast('保存失败', error.message, 'error'); }
-  });
-  $('#removeRuntimeKey').addEventListener('click', async () => {
-    try { unwrap(await api.removeRuntimeKey()); toast('密钥已删除'); await refreshSnapshot(); }
-    catch (error) { toast('删除失败', error.message, 'error'); }
-  });
-  $('#regenerateToken').addEventListener('click', async () => {
-    try { unwrap(await api.regenerateMcpToken()); toast('认证 Token 已重新生成', '重新部署后生效。'); }
-    catch (error) { toast('生成失败', error.message, 'error'); }
-  });
-  $('#clearChatSession').addEventListener('click', async () => {
-    if (!confirm('这会退出内联 ChatGPT，并清除该助手保存的网页 Cookie 和缓存。是否继续？')) return;
-    try {
-      unwrap(await api.clearChatSession());
-      toast('ChatGPT 登录数据已清除', '返回聊天主窗口后可以重新登录。');
-    } catch (error) { toast('清除失败', error.message, 'error'); }
-  });
-  $('#pythonInstall').addEventListener('click', async () => {
-    setBusy(true, true);
-    try { unwrap(await api.installPython()); toast('Python 安装完成', '请重新检测环境。'); await refreshSnapshot(); }
-    catch (error) { toast('安装失败', error.message, 'error'); }
-    finally { setBusy(false); }
-  });
-  $('#proxyModeSelect').addEventListener('change', () => { renderProxyControls(); renderDeploySummary(); });
-  $('#proxyDetect').addEventListener('click', async () => {
-    try {
-      await saveSettings(false);
-      const result = unwrap(await api.detectProxy());
-      toast(result.reachable ? '网络路径可用' : '未检测到可用路径', result.resolvedUrl || (result.reachable ? '当前使用直连。' : '请检查网络或手动代理设置。'), result.reachable ? 'success' : 'error');
-      await refreshSnapshot({ forceForms: true });
-    } catch (error) { toast('代理检测失败', error.message, 'error'); }
-  });
-  ['#tunnelIdInput', '#proxyUrlInput', '#runtimeKeyInput'].forEach((selector) => $(selector).addEventListener('input', renderDeploySummary));
+  $('#startupDiagnose').onclick = runDiagnostics;
+  $('#issueDiagnose').onclick = runDiagnostics;
+  $('#worktreeViewDiff').onclick = viewWorktreeDiff;
+  $('#worktreeApply').onclick = applyWorktree;
+  $('#worktreeDiscard').onclick = discardWorktree;
 
-  $('#themeToggle').addEventListener('click', async () => {
-    const next = document.body.dataset.theme === 'light' ? 'dark' : 'light';
-    applyTheme(next);
-    try { await saveSettings(false); } catch { /* non-critical */ }
+  $('#themeSelect').onchange = async () => {
+    applyTheme($('#themeSelect').value);
+    try { await saveCommonSettings(); } catch (error) { toast('设置保存失败', error.message, 'error'); }
+  };
+  ['#startWithWindowsToggle', '#autoStartToggle', '#keepRunningToggle', '#taskNotificationsToggle', '#taskNotificationSoundToggle'].forEach((selector) => {
+    $(selector).onchange = () => saveCommonSettings().catch((error) => toast('设置保存失败', error.message, 'error'));
   });
-  $('#themeSelect').addEventListener('change', async () => { applyTheme($('#themeSelect').value); await saveSettings(false); });
-  $('#keepRunningToggle').addEventListener('change', () => saveSettings(false));
-  $('#autoStartToggle').addEventListener('change', () => saveSettings(false));
-
-  $$('[data-guide-check]').forEach((input) => input.addEventListener('change', async () => {
-    renderGuideProgress();
-    try { await saveSettings(false); } catch { /* non-critical */ }
-  }));
-  $$('[data-copy]').forEach((button) => button.addEventListener('click', () => copyText(button.dataset.copy)));
-  $('#copyLocalUrl').addEventListener('click', () => copyText($('#guideLocalUrl').textContent));
-  $('#copyTunnelId').addEventListener('click', () => copyText($('#guideTunnelId').textContent));
-
-  $('#refreshLogs').addEventListener('click', loadLogs);
-  $('#refreshTaskState').addEventListener('click', loadTaskState);
-  $('#refreshTaskWorktrees')?.addEventListener('click', loadTaskState);
-  $('#refreshTaskHistory').addEventListener('click', loadTaskHistory);
-  $('#pauseTask').addEventListener('click', async () => { try { unwrap(await api.pauseTask()); await loadTaskState(); toast('任务已暂停', '当前进度已保存在工作区。'); } catch (error) { toast('暂停失败', error.message, 'error'); } });
-  $('#resumeTask').addEventListener('click', async () => { try { unwrap(await api.resumeTask()); await loadTaskState(); toast('任务已继续', '网页模型可从记录的下一步恢复。'); } catch (error) { toast('继续失败', error.message, 'error'); } });
-  $('#stopTask').addEventListener('click', async () => { if (!confirm('确定停止当前任务吗？运行中的命令会被终止。')) return; try { unwrap(await api.stopTask()); await loadTaskState(); toast('任务已停止', '状态与历史仍保留，可稍后继续。'); } catch (error) { toast('停止失败', error.message, 'error'); } });
-  $('#clearTaskState').addEventListener('click', async () => { if (!confirm('确定清除当前工作区的任务状态吗？')) return; unwrap(await api.clearTaskState()); renderTaskState(null); toast('任务状态已清除'); });
-  $('#refreshPerformance').addEventListener('click', loadPerformanceTrace);
-  $('#clearPerformance').addEventListener('click', async () => { if (!confirm('确定清空当前工作区的性能记录吗？')) return; try { unwrap(await api.clearPerformanceTrace()); renderPerformanceTrace(null); toast('性能记录已清空'); } catch (error) { toast('清空失败', error.message, 'error'); } });
-  $('#inspectBuild').addEventListener('click', inspectBuild);
-  $('#runBuild').addEventListener('click', runBuildVerification);
-  $('#inspectHealth').addEventListener('click', inspectHealth);
-  $('#repairHealth').addEventListener('click', repairHealth);
-  $('#toolModeSelect')?.addEventListener('change', async () => {
+  $('#proxyModeSelect').onchange = () => { $('#manualProxyField').hidden = $('#proxyModeSelect').value !== 'manual'; };
+  $('#proxyDetect').onclick = detectProxy;
+  $('#saveConnectionSettings').onclick = () => saveConnectionSettings().catch((error) => toast('连接配置保存失败', error.message, 'error'));
+  $('#saveRuntimeKey').onclick = async () => {
+    const value = $('#runtimeKeyInput').value.trim();
+    if (!value) return toast('请先粘贴 Runtime API Key', '', 'error');
     try {
-      const wasRunning = Boolean(state.snapshot?.status.runtimeRunning);
-      await saveSettings(false);
-      toast('工具模式已保存', wasRunning ? '正在静默重建 MCP 以应用新的工具范围。' : '下次启动 MCP 时生效。');
-      if (wasRunning) await runRuntime('restart');
-    } catch (error) { toast('工具模式切换失败', error.message, 'error'); }
-  });
-  $('#clearLogs').addEventListener('click', async () => { unwrap(await api.clearLogs()); state.logs = []; renderLogs(); toast('日志已清空'); });
-  $$('.log-filter').forEach((button) => button.addEventListener('click', () => {
-    state.logFilter = button.dataset.logFilter;
-    $$('.log-filter').forEach((item) => item.classList.toggle('active', item === button));
-    renderLogs();
-  }));
+      unwrap(await api.saveRuntimeKey(value));
+      $('#runtimeKeyInput').value = '';
+      toast('Runtime API Key 已安全保存');
+      await refreshSnapshot({ force: true, forceForms: true, quiet: true });
+    } catch (error) { toast('密钥保存失败', error.message, 'error'); }
+  };
+  $('#removeRuntimeKey').onclick = async () => {
+    if (!confirm('删除本机保存的 Runtime API Key？')) return;
+    try { unwrap(await api.removeRuntimeKey()); await refreshSnapshot({ force: true, quiet: true }); } catch (error) { toast('删除失败', error.message, 'error'); }
+  };
+  $('#regenerateToken').onclick = async () => {
+    try { unwrap(await api.regenerateMcpToken()); toast('本地工具认证 Token 已重新生成', '重启服务后生效。'); } catch (error) { toast('生成失败', error.message, 'error'); }
+  };
+  $('#clearChatSession').onclick = async () => {
+    if (!confirm('清除内嵌 ChatGPT 的 Cookie、缓存和登录状态？')) return;
+    try { unwrap(await api.clearChatSession()); toast('ChatGPT 登录数据已清除'); } catch (error) { toast('清除失败', error.message, 'error'); }
+  };
+
+  $('#memoryRefresh').onclick = loadMemoryPage;
+  $('#memoryViewActive').onclick = () => setMemoryView('active').catch((error) => toast('记忆视图切换失败', error.message, 'error'));
+  $('#memoryViewCandidates').onclick = () => setMemoryView('candidates').catch((error) => toast('记忆视图切换失败', error.message, 'error'));
+  $('#memoryViewArchived').onclick = () => setMemoryView('archived').catch((error) => toast('记忆视图切换失败', error.message, 'error'));
+  $('#memorySearchButton').onclick = () => loadMemoryItems({ resetPage: true }).catch((error) => toast('搜索失败', error.message, 'error'));
+  $('#memorySearch').onkeydown = (event) => { if (event.key === 'Enter') loadMemoryItems({ resetPage: true }).catch(() => {}); };
+  $('#memoryScope').onchange = () => loadMemoryItems({ resetPage: true }).catch(() => {});
+  $('#memoryPageSize').onchange = () => { state.memory.pageSize = Number($('#memoryPageSize').value) || 12; state.memory.page = 1; renderMemoryItems(state.memory.items); loadMemoryItems().catch((error) => toast('记忆分页刷新失败', error.message, 'error')); };
+  $('#memoryPrevPage').onclick = () => { if (state.memory.page > 1) { state.memory.page -= 1; renderMemoryItems(state.memory.items); } };
+  $('#memoryNextPage').onclick = () => { const pages = Math.max(1, Math.ceil(state.memory.items.length / state.memory.pageSize)); if (state.memory.page < pages) { state.memory.page += 1; renderMemoryItems(state.memory.items); } };
+  $('#memorySelectPage').onchange = (event) => {
+    const pageSize = Math.max(1, Number(state.memory.pageSize) || 12);
+    const pageItems = state.memory.items.slice((state.memory.page - 1) * pageSize, state.memory.page * pageSize);
+    for (const item of pageItems) {
+      const id = String(item.memory_id);
+      if (event.target.checked) state.memory.selected.add(id); else state.memory.selected.delete(id);
+    }
+    renderMemoryItems(state.memory.items);
+  };
+  $('#memoryBatchArchive').onclick = () => archiveSelectedMemories().catch((error) => { setBusy(false); toast('批量归档失败', error.message, 'error'); });
+  $('#memoryAutoMode').onchange = async () => { try { memoryResult(await api.memorySetConfig($('#memoryAutoMode').value)); await loadMemoryPage(); } catch (error) { toast('模式更新失败', error.message, 'error'); } };
+  $('#memoryExport').onclick = async () => { try { const result = memoryResult(await api.memoryExport()); if (!result?.canceled) toast('长期上下文已导出', textOr(result?.path, 'ZIP 备份已保存')); } catch (error) { toast('导出失败', error.message, 'error'); } };
+  $('#memoryImport').onclick = async () => { if (!confirm('导入长期上下文备份？')) return; try { const result = memoryResult(await api.memoryImport(false)); if (!result?.canceled) { toast('长期上下文已导入', `导入 ${Number(result?.imported || 0)} 条`); await loadMemoryPage(); } } catch (error) { toast('导入失败', error.message, 'error'); } };
+
+  $('#runDiagnostics').onclick = runDiagnostics;
+  $('#repairHealth').onclick = repairHealth;
+  $('#exportSupportReport').onclick = async () => { try { const result = unwrap(await api.exportSupportReport()); if (!result?.canceled) toast('脱敏支持报告已保存', result?.filename || ''); } catch (error) { toast('导出失败', error.message, 'error'); } };
+  $('#refreshLogs').onclick = loadLogs;
+  $('#clearLogs').onclick = async () => { if (!confirm('清空助手运行日志？')) return; try { unwrap(await api.clearLogs()); state.logs = []; renderLogs(); } catch (error) { toast('清空失败', error.message, 'error'); } };
+
 }
 
 async function initialize() {
-  try {
-    bindEvents();
-    api.onProgress(updateProgress);
-    api.onLog((entry) => {
-      state.logs.push(entry);
-      if (state.logs.length > 1000) state.logs.shift();
-      if (state.currentPage === 'logs') renderLogs();
-    });
-    api.onStatus((payload) => {
-      if (payload?.snapshot) renderSnapshot(payload.snapshot, { forceForms: false });
-    });
-    api.onHeartbeat(applyHeartbeat);
-    api.onBuildProgress((payload) => {
-      if (payload.status === 'output') appendBuildOutput(payload.text || '');
-      else if (payload.status === 'running') { $('#buildStatus').textContent = payload.stage === 'test' ? '正在测试' : '正在构建'; appendBuildOutput(`\n> ${payload.command}\n`); }
-      else if (payload.stage === 'complete') $('#buildStatus').textContent = payload.status === 'passed' ? '已通过' : '未通过';
-    });
-    const requestedPage = location.hash.slice(1);
-    if (pageMeta[requestedPage]) navigate(requestedPage);
+  bindEvents();
+  const requested = location.hash.replace(/^#/, '');
+  navigate(pageMeta[requested] ? requested : 'status');
+  const [snapshot] = await Promise.all([
+    refreshSnapshot({ force: true, forceForms: true, quiet: true }),
+    refreshWorkspaceHub(),
+    refreshTaskRuntime(),
+    loadLogs()
+  ]);
+  if (snapshot?.settings?.theme) applyTheme(snapshot.settings.theme);
+  document.body.classList.remove('booting');
 
-    // Show the settings shell immediately. Runtime/network inspection continues
-    // in the background so opening Preferences never feels like a diagnostic run.
-    document.body.classList.remove('booting');
-    document.body.classList.add('booted');
-    $('#bootScreen')?.setAttribute('aria-hidden', 'true');
-
-    const firstSnapshot = await refreshSnapshot({ forceForms: true });
-    if (firstSnapshot && !firstSnapshot.settings.firstRunCompleted) {
-      try {
-        navigate('health');
-        await inspectHealth();
-        unwrap(await api.saveSettings({ firstRunCompleted: true }));
-        toast('首次运行体检', '已检查当前环境；可点击“一键修复”处理能够自动解决的问题。');
-      } catch (error) { toast('首次运行体检未完成', error.message, 'error'); }
+  api.onProgress?.(handleProgress);
+  api.onStatus?.(() => refreshSnapshot({ quiet: true }));
+  api.onHeartbeat?.(() => {
+    if (state.currentPage === 'status') {
+      refreshSnapshot({ quiet: true });
+      renderTaskRuntime();
     }
-  } finally {
-    document.body.classList.remove('booting');
-    document.body.classList.add('booted');
-    $('#bootScreen')?.setAttribute('aria-hidden', 'true');
-  }
+  });
+  api.onTaskEvent?.(() => {
+    if (state.currentPage === 'status') refreshTaskRuntime();
+  });
+  api.onChatState?.((chat) => {
+    if (!state.snapshot) return;
+    state.snapshot.chat = chat ? { ...(state.snapshot.chat || {}), ...chat } : state.snapshot.chat;
+    renderSnapshot(state.snapshot);
+  });
+  api.onWorkspaceChanged?.(async () => {
+    await Promise.all([
+      refreshSnapshot({ force: true, forceForms: true, quiet: true }),
+      refreshWorkspaceHub()
+    ]);
+    if (state.currentPage === 'setup-guide') renderSetupGuide();
+  });
+  api.onLog?.((entry) => {
+    state.logs.push(entry);
+    if (state.logs.length > 1000) state.logs.splice(0, state.logs.length - 1000);
+    renderIssueFromLogs();
+    if (state.currentPage === 'settings') renderLogs();
+  });
+
+  setInterval(() => {
+    if (state.currentPage === 'status') refreshTaskRuntime();
+  }, 30000);
+  setInterval(() => {
+    if (state.currentPage === 'status' || state.currentPage === 'workspace') refreshWorkspaceHub();
+  }, 60000);
 }
 
-initialize();
-
-
-
-
-
-
+initialize().catch((error) => {
+  document.body.classList.remove('booting');
+  toast('管理中心初始化失败', error.message, 'error');
+});
