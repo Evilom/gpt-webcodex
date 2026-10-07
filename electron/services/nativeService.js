@@ -149,7 +149,7 @@ class NativeService {
     ];
     const command = python.launchCommand || python.command;
     const child = spawn(command, args, {
-      detached: false,
+      detached: process.platform !== 'win32',
       windowsHide: true,
       stdio: ['ignore', output, output],
       env
@@ -183,9 +183,19 @@ class NativeService {
     const alive = isAlive(state.nativePid);
     if (alive) {
       const { run } = require('./commandRunner');
-      await run('taskkill.exe', ['/PID', String(state.nativePid), '/T', '/F'], { allowFailure: true });
+      if (process.platform === 'win32') {
+        await run('taskkill.exe', ['/PID', String(state.nativePid), '/T', '/F'], { allowFailure: true });
+      } else {
+        try { process.kill(-state.nativePid, 'SIGTERM'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
+      }
       for (let index = 0; index < 25 && isAlive(state.nativePid); index += 1) {
         await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      if (isAlive(state.nativePid)) {
+        if (process.platform !== 'win32') {
+          try { process.kill(-state.nativePid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
       }
       if (isAlive(state.nativePid)) {
         throw new Error(`Coding Tools MCP 进程 ${state.nativePid} 未能完全退出，已保留运行时状态以避免误判。`);

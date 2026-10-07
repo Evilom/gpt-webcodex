@@ -66,6 +66,9 @@ const approvalService = new ApprovalService(settings);
 const workspaceManager = new WorkspaceManager(settings);
 
 if (process.platform === 'win32') app.setAppUserModelId('com.gptwebcodex.assistant');
+if (process.platform === 'darwin') {
+  process.env.PATH = ['/opt/homebrew/bin', '/usr/local/bin', process.env.PATH || ''].filter(Boolean).join(':');
+}
 
 function appIconPath() {
   return path.join(__dirname, 'app-icon.png');
@@ -1583,6 +1586,10 @@ function registerIpc() {
   secureHandle('logs:read', () => invokeSafely(async () => log.read()));
   secureHandle('logs:clear', () => invokeSafely(async () => { log.clear(); return true; }));
   secureHandle('environment:install-python', () => invokeSafely(async () => {
+    if (process.platform === 'darwin') {
+      await shell.openExternal('https://www.python.org/downloads/macos/');
+      return '已打开 Python 官方下载页；正式 Mac 安装包已内置 Python。';
+    }
     const result = await run('winget.exe', ['install', '--id', 'Python.Python.3.12', '-e', '--accept-source-agreements', '--accept-package-agreements']);
     return result.stdout;
   }));

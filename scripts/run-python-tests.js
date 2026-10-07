@@ -4,7 +4,9 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const root = path.resolve(__dirname, '..');
-const portable = path.join(root, 'resources', 'native-python', 'python.exe');
+const portable = process.platform === 'win32'
+  ? path.join(root, 'resources', 'native-python', 'python.exe')
+  : path.join(root, 'resources', 'mac-arm64', 'native-python', 'bin', 'python3');
 const mcpRoot = path.join(root, 'resources', 'coding-tools-mcp');
 const vendorRoot = path.join(mcpRoot, 'python_vendor');
 

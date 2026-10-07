@@ -26,7 +26,7 @@ test('background runtime processes are hidden and never detached on Windows', ()
   for (const relative of ['electron/services/nativeService.js', 'electron/services/tunnelService.js']) {
     const source = fs.readFileSync(path.join(root, relative), 'utf8');
     assert.match(source, /windowsHide:\s*true/);
-    assert.match(source, /detached:\s*false/);
+    assert.match(source, /detached:\s*process\.platform !== 'win32'/);
     assert.doesNotMatch(source, /detached:\s*true/);
   }
   const runner = fs.readFileSync(path.join(root, 'electron/services/commandRunner.js'), 'utf8');

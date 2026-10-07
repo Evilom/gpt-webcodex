@@ -43,7 +43,12 @@ function portableCookie(cookie) {
 }
 
 async function findBrowser(env = process.env) {
-  const candidates = [
+  const candidates = process.platform === 'darwin' ? [
+    ['Chrome', '/Applications', 'Google Chrome.app/Contents/MacOS/Google Chrome'],
+    ['Chrome', path.join(env.HOME || '', 'Applications'), 'Google Chrome.app/Contents/MacOS/Google Chrome'],
+    ['Edge', '/Applications', 'Microsoft Edge.app/Contents/MacOS/Microsoft Edge'],
+    ['Chromium', '/Applications', 'Chromium.app/Contents/MacOS/Chromium']
+  ] : [
     ['Chrome', env.PROGRAMFILES, 'Google/Chrome/Application/chrome.exe'],
     ['Chrome', env['PROGRAMFILES(X86)'], 'Google/Chrome/Application/chrome.exe'],
     ['Chrome', env.LOCALAPPDATA, 'Google/Chrome/Application/chrome.exe'],

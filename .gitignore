@@ -14,6 +14,7 @@ out/
 *.tmp
 *.bak
 resources/native-python/
+resources/mac-arm64/
 resources/*.zip
 .DS_Store
 

@@ -1,0 +1,57 @@
+name: Build Mac mini ARM64
+
+on:
+  push:
+    branches: ['build/macos-arm64-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Check Apple Silicon architecture
+        run: test "$(uname -m)" = arm64
+      - run: npm ci
+      - name: Stage portable runtimes
+        run: npm run resources:mac
+      - name: Test and build DMG and ZIP
+        run: npm run dist:mac
+      - name: Validate app and create checksums
+        run: |
+          node scripts/smoke-macos-package.js
+          hdiutil verify dist/web-mcp-assistant-*-mac-arm64.dmg
+          unzip -tq dist/web-mcp-assistant-*-mac-arm64.zip
+          zip_dir="$(mktemp -d)"
+          ditto -x -k dist/web-mcp-assistant-*-mac-arm64.zip "$zip_dir"
+          node scripts/smoke-macos-package.js "$zip_dir/网页 MCP 助手.app"
+          cd dist
+          shasum -a 256 web-mcp-assistant-*-mac-arm64.dmg web-mcp-assistant-*-mac-arm64.zip > SHA256SUMS-mac-arm64.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-mcp-assistant-mac-arm64
+          path: |
+            dist/*-mac-arm64.dmg
+            dist/*-mac-arm64.zip
+            dist/SHA256SUMS-mac-arm64.txt
+            resources/mac-arm64/runtime-manifest.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Preserve diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-build-diagnostics
+          path: build/
+          if-no-files-found: ignore

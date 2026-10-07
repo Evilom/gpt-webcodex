@@ -6,7 +6,7 @@ const paths = require('../paths');
 const { resolveProxy } = require('./proxyService');
 
 async function commandExists(name) {
-  const result = await run('where.exe', [name], { allowFailure: true });
+  const result = await run(process.platform === 'win32' ? 'where.exe' : '/usr/bin/which', [name], { allowFailure: true });
   return result.code === 0;
 }
 
@@ -67,12 +67,19 @@ async function pythonStatus(options = {}) {
 }
 
 function pathForPythonw(pythonPath) {
-  return path.join(path.dirname(pythonPath), 'pythonw.exe');
+  return process.platform === 'win32' ? path.join(path.dirname(pythonPath), 'pythonw.exe') : pythonPath;
 }
 
 // pyw.exe/py.exe 只是启动器，spawn 记录的 PID 与 MCP health 返回的 os.getpid()
 // 往往不是同一个进程，会导致部署身份检查失败。这里解析出真正的解释器再启动。
 async function resolveSystemPython() {
+  if (process.platform !== 'win32') {
+    for (const command of ['/opt/homebrew/bin/python3', '/usr/local/bin/python3', 'python3']) {
+      const valid = await checkCandidate({ command, launchCommand: command, args: [] }).catch(() => null);
+      if (valid) return { command: valid.command, launchCommand: valid.command, args: [] };
+    }
+    return null;
+  }
   if (await commandExists('py.exe')) {
     const probe = await run('py.exe', ['-3', '-c', 'import sys; print(sys.executable)'], { allowFailure: true });
     const exe = String(probe.stdout || '').trim().split(/\r?\n/).filter(Boolean).pop();

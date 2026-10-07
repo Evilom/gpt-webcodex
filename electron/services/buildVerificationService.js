@@ -139,7 +139,9 @@ class BuildVerificationService {
       this.emit({ stage, status: 'running', command });
       const started = Date.now();
       const explicitRootCommand = projectRoot !== root && ((stage === 'test' && options.testCommand) || (stage === 'build' && options.buildCommand));
-      const result = await run('cmd.exe', ['/d', '/s', '/c', command], { cwd: explicitRootCommand ? root : projectRoot, allowFailure: true, timeoutMs: 600000, onOutput: (stream, text) => this.emit({ stage, status: 'output', stream, text }) });
+      const commandShell = process.platform === 'win32' ? 'cmd.exe' : '/bin/sh';
+      const shellArgs = process.platform === 'win32' ? ['/d', '/s', '/c', command] : ['-c', command];
+      const result = await run(commandShell, shellArgs, { cwd: explicitRootCommand ? root : projectRoot, allowFailure: true, timeoutMs: 600000, onOutput: (stream, text) => this.emit({ stage, status: 'output', stream, text }) });
       return { status: result.code === 0 ? 'passed' : 'failed', command, exitCode: result.code, durationMs: Date.now() - started, summary: `${result.stdout}\n${result.stderr}`.trim().slice(-4000) };
     };
     try {

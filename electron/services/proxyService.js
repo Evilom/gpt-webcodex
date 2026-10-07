@@ -67,6 +67,15 @@ function environmentProxyCandidates() {
 }
 
 async function systemProxyCandidates() {
+  if (process.platform === 'darwin') {
+    const result = await run('/usr/sbin/scutil', ['--proxy'], { allowFailure: true });
+    const values = Object.fromEntries(String(result.stdout || '').split(/\r?\n/)
+      .map((line) => line.match(/^\s*(\w+)\s*:\s*(\S+)\s*$/)).filter(Boolean).map((match) => [match[1], match[2]]));
+    return unique([...environmentProxyCandidates(), ...['HTTPS', 'HTTP'].map((kind) => (
+      values[`${kind}Enable`] === '1' && values[`${kind}Proxy`] && values[`${kind}Port`]
+        ? normalizeProxyValue(`http://${values[`${kind}Proxy`]}:${values[`${kind}Port`]}`) : ''
+    ))]);
+  }
   const [registry, winHttp] = await Promise.all([registryProxyCandidates(), winHttpProxyCandidates()]);
   return unique([...environmentProxyCandidates(), ...registry, ...winHttp]);
 }

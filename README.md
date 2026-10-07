@@ -11,8 +11,8 @@
 
 | 组件 | 版本 |
 | --- | --- |
-| 网页 MCP 助手 Desktop | **v0.9.4** |
-| Coding Tools MCP Runtime | **v0.9.4** |
+| 网页 MCP 助手 Desktop | **v0.9.5** |
+| Coding Tools MCP Runtime | **v0.9.5** |
 | MCP Tool Schema | **v14 / 10 tools** |
 | Schema Hash | `631ba25229260ab745932f2fcc1cef3deb982ddc0cf3bbcb900047c458e321fd` |
 | Electron | **43.2.0** |
@@ -28,6 +28,16 @@
 - **Git / Worktree 工作流**：支持 Git 操作、隔离 Worktree、安全应用修改与清理。
 - **本地会话与开发上下文**：保存本地任务、历史、Checkpoint、Rules、Recipes、Skills 和 Memory 等开发上下文。
 - **ChatGPT 页面增强**：保留原生页面渲染，提供连续 MCP 状态观察、动态资源错误提示和长时间无新内容的可操作反馈。
+
+## v0.9.5 Apple Silicon Mac 支持
+
+新增 Apple Silicon（M1/M2/M3/M4）macOS 构建，内置 ARM64 Python、Tunnel、rg 和 fd。已适配解释器查找、进程组停止、Shell、系统代理与 Chrome/Edge 登录修复。Windows 使用原来的启动和停止路径。
+
+Mac 构建：在 ARM64 Mac 上运行 `npm ci`、`npm run resources:mac`、`npm run dist:mac`。产物位于 `dist/web-mcp-assistant-0.9.5-mac-arm64.dmg` 和同名 ZIP。
+
+Mac 包使用临时签名供个人测试，未进行 Apple Developer ID 签名与公证。Windows 上的登录、密钥和工作目录不随包分发；首次在 Mac 上配置本机目录、Tunnel 和登录。
+
+Mac 打包参考 [Chat On Steroids 的 macOS 封装与签名校验](https://github.com/totec448-spec/chat-on-steroids/blob/main/scripts/afterpack-macos-adhoc-seal.mjs)，验证临时签名、ARM64 原生组件、ZIP 解包后执行权限，以及 Runtime 在同端口同测试 Token 下重启。
 
 ## v0.9.4 启动目录兼容修复
 

@@ -111,6 +111,8 @@ function killProcessTree(pid) {
         stdio: 'ignore'
       });
     } catch { /* ignore fallback */ }
+  } else {
+    try { process.kill(-pid, 'SIGKILL'); } catch { /* child may already have exited */ }
   }
 }
 
@@ -120,6 +122,7 @@ function run(command, args = [], options = {}) {
     const child = spawn(command, args, {
       windowsHide: true,
       shell: false,
+      detached: process.platform !== 'win32',
       ...spawnOptions
     });
     let stdout = '';

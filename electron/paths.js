@@ -21,7 +21,9 @@ module.exports = {
   logFile: () => path.join(dataRoot(), 'logs', 'assistant.log'),
   mcpLogFile: () => path.join(dataRoot(), 'logs', 'mcp.log'),
   tunnelLogFile: () => path.join(dataRoot(), 'logs', 'tunnel.log'),
-  tunnelExecutable: () => path.join(resourcesRoot(), 'tools', 'tunnel-client.exe'),
-  portablePython: () => path.join(resourcesRoot(), 'native-python', 'python.exe')
+  tunnelExecutable: () => path.join(resourcesRoot(), 'tools', process.platform === 'win32' ? 'tunnel-client.exe' : 'tunnel-client'),
+  portablePython: () => process.platform === 'win32'
+    ? path.join(resourcesRoot(), 'native-python', 'python.exe')
+    : path.join(resourcesRoot(), 'native-python', 'bin', 'python3')
 };
 

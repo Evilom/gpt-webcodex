@@ -1,7 +1,7 @@
 {
   "name": "web-mcp-assistant",
-  "version": "0.9.4",
-  "description": "一键部署与管理 Coding Tools MCP、OpenAI Tunnel 和 ChatGPT 接入的 Windows 桌面助手",
+  "version": "0.9.5",
+  "description": "一键部署与管理 Coding Tools MCP、OpenAI Tunnel 和 ChatGPT 接入的 Windows/macOS 桌面助手",
   "author": "3169657175",
   "license": "MIT",
   "main": "electron/main.js",
@@ -15,6 +15,8 @@
     "audit:prod": "npm audit --omit=dev",
     "dist": "npm run icon:build && npm run release:verify && node scripts/run-electron-builder-release.js",
     "dist:dir": "npm run icon:build && electron-builder --dir",
+    "resources:mac": "python3 scripts/prepare-macos-resources.py",
+    "dist:mac": "npm run release:verify && node scripts/build-macos.js",
     "ui:build": "vite build --config renderer-ui/vite.config.ts",
     "ui:check": "tsc -p renderer-ui/tsconfig.json --noEmit",
     "ui:smoke": "npm run ui:build && electron scripts/renderer-smoke-electron.js && node scripts/assert-renderer-smoke.js",
@@ -36,7 +38,6 @@
     "vite": "^7.1.7"
   },
   "build": {
-    "electronDist": "node_modules/electron/dist",
     "appId": "com.gptwebcodex.assistant",
     "productName": "网页 MCP 助手",
     "artifactName": "web-mcp-assistant-setup-${version}.${ext}",

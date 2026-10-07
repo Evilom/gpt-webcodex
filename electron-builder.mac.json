@@ -1,0 +1,35 @@
+{
+  "extends": null,
+  "appId": "com.gptwebcodex.assistant",
+  "productName": "网页 MCP 助手",
+  "artifactName": "web-mcp-assistant-${version}-mac-${arch}.${ext}",
+  "directories": { "output": "dist" },
+  "afterPack": "scripts/afterpack-macos.js",
+  "files": ["package.json", "electron/**/*", "renderer/**/*", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+  "extraResources": [
+    {
+      "from": "resources/coding-tools-mcp",
+      "to": "resources/coding-tools-mcp",
+      "filter": ["**/*", "!**/__pycache__/**", "!**/*.pyc", "!tests/**", "!**/*.pyd", "!**/*.dll", "!**/*.exe"]
+    },
+    { "from": "resources/mac-arm64/native-python", "to": "resources/native-python", "filter": ["**/*", "!**/__pycache__/**", "!**/*.pyc"] },
+    { "from": "resources/mac-arm64/tools", "to": "resources/tools" },
+    { "from": "resources/mac-arm64/runtime-manifest.json", "to": "resources/runtime-manifest.json" }
+  ],
+  "mac": {
+    "target": ["dmg", "zip"],
+    "icon": "electron/app-icon.png",
+    "category": "public.app-category.developer-tools",
+    "minimumSystemVersion": "13.0",
+    "identity": null,
+    "hardenedRuntime": false,
+    "gatekeeperAssess": false,
+    "notarize": false
+  },
+  "dmg": {
+    "contents": [
+      { "x": 140, "y": 180 },
+      { "x": 400, "y": 180, "type": "link", "path": "/Applications" }
+    ]
+  }
+}

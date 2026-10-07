@@ -47,7 +47,7 @@ class TunnelService {
   }
 
   async start(settings, runtimeApiKey, token, progress) {
-    if (!fs.existsSync(tunnelExecutable())) throw new Error('安装包中缺少 tunnel-client.exe。');
+    if (!fs.existsSync(tunnelExecutable())) throw new Error('安装包中缺少 Tunnel 客户端。');
     if (!runtimeApiKey) throw new Error('请先保存 OpenAI Runtime API Key。');
     if (!settings.tunnelId) throw new Error('请先填写 OpenAI Tunnel ID。');
     await this.stop();
@@ -77,7 +77,7 @@ class TunnelService {
       ];
       if (proxyUrl) args.push('--control-plane.http-proxy', proxyUrl);
       child = spawn(tunnelExecutable(), args, {
-        detached: false,
+        detached: process.platform !== 'win32',
         windowsHide: true,
         stdio: ['ignore', output, output],
         env
@@ -112,9 +112,19 @@ class TunnelService {
       this.routeHealthCache = null;
       return false;
     }
-    await run('taskkill.exe', ['/PID', String(state.tunnelPid), '/T', '/F'], { allowFailure: true });
+    if (process.platform === 'win32') {
+      await run('taskkill.exe', ['/PID', String(state.tunnelPid), '/T', '/F'], { allowFailure: true });
+    } else {
+      try { process.kill(-state.tunnelPid, 'SIGTERM'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
+    }
     for (let index = 0; index < 25 && isAlive(state.tunnelPid); index += 1) {
       await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    if (isAlive(state.tunnelPid)) {
+      if (process.platform !== 'win32') {
+        try { process.kill(-state.tunnelPid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
     }
     if (isAlive(state.tunnelPid)) {
       throw new Error(`OpenAI Tunnel 进程 ${state.tunnelPid} 未能完全退出，已保留进程状态。`);
