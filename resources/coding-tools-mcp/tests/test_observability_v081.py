@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -10,6 +11,7 @@ from unittest.mock import patch
 from coding_tools_mcp.server import Runtime
 from coding_tools_mcp.task_state import TaskStateStore
 
+command_line = subprocess.list2cmdline if sys.platform == "win32" else shlex.join
 
 class ObservabilityV081Tests(unittest.TestCase):
     def test_direct_command_supersedes_terminal_task_with_fresh_running_state(self) -> None:
@@ -33,7 +35,7 @@ class ObservabilityV081Tests(unittest.TestCase):
     def test_short_failed_agent_workflow_returns_structured_tool_error(self) -> None:
         with tempfile.TemporaryDirectory() as temp, patch.dict("os.environ", {"CODING_TOOLS_MCP_TOOL_MODE": "smart"}):
             runtime = Runtime(Path(temp), permission_mode="dangerous")
-            command = subprocess.list2cmdline([sys.executable, "-c", "import sys; sys.exit(9)"])
+            command = command_line([sys.executable, "-c", "import sys; sys.exit(9)"])
             try:
                 result = runtime.call_tool("agent_workflow", {
                     "workflow": "diagnose",
@@ -54,7 +56,7 @@ class ObservabilityV081Tests(unittest.TestCase):
     def test_commands_only_run_skips_full_prepare_context(self) -> None:
         with tempfile.TemporaryDirectory() as temp, patch.dict("os.environ", {"CODING_TOOLS_MCP_TOOL_MODE": "smart"}):
             runtime = Runtime(Path(temp), permission_mode="dangerous")
-            command = subprocess.list2cmdline([sys.executable, "-c", "print('fast-path-ok')"])
+            command = command_line([sys.executable, "-c", "print('fast-path-ok')"])
             try:
                 with patch.object(runtime, "prepare_coding_context", side_effect=AssertionError("full prepare must be skipped")):
                     result = runtime.agent_workflow({

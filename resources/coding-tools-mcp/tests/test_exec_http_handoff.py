@@ -1,3 +1,4 @@
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -9,6 +10,7 @@ from unittest.mock import patch
 import coding_tools_mcp.server as server_module
 from coding_tools_mcp.server import Runtime
 
+command_line = subprocess.list2cmdline if sys.platform == "win32" else shlex.join
 
 class ExecHttpHandoffTests(unittest.TestCase):
     def test_exec_preflight_failure_reports_not_started_execution(self) -> None:
@@ -28,7 +30,7 @@ class ExecHttpHandoffTests(unittest.TestCase):
     def test_exec_command_returns_before_the_http_safe_yield_cap(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             runtime = Runtime(Path(temp), permission_mode="dangerous")
-            command = subprocess.list2cmdline([
+            command = command_line([
                 sys.executable,
                 "-c",
                 "import time; time.sleep(5)",
@@ -67,7 +69,7 @@ class ExecHttpHandoffTests(unittest.TestCase):
     def test_completed_exec_reports_terminal_execution_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             runtime = Runtime(Path(temp), permission_mode="dangerous")
-            command = subprocess.list2cmdline([sys.executable, "-c", "print('ok')"])
+            command = command_line([sys.executable, "-c", "print('ok')"])
             result = runtime.exec_command({
                 "cmd": command,
                 "yield_time_ms": 3000,
@@ -86,7 +88,7 @@ class ExecHttpHandoffTests(unittest.TestCase):
     def test_internal_simple_command_can_use_structured_process_mode(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             runtime = Runtime(Path(temp), permission_mode="dangerous")
-            command = subprocess.list2cmdline([sys.executable, "-c", "print('structured-ok')"])
+            command = command_line([sys.executable, "-c", "print('structured-ok')"])
             result = runtime.exec_command({
                 "cmd": command,
                 "yield_time_ms": 3000,

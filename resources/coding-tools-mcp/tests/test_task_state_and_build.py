@@ -1043,12 +1043,15 @@ class ToolModeTests(unittest.TestCase):
             root = Path(temp)
             (root / "app.py").write_text("print('ok')\n", encoding="utf-8")
             runtime = Runtime(root)
-            first = runtime.workspace_context({})
-            second = runtime.workspace_context({})
-            self.assertEqual(first["detail"], "compact")
-            self.assertFalse(first["cache"]["hit"])
-            self.assertTrue(second["cache"]["hit"])
-            self.assertNotIn("events", second["task"])
+            try:
+                first = runtime.workspace_context({})
+                second = runtime.workspace_context({})
+                self.assertEqual(first["detail"], "compact")
+                self.assertFalse(first["cache"]["hit"])
+                self.assertTrue(second["cache"]["hit"])
+                self.assertNotIn("events", second["task"])
+            finally:
+                runtime.close()
 
     def test_finished_command_moves_task_to_waiting(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -1175,10 +1178,13 @@ class ToolModeTests(unittest.TestCase):
             root = Path(temp)
             (root / "todo.py").write_text("VALUE = 1\n", encoding="utf-8")
             runtime = Runtime(root, permission_mode="dangerous")
-            runtime.task_state.update({"objective": "continue fix", "next_step": "edit todo.py"})
-            result = runtime.agent_workflow({"workflow": "resume", "phase": "resume", "paths": ["todo.py"]})
-            self.assertEqual(result["task"]["objective"], "continue fix")
-            self.assertEqual(result["context"]["files"][0]["path"], "todo.py")
+            try:
+                runtime.task_state.update({"objective": "continue fix", "next_step": "edit todo.py"})
+                result = runtime.agent_workflow({"workflow": "resume", "phase": "resume", "paths": ["todo.py"]})
+                self.assertEqual(result["task"]["objective"], "continue fix")
+                self.assertEqual(result["context"]["files"][0]["path"], "todo.py")
+            finally:
+                runtime.close()
 
     def test_prepare_reads_search_window_instead_of_large_file_prefix(self) -> None:
         with tempfile.TemporaryDirectory() as temp, patch.dict("os.environ", {"CODING_TOOLS_MCP_TOOL_MODE": "smart"}):
