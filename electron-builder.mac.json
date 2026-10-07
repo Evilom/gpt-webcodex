@@ -12,7 +12,7 @@
       "to": "resources/coding-tools-mcp",
       "filter": ["**/*", "!**/__pycache__/**", "!**/*.pyc", "!tests/**", "!**/*.pyd", "!**/*.dll", "!**/*.exe"]
     },
-    { "from": "resources/mac-arm64/native-python", "to": "resources/native-python", "filter": ["**/*", "!**/__pycache__/**", "!**/*.pyc"] },
+    { "from": "resources/mac-arm64/native-python", "to": "resources/native-python", "filter": ["**/*", "!**/__pycache__/**", "!**/*.pyc", "!**/*.exe", "!**/*.dll", "!**/*.pyd"] },
     { "from": "resources/mac-arm64/tools", "to": "resources/tools" },
     { "from": "resources/mac-arm64/runtime-manifest.json", "to": "resources/runtime-manifest.json" }
   ],
