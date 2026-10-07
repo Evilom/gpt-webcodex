@@ -67,8 +67,9 @@ async function main() {
     assert.equal(architecture.status, 0, architecture.stderr);
     assert.equal(architecture.stdout.trim(), 'arm64');
   }
-  const workspace = path.join(temporary, '工作区');
-  fs.mkdirSync(workspace);
+  const workspaceDirectory = path.join(temporary, '工作区');
+  fs.mkdirSync(workspaceDirectory);
+  const workspace = fs.realpathSync(workspaceDirectory);
   const port = await unusedPort();
   const token = 'macos-package-smoke-fixture-only';
   const client = new LocalMcpClient({ port, token });

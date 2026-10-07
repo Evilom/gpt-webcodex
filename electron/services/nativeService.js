@@ -122,6 +122,7 @@ class NativeService {
     const launchId = crypto.randomBytes(16).toString('hex');
     const env = {
       ...process.env,
+      PYTHONDONTWRITEBYTECODE: '1',
       CODING_TOOLS_MCP_AUTH_MODE: 'bearer',
       CODING_TOOLS_MCP_AUTH_TOKEN: token,
       CODING_TOOLS_MCP_TELEMETRY: 'off',
