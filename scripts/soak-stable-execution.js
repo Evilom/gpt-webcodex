@@ -63,6 +63,8 @@ function run(command, commandArgs, label) {
     env: {
       ...process.env,
       PYTHONDONTWRITEBYTECODE: '1',
+      PYTHONUTF8: '1',
+      PYTHONIOENCODING: 'utf-8',
       PYTHONPATH: [vendorRoot, mcpRoot, process.env.PYTHONPATH || ''].filter(Boolean).join(path.delimiter)
     },
     maxBuffer: 8 * 1024 * 1024

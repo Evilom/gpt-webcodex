@@ -108,21 +108,28 @@ function bindChatNetworkDiagnostics(chatSession, log) {
   CHAT_NETWORK_DIAGNOSTIC_SESSIONS.add(chatSession);
   const filter = { urls: ['https://chatgpt.com/*', 'https://*.chatgpt.com/*', 'https://*.openai.com/*', 'https://*.oaistatic.com/*', 'https://*.oaiusercontent.com/*'] };
   const recent = new Map();
-  chatSession.webRequest.onErrorOccurred(filter, (details) => {
+  const report = (details) => {
     const parsed = parseUrl(details.url);
     if (details.error === 'net::ERR_ABORTED') return;
-    const key = `${parsed?.hostname}|${details.resourceType}|${details.error}`;
+    // Route category only: no query strings, OAuth codes or conversation IDs.
+    const parts = (parsed?.pathname || '').split('/').filter(Boolean);
+    const route = ['backend-api', 'api'].includes(parts[0]) ? `/${parts.slice(0, 2).join('/')}` : '/';
+    const key = `${parsed?.hostname}|${route}|${details.resourceType}|${details.error || details.statusCode}`;
     const now = Date.now();
     if (now - (recent.get(key) || 0) < 30000) return;
     recent.set(key, now);
     if (recent.size > 100) for (const [item, time] of recent) if (now - time > 30000) recent.delete(item);
     log.warn('ChatGPT 浏览器网络请求失败', {
       host: parsed?.hostname || '',
+      route,
       resourceType: String(details.resourceType || ''),
       error: String(details.error || ''),
+      statusCode: Number(details.statusCode || 0),
       fromCache: Boolean(details.fromCache)
     });
-  });
+  };
+  chatSession.webRequest.onErrorOccurred(filter, report);
+  chatSession.webRequest.onCompleted(filter, (details) => { if (details.statusCode >= 400) report(details); });
 }
 
 class ChatViewController {
@@ -1324,6 +1331,7 @@ class ChatViewController {
 }
 
 module.exports = {
+  bindChatNetworkDiagnostics,
   ChatViewController,
   CHAT_HOME,
   CHAT_PARTITION,

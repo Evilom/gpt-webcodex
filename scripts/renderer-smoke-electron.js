@@ -80,6 +80,8 @@ function workspaceHub() {
 
 function installHandlers() {
   const handlers = {
+    'update:status': () => ok({ current: require('../package.json').version, latest: '0.9.8', stage: 'available', manual: false, progress: 0 }),
+    'update:check': () => ok({ current: require('../package.json').version, latest: '0.9.8', stage: 'available', manual: false, progress: 0 }),
     'app:snapshot': () => ok(snapshot()),
     'workspace:hub': () => ok(workspaceHub()),
     'task-state:read': () => ok({ state: taskRuntime().state }),

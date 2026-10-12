@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 const vm = require('node:vm');
-const { ChatViewController } = require('../electron/chatViewController');
+const { ChatViewController, bindChatNetworkDiagnostics } = require('../electron/chatViewController');
 const { finishShutdown } = require('../electron/services/shutdownService');
 
 function fixture(t, url = 'https://chatgpt.com/') {
@@ -92,4 +92,21 @@ test('quit exits after successful, failing and stuck cleanup without propagating
     await finishShutdown({ tasks: [task], log: { warn() {} }, timeoutMs: 15, exit: () => { exits++; } });
     assert.equal(exits, 1);
   }
+});
+
+test('network diagnostics cover CDN and HTTP failures without secrets or duplicate noise', () => {
+  const logs = []; let failure, complete, urls;
+  bindChatNetworkDiagnostics({ webRequest: {
+    onErrorOccurred: (filter, callback) => { urls = filter.urls; failure = callback; },
+    onCompleted: (_filter, callback) => { complete = callback; }
+  } }, { warn: (_message, details) => logs.push(details) });
+  assert.ok(urls.includes('https://*.oaistatic.com/*'));
+  const details = { url: 'https://chatgpt.com/backend-api/conversation/private-id?token=synthetic', resourceType: 'xhr', error: 'net::ERR_CONNECTION_RESET' };
+  failure(details); failure(details);
+  failure({ ...details, error: 'net::ERR_ABORTED' });
+  complete({ ...details, error: '', statusCode: 429 });
+  complete({ ...details, error: '', statusCode: 200 });
+  assert.equal(logs.length, 2); assert.equal(logs[1].statusCode, 429);
+  assert.equal(logs[0].route, '/backend-api/conversation');
+  assert.doesNotMatch(JSON.stringify(logs), /private-id|synthetic|token/);
 });

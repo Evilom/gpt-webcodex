@@ -20,6 +20,7 @@ def pid_is_running(pid: int) -> bool:
         ["tasklist.exe", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
         capture_output=True,
         text=True,
+        encoding="oem",
         check=False,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
