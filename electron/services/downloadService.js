@@ -1,6 +1,13 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const MIME_EXTENSIONS = {
+  'application/pdf': '.pdf', 'application/zip': '.zip', 'text/plain': '.txt', 'text/csv': '.csv',
+  'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx'
+};
 
 function safeFilename(value) {
   const cleaned = String(value || 'attachment').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/g, '').slice(0, 180);
@@ -42,8 +49,18 @@ class DownloadService {
         this.onState({ status: 'interrupted', error: '未选择有效工作区，附件未自动保存。' });
         return;
       }
-      const target = uniquePath(path.resolve(workspace), item.getFilename());
-      item.setSavePath(target);
+      let target;
+      try {
+        let filename = safeFilename(item.getFilename());
+        if (!path.extname(filename)) filename += MIME_EXTENSIONS[item.getMimeType()] || '';
+        target = uniquePath(path.resolve(workspace), filename);
+        item.setSavePath(target);
+      } catch (error) {
+        item.cancel();
+        this.log.warn('ChatGPT 附件无法保存', { error: error.message });
+        this.onState({ status: 'interrupted', error: `附件无法保存：${error.message}` });
+        return;
+      }
       const startedAt = Date.now();
       this.onState({ status: 'progressing', path: target, receivedBytes: 0, totalBytes: item.getTotalBytes() });
       item.on('updated', (_e, state) => this.onState({
@@ -60,8 +77,11 @@ class DownloadService {
             payload.size = stat.size;
             payload.sha256 = await sha256(target);
             this.log.info('ChatGPT 附件已自动保存到工作区', payload);
-          } catch (error) { payload.error = error.message; }
+          } catch (error) { payload.error = `附件保存结果无法确认：${error.message}`; }
+        } else {
+          payload.error = state === 'cancelled' ? '附件下载已取消。' : '附件下载中断，请检查网络或重新获取文件链接后重试。';
         }
+        if (payload.error) this.log.warn('ChatGPT 附件下载失败', payload);
         this.onState(payload);
       });
     });

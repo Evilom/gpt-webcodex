@@ -677,12 +677,16 @@ api.onWorkspaceChanged?.(renderWorkspace);
 api.onDownload((item) => {
   const node = $('#downloadState');
   const openButton = $('#openDownloadButton');
-  if (item.status === 'completed') {
+  node.title = item.error || item.path || '';
+  if (item.error) { node.textContent = item.error; if (openButton) openButton.hidden = true; }
+  else if (item.status === 'completed') {
     node.textContent = `已保存：${baseName(item.path)}`;
     if (openButton) openButton.hidden = false;
   }
-  else if (item.status === 'progressing') node.textContent = `附件 ${item.totalBytes ? Math.round((item.receivedBytes / item.totalBytes) * 100) : 0}%`;
-  else if (item.error) { node.textContent = item.error; if (openButton) openButton.hidden = true; }
+  else if (item.status === 'progressing') {
+    node.textContent = `附件 ${item.totalBytes ? Math.round((item.receivedBytes / item.totalBytes) * 100) : 0}%`;
+    if (openButton) openButton.hidden = true;
+  }
 });
 $('#openDownloadButton').onclick = () => api.openLastDownload?.().catch((error) => { $('#downloadState').textContent = error.message; });
 api.chatStatus().then((result) => renderChatState(unwrap(result))).catch(() => {});

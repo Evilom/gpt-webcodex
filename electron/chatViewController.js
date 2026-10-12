@@ -61,6 +61,16 @@ function isChatConversationUrl(value) {
   return /(^|\/)c\/[^/]+/i.test(parsed.pathname);
 }
 
+function isChatDownloadUrl(value) {
+  const url = parseUrl(value);
+  if (!url) return false;
+  if (url.protocol === 'blob:') return isChatGptNavigation(url.origin);
+  if (url.protocol !== 'https:') return false;
+  return url.hostname.toLowerCase().endsWith('.oaiusercontent.com')
+    || isChatGptNavigation(value) && (/^\/backend-api\/files\/download\//i.test(url.pathname)
+      || /^\/backend-api\/(?:files|conversation)\/.+\/download(?:\/|$)/i.test(url.pathname));
+}
+
 function isChatMessageRenderErrorText(value) {
   const text = String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
   return CHAT_RENDER_ERROR_MARKERS.some((marker) => text.includes(marker.toLowerCase()));
@@ -143,6 +153,7 @@ class ChatViewController {
     this.nativeLogin = null;
     this.createWebContentsView = createWebContentsView;
     this.authViews = [];
+    this.downloadViews = [];
     this.login = { status: 'idle', mode: '', prompt: false, kind: '', message: '', returning: false };
     this.loginRevision = 0;
     this.loginPromptSeen = new Set();
@@ -336,6 +347,10 @@ class ChatViewController {
       this.contentBindings.push({ contents, name, guarded });
     };
     contents.setWindowOpenHandler(({ url }) => {
+      if (isChatDownloadUrl(url)) {
+        this.startDownload(contents, url);
+        return { action: 'deny' };
+      }
       if (authUrl(url) || url === 'about:blank' && authUrl(contents.getURL())) {
         if (this.authViews.length >= 4) { this.offerLogin('blocked', contents, true); return { action: 'deny' }; }
         return {
@@ -352,6 +367,12 @@ class ChatViewController {
           },
           createWindow: (options) => this.createEmbeddedAuthView(options, url).webContents
         };
+      }
+      if (url === 'about:blank' && isChatGptNavigation(contents.getURL())) {
+        if (this.downloadViews.length >= 4) return { action: 'deny' };
+        return { action: 'allow', overrideBrowserWindowOptions: {
+          webPreferences: { partition: CHAT_PARTITION, nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true }
+        }, createWindow: (options) => this.createDownloadView(options).webContents };
       }
       if (isAllowedNavigation(url) && parseUrl(url)?.hostname.toLowerCase().endsWith('chatgpt.com')) {
         this.openUrl(url);
@@ -488,6 +509,43 @@ class ChatViewController {
       this.log.error(this.lastError, { exitCode: details.exitCode });
       this.emitState();
     });
+  }
+
+  startDownload(contents, url) {
+    if (this.disposed || contents.isDestroyed()) return;
+    try { contents.downloadURL(url); }
+    catch (error) {
+      this.log.warn('ChatGPT 附件下载未能启动', { error: error.message });
+      this.onDownload({ status: 'interrupted', error: '附件下载未能启动，请重试。' });
+    }
+  }
+
+  createDownloadView(options = {}) {
+    // Retain Chromium's opener for pages that open a blank window before assigning a file URL.
+    const view = this.createWebContentsView({ webContents: options.webContents });
+    const contents = view.webContents;
+    const downloadSession = contents.session;
+    this.downloadViews.push(view);
+    const close = () => setImmediate(() => { if (!contents.isDestroyed()) contents.close({ waitForBeforeUnload: false }); });
+    const deadline = setTimeout(close, 60000);
+    deadline.unref?.();
+    const onDownload = (_event, item, source) => {
+      if (source === contents) { clearTimeout(deadline); item.once('done', close); }
+    };
+    downloadSession.on('will-download', onDownload);
+    contents.once('destroyed', () => {
+      clearTimeout(deadline);
+      downloadSession.removeListener('will-download', onDownload);
+      this.downloadViews = this.downloadViews.filter((item) => item !== view);
+    });
+    contents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    contents.on('will-navigate', (event, url) => {
+      if (url === 'about:blank') return;
+      event.preventDefault();
+      if (isChatDownloadUrl(url)) this.startDownload(contents, url);
+      else { if (/^https?:/i.test(url)) shell.openExternal(url).catch(() => {}); close(); }
+    });
+    return view;
   }
 
   armLoadDeadline(contents, timeoutMs = 60000) {
@@ -1276,6 +1334,9 @@ class ChatViewController {
     clearInterval(this.loginWatch);
     this.closeAuthViews();
     Promise.resolve(this.nativeLogin?.cancel()).catch((error) => this.log.warn('退出时登录清理失败', { message: error.message }));
+    for (const view of this.downloadViews.splice(0)) {
+      if (!view.webContents.isDestroyed()) view.webContents.close({ waitForBeforeUnload: false });
+    }
     this.clearRetryState();
     if (this.window && !this.window.isDestroyed()) this.window.removeListener('resize', this.boundResize);
     if (this.view && this.window && !this.window.isDestroyed()) {
@@ -1343,6 +1404,7 @@ module.exports = {
   isChatGptNavigation,
   isTransientChatLoadError,
   isChatConversationUrl,
+  isChatDownloadUrl,
   isChatMessageRenderErrorText,
   isChatStreamRecoveryTimeoutText
 };

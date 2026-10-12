@@ -43,12 +43,15 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           npm run test:chat-lifecycle
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npm run test:chat-downloads
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Prepare and build Apple Silicon
         if: runner.os == 'macOS'
         run: |
           test "$(uname -m)" = arm64
           npm run resources:mac
           npm run dist:mac
+          npm run test:chat-downloads
           node scripts/smoke-macos-package.js
           hdiutil verify dist/*-mac-arm64.dmg
           unzip -tq dist/*-mac-arm64.zip
