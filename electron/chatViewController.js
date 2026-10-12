@@ -744,7 +744,7 @@ class ChatViewController {
       const normalize=(v)=>String(v||'').replace(/\\s+/g,' ').trim();
       const interrupted=(text)=>{
         const value=normalize(text);
-        return (value.includes('连接已中断') && value.includes('正在等待完整回复'))
+        return (value.includes('连接已中断') && (value.includes('正在等待完整回复') || value.includes('正在等待完整答复')))
           || /Connection interrupted/i.test(value)
           || /Waiting for (?:the )?complete response/i.test(value);
       };
@@ -758,7 +758,7 @@ class ChatViewController {
       const scan=()=>{
         window.__mcpStreamTimer=0;
         const recentTurns=Array.from(document.querySelectorAll('[data-testid^="conversation-turn-"]')).slice(-2);
-        const notices=Array.from(document.querySelectorAll('main [role="alert"],main [data-testid*="error" i]')).filter(visible);
+        const notices=Array.from(document.querySelectorAll('main [role="alert"],main [role="status"],main [data-testid*="error" i]')).filter(visible);
         const text=[...recentTurns,...notices].map(node=>node.textContent||'').join(' ');
         if(renderError()){
           const changed=window.__mcpStreamStatus!=='render_error';

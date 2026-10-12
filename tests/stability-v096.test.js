@@ -110,3 +110,36 @@ test('network diagnostics cover CDN and HTTP failures without secrets or duplica
   assert.equal(logs[0].route, '/backend-api/conversation');
   assert.doesNotMatch(JSON.stringify(logs), /private-id|synthetic|token/);
 });
+
+test('stream observer recognizes visible recovery status in current Chinese and English UI', async (t) => {
+  for (const [text, visible, expected] of [
+    ['连接已中断，正在等待完整答复', true, 'interrupted'],
+    ['连接已中断。正在等待完整回复', true, 'interrupted'],
+    ['Connection interrupted. Waiting for the complete response', true, 'interrupted'],
+    ['连接已中断，正在等待完整答复', false, 'healthy'],
+    ['正在思考', true, 'healthy']
+  ]) {
+    const f = fixture(t, 'https://chatgpt.com/c/current');
+    let script;
+    const timers = [], reports = [];
+    const notice = { textContent: text, getBoundingClientRect: () => ({ width: visible ? 100 : 0, height: visible ? 20 : 0 }) };
+    f.contents.executeJavaScript = (source) => { script = source; return Promise.resolve(); };
+    f.controller.scheduleStreamObserver();
+    const window = {};
+    vm.runInNewContext(script, {
+      window,
+      document: {
+        querySelector: () => ({}),
+        querySelectorAll: (selector) => selector.includes('[role="status"]') ? [notice] : []
+      },
+      getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }),
+      MutationObserver: class { observe() {} },
+      setTimeout: (fn) => { timers.push(fn); return timers.length; }, clearTimeout() {},
+      console: { info: (line) => reports.push(JSON.parse(line.slice('[web-mcp-stream] '.length))) }
+    });
+    timers.shift()();
+    assert.equal(window.__mcpStreamStatus, expected, text);
+    if (expected === 'interrupted') assert.equal(reports.at(-1)?.event, 'page-stream-interrupted');
+    assert.deepEqual(f.loads, []);
+  }
+});
