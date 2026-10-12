@@ -214,6 +214,10 @@ async function runBrowser(theme, width) {
   const state = await win.webContents.executeJavaScript(`(() => {
     const required = ['openTerminalButton', 'taskChangesBtn', 'openTaskHistoryButton', 'workspacePickerButton'];
     for (const id of required) if (!document.getElementById(id)) throw new Error('missing browser tool: ' + id);
+    for (const id of ['recoverPageButton', 'updateAction']) {
+      const node = document.getElementById(id);
+      if (node.hidden && getComputedStyle(node).display !== 'none') throw new Error('hidden action is visible: ' + id);
+    }
     document.getElementById('openTerminalButton').click();
     document.getElementById('consoleTabFiles').click();
     return {

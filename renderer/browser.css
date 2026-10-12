@@ -322,3 +322,6 @@ body[data-theme="dark"] .task-strip.tone-warning,body[data-theme="dark"] .progre
 body[data-theme="dark"] .task-strip.tone-positive,body[data-theme="dark"] .progress-band.tone-positive{background:#16352e}
 body[data-theme="dark"] .task-strip.tone-neutral,body[data-theme="dark"] .progress-band.tone-neutral{background:#212121}
 body[data-theme="dark"] .logo-mark{color:#0d0d0d}
+/* Native recovery and release actions must respect their hidden state. */
+#recoverPageButton[hidden],#updateAction[hidden]{display:none!important}
+#recoverPageButton,#updateAction{white-space:nowrap;flex-shrink:0}

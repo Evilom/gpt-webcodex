@@ -11,8 +11,8 @@
 
 | 组件 | 版本 |
 | --- | --- |
-| 网页 MCP 助手 Desktop | **v0.9.7** |
-| Coding Tools MCP Runtime | **v0.9.7** |
+| 网页 MCP 助手 Desktop | **v0.9.8** |
+| Coding Tools MCP Runtime | **v0.9.8** |
 | MCP Tool Schema | **v14 / 10 tools** |
 | Schema Hash | `631ba25229260ab745932f2fcc1cef3deb982ddc0cf3bbcb900047c458e321fd` |
 | Electron | **43.2.0** |
@@ -29,11 +29,11 @@
 - **本地会话与开发上下文**：保存本地任务、历史、Checkpoint、Rules、Recipes、Skills 和 Memory 等开发上下文。
 - **ChatGPT 页面增强**：保留原生页面渲染，提供连续 MCP 状态观察、动态资源错误提示和长时间无新内容的可操作反馈。
 
-## v0.9.7 Apple Silicon Mac 支持
+## v0.9.8 Apple Silicon Mac 支持
 
 新增 Apple Silicon（M1/M2/M3/M4）macOS 构建，内置 ARM64 Python、Tunnel、rg 和 fd。已适配解释器查找、进程组停止、Shell、系统代理与 Chrome/Edge 登录修复。Windows 使用原来的启动和停止路径。
 
-Mac 构建：在 ARM64 Mac 上运行 `npm ci`、`npm run resources:mac`、`npm run dist:mac`。产物位于 `dist/web-mcp-assistant-0.9.7-mac-arm64.dmg` 和同名 ZIP。
+Mac 构建：在 ARM64 Mac 上运行 `npm ci`、`npm run resources:mac`、`npm run dist:mac`。产物位于 `dist/web-mcp-assistant-0.9.8-mac-arm64.dmg` 和同名 ZIP。
 
 Mac 包使用临时签名供个人测试，未进行 Apple Developer ID 签名与公证。Windows 上的登录、密钥和工作目录不随包分发；首次在 Mac 上配置本机目录、Tunnel 和登录。
 
