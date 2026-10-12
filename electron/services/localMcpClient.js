@@ -145,6 +145,11 @@ class LocalMcpClient {
   }
 
   async latestTaskEventId() {
+    const health = await this.healthStatus();
+    return Math.max(0, Number(health.latest_task_event_id || 0));
+  }
+
+  async healthStatus() {
     if (!Number.isInteger(this.port) || this.port < 1) throw new Error('本地 MCP 端口无效。');
     if (!this.token) throw new Error('本地 MCP 认证 Token 不可用。');
     return new Promise((resolve, reject) => {
@@ -162,7 +167,7 @@ class LocalMcpClient {
           }
           try {
             const parsed = JSON.parse(payload || '{}');
-            resolve(Math.max(0, Number(parsed.latest_task_event_id || 0)));
+            resolve(parsed);
           } catch (error) { reject(error); }
         });
       });

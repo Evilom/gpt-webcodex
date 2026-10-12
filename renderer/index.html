@@ -299,6 +299,7 @@
         </div>
         <details class="panel diagnostic-details" id="doctorDetails"><summary><span><b>技术诊断详情</b><small>只有排查连接问题时需要展开</small></span><span>展开</span></summary><div class="diagnostic-detail-list" id="doctorResults"><span class="task-muted">运行一键诊断后显示详细证据。</span></div></details>
         <details class="panel diagnostic-details"><summary><span><b>运行日志</b><small>密钥、Token 和 Cookie 会自动脱敏</small></span><span>展开</span></summary><div class="compact-log-toolbar"><span id="logCount">0 条日志</span><div><button class="secondary-button" id="refreshLogs">刷新</button><button class="danger-button" id="clearLogs">清空</button></div></div><div class="log-output" id="logOutput"><div class="empty-state"><b>暂无日志</b><span>出现运行或连接异常时再查看。</span></div></div></details>
+        <article class="panel"><h3>助手更新</h3><p id="updateStatus" aria-live="polite">启动后自动检查，每 6 小时再次检查</p><div class="inline-actions"><button id="checkUpdate" class="secondary-button" type="button">检查更新</button><button id="updateAction" class="primary-button" type="button" hidden>下载更新</button></div><p>更新来自我们自己的 GitHub Release；通道配置、工作区和登录状态会保留。</p></article>
         <article class="panel about-panel"><div class="brand-mark large"><span></span><span></span><span></span></div><div><h3>网页 MCP 助手 <span id="aboutVersion" hidden></span></h3><p>自动完成日常开发流程，同时保留必要的查看、配置和异常处理能力。</p></div></article>
       </section>
     </div>
@@ -311,6 +312,7 @@
 <div id="reactManagerRoot" hidden></div>
 <script src="assistantState.js"></script>
 <script src="app.js"></script>
+<script src="update-ui.js"></script>
 <script src="react-dist/manager-react.js"></script>
 </body>
 </html>

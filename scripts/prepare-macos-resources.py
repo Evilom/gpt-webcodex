@@ -50,17 +50,17 @@ def main() -> None:
         shutil.copytree(cache / "python" / "python", target, dirs_exist_ok=True, symlinks=True)
         records.append({"name": "Python", "version": "3.12.10", "url": python_url, "sha256": digest})
 
-        tunnel_url = "https://github.com/openai/tunnel-client/releases/download/v0.0.10/tunnel-client-v0.0.10-darwin-arm64.zip"
+        tunnel_url = "https://github.com/openai/tunnel-client/releases/download/v0.0.16/tunnel-client-v0.0.16-darwin-arm64.zip"
         archive = cache / "tunnel.zip"
-        digest = download(tunnel_url, archive, expected="288accc7fd20cfee1d495adb933773af9e19ebc0cdef3173f7fb544afa5065b2")
+        digest = download(tunnel_url, archive, expected="a160820d45089b5253d8d671fe2a689bde0f73d78c135d1497a7b33f28a3ac62")
         with zipfile.ZipFile(archive) as bundle:
             bundle.extractall(cache / "tunnel")
         tunnel = next((cache / "tunnel").rglob("tunnel-client"))
         shutil.copy2(tunnel, tools / "tunnel-client")
         licenses = tools / "licenses"
         licenses.mkdir(exist_ok=True)
-        download("https://raw.githubusercontent.com/openai/tunnel-client/v0.0.10/LICENSE", licenses / "tunnel-client-LICENSE")
-        records.append({"name": "Tunnel", "version": "0.0.10", "url": tunnel_url, "sha256": digest})
+        download("https://raw.githubusercontent.com/openai/tunnel-client/v0.0.16/LICENSE", licenses / "tunnel-client-LICENSE")
+        records.append({"name": "Tunnel", "version": "0.0.16", "url": tunnel_url, "sha256": digest})
 
         for name, version, url in [
             ("rg", "14.1.1", "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-aarch64-apple-darwin.tar.gz"),

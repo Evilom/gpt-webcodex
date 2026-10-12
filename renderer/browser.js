@@ -313,6 +313,7 @@ function renderChatState(state) {
   element.classList.toggle('loading', Boolean(state.loading));
   element.classList.toggle('ready', !state.loading && !state.error);
   element.classList.toggle('error', Boolean(state.error));
+  $('#recoverPageButton').hidden = state.errorLayer !== 'chat-renderer';
   element.querySelector('span').textContent = state.error
     ? `加载失败：${state.error}`
     : state.url?.startsWith('https://accounts.google.com/') ? 'Google 登录请使用右侧「登录修复」'
@@ -1502,4 +1503,7 @@ api.onThemeChanged?.((mode) => {
   const theme = mode === 'system' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : mode;
   document.body.dataset.theme = theme;
   document.documentElement.dataset.theme = theme;
+});
+$('#recoverPageButton').addEventListener('click', () => {
+  if (window.confirm('恢复页面会刷新当前聊天，可能中断网页上的回答。本地 MCP 任务会继续运行。')) api.navigate('recover').catch(() => {});
 });

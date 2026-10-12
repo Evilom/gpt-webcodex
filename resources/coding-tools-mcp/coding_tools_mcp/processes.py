@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import codecs
 import hashlib
+import ntpath
 import os
 import signal
 import subprocess
@@ -121,11 +122,18 @@ def _windows_taskkill_tree(process: subprocess.Popen[bytes], *, force: bool) -> 
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
     def run_taskkill(hard: bool) -> None:
-        command = ["taskkill.exe", "/PID", str(process.pid), "/T"]
+        # Upstream f8fe200: resolve cleanup from Windows itself, never the workspace PATH.
+        system_root = os.environ.get("SystemRoot", "")
+        if not ntpath.isabs(system_root) or not ntpath.splitdrive(system_root)[0]:
+            raise RuntimeError("SystemRoot is not an absolute Windows path")
+        system_dir = ntpath.join(system_root, "System32")
+        command = [ntpath.join(system_dir, "taskkill.exe"), "/PID", str(process.pid), "/T"]
         if hard:
             command.append("/F")
         subprocess.run(
             command,
+            cwd=system_dir,
+            env={"SystemRoot": system_root, "WINDIR": system_root},
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,

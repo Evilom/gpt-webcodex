@@ -1,6 +1,15 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('mcpAssistant', {
+  updateStatus: () => ipcRenderer.invoke('update:status'),
+  checkUpdate: () => ipcRenderer.invoke('update:check'),
+  downloadUpdate: () => ipcRenderer.invoke('update:download'),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
+  onUpdate: (listener) => {
+    const wrapped = (_event, payload) => listener(payload);
+    ipcRenderer.on('update:state', wrapped);
+    return () => ipcRenderer.removeListener('update:state', wrapped);
+  },
   snapshot: (options) => ipcRenderer.invoke('app:snapshot', options),
   openWorkspaceWindow: () => ipcRenderer.invoke('workspace-window:open'),
   openApprovalWindow: () => ipcRenderer.invoke('approval-window:open'),

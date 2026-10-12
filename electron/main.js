@@ -32,6 +32,9 @@ const { DoctorService } = require('./services/doctorService');
 const { AutoMemoryService } = require('./services/autoMemoryService');
 const { WorkspaceManager } = require('./services/workspaceManager');
 const { PublicMcpGateway } = require('./services/publicMcpGateway');
+const { UpdateService } = require('./services/updateService');
+const { finishShutdown } = require('./services/shutdownService');
+const { autoUpdater } = require('electron-updater');
 const { notificationStateFile, dataRoot, mcpLogFile } = require('./paths');
 
 let chatWindow;
@@ -46,6 +49,9 @@ let activityDetailHideTimer = null;
 let chatController;
 let orchestrator;
 let forceQuit = false;
+let quitReady = false;
+let shutdownPromise = null;
+let updateService;
 let tray = null;
 let buildVerification;
 let healthService;
@@ -65,6 +71,36 @@ const notificationCheckpoints = new NotificationCheckpointStore(notificationStat
 const approvalService = new ApprovalService(settings);
 const workspaceManager = new WorkspaceManager(settings);
 
+process.on('uncaughtException', (error) => {
+  try { log.error('助手主进程异常，将退出；本地 MCP 服务保留', { error: error.message, stack: error.stack }); } catch {}
+  app.exit(1);
+});
+process.on('unhandledRejection', (error) => {
+  try { log.error('助手异步操作失败', { error: safeMessage(error), stack: error?.stack || '' }); } catch {}
+});
+
+function requestQuit({ stopServices = false, installUpdate = false } = {}) {
+  if (shutdownPromise) return shutdownPromise;
+  forceQuit = true;
+  clearTimeout(superviseTimer);
+  superviseTimer = null;
+  taskNotificationService?.stop();
+  updateService?.stop();
+  const loginCleanup = chatController?.cancelNativeLogin();
+  try { chatController?.dispose(); } catch (error) { log.warn('退出时页面清理失败', { error: safeMessage(error), stack: error.stack }); }
+  shutdownPromise = finishShutdown({
+    tasks: [() => loginCleanup, () => publicMcpGateway?.stop(), ...(stopServices ? [() => orchestrator?.stop()] : [])],
+    log,
+    exit: () => {
+      quitReady = true;
+      if (installUpdate) {
+        try { updateService.install(); } catch (error) { log.error('安装更新失败', { error: safeMessage(error) }); app.exit(1); }
+      } else app.exit(0);
+    }
+  });
+  return shutdownPromise;
+}
+
 if (process.platform === 'win32') app.setAppUserModelId('com.gptwebcodex.assistant');
 if (process.platform === 'darwin') {
   process.env.PATH = ['/opt/homebrew/bin', '/usr/local/bin', process.env.PATH || ''].filter(Boolean).join(':');
@@ -75,7 +111,11 @@ function appIconPath() {
 }
 
 function sendManager(channel, payload) {
-  if (managerWindow && !managerWindow.isDestroyed()) managerWindow.webContents.send(channel, payload);
+  sendWindow(managerWindow, channel, payload);
+}
+
+function sendWindow(window, channel, payload) {
+  if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send(channel, payload);
 }
 
 function safeMessage(error) {
@@ -243,7 +283,8 @@ function createTray() {
     { label: '打开网页 MCP 助手', click: () => showChatWindow() },
     { label: '打开管理设置', click: () => { showChatWindow(); openManagerWindow(); } },
     { type: 'separator' },
-    { label: '退出助手（保留 MCP 服务）', click: () => { forceQuit = true; app.quit(); } }
+    { label: '检查助手更新', click: () => { showChatWindow(); void updateService?.check(); } },
+    { label: '退出助手（保留 MCP 服务）', click: () => { void requestQuit(); } }
   ]));
   tray.on('click', () => showChatWindow());
   tray.on('double-click', () => showChatWindow());
@@ -284,12 +325,12 @@ function createChatWindow() {
     toolbarHeight: 164,
     nativeLoginRoot: path.join(dataRoot(), 'native-login'),
     onState: (payload) => {
-      if (chatWindow && !chatWindow.isDestroyed()) chatWindow.webContents.send('chat:state', payload);
+      sendWindow(chatWindow, 'chat:state', payload);
       sendManager('chat:state', payload);
     },
     onDownload: (payload) => {
       if (payload?.status === 'completed' && payload.path) lastDownloadPath = path.resolve(String(payload.path));
-      if (chatWindow && !chatWindow.isDestroyed()) chatWindow.webContents.send('chat:download', payload);
+      sendWindow(chatWindow, 'chat:download', payload);
     },
     onConversationTurn: (turn) => autoMemoryService?.ingestTurn(turn)
   });
@@ -321,15 +362,7 @@ function createChatWindow() {
       chatWindow.hide();
       return;
     }
-    if (!orchestrator) {
-      forceQuit = true;
-      app.quit();
-      return;
-    }
-    orchestrator.stop().catch((error) => log.error(error.message, { stage: 'close' })).finally(() => {
-      forceQuit = true;
-      app.quit();
-    });
+    void requestQuit({ stopServices: true });
   });
   return chatWindow;
 }
@@ -392,7 +425,7 @@ function sendActivityDetailState() {
     visible: Boolean(activityDetailWindow && !activityDetailWindow.isDestroyed() && activityDetailWindow.isVisible()),
     pinned: activityDetailPinned
   };
-  if (chatWindow && !chatWindow.isDestroyed()) chatWindow.webContents.send('activity-detail:state', state);
+  sendWindow(chatWindow, 'activity-detail:state', state);
   if (activityDetailWindow && !activityDetailWindow.isDestroyed()) activityDetailWindow.webContents.send('activity-detail:state', state);
 }
 
@@ -544,7 +577,7 @@ function openApprovalWindow() {
 }
 
 function broadcastWorkspaceHub(hub = workspaceManager.hub()) {
-  if (chatWindow && !chatWindow.isDestroyed()) chatWindow.webContents.send('workspace:changed', hub);
+  sendWindow(chatWindow, 'workspace:changed', hub);
   if (workspaceWindow && !workspaceWindow.isDestroyed()) workspaceWindow.webContents.send('workspace:changed', hub);
   if (managerWindow && !managerWindow.isDestroyed()) managerWindow.webContents.send('workspace:changed', hub);
   return hub;
@@ -676,6 +709,24 @@ async function controlLocalMemory(payload = {}) {
 }
 
 function registerIpc() {
+  secureHandle('update:status', () => invokeSafely(async () => updateService.getState()));
+  secureHandle('update:check', () => invokeSafely(async () => updateService.check()));
+  secureHandle('update:download', () => invokeSafely(async () => updateService.download()));
+  secureHandle('update:install', () => invokeSafely(async () => {
+    if (chatController?.streamState.status === 'generating' || chatController?.nativeLogin?.run) throw new Error('请等待当前回答或登录操作完成后再安装更新。');
+    if (orchestrator?.busy) throw new Error('本地服务正在启动或切换，请稍后安装更新。');
+    const current = settings.load();
+    const currentTask = current.workspace ? readJson(workspaceStatePaths().statePath, null) : null;
+    if (['running', 'paused', 'waiting', 'waiting_user'].includes(currentTask?.status)) throw new Error('当前工作区仍有未完成任务，请完成或手动停止任务后再安装更新。');
+    if (await orchestrator.native.status(current)) {
+      const client = new LocalMcpClient({ port: current.mcpPort, token: secrets.get('mcpAuthToken'), log });
+      const health = await client.healthStatus();
+      if (Number(health.active_commands || 0) > 0) throw new Error('仍有本地命令执行中，请结束后再安装更新。');
+    }
+    if (updateService.getState().stage !== 'downloaded') throw new Error('更新尚未下载完成。');
+    setImmediate(() => void requestQuit({ stopServices: true, installUpdate: true }));
+    return { installing: true };
+  }));
   secureHandle('app:snapshot', (_event, options) => invokeSafely(async () => {
     const snapshot = await orchestrator.snapshot(options || {});
     return { ...snapshot, appVersion: app.getVersion(), chat: chatController?.getState() || null };
@@ -1652,6 +1703,15 @@ if (!hasSingleInstanceLock) {
     app.on('web-contents-created', (_event, contents) => {
       contents.on('will-attach-webview', (event) => event.preventDefault());
     });
+    updateService = new UpdateService({
+      updater: autoUpdater, version: app.getVersion(), packaged: app.isPackaged,
+      fetch: (url, options) => session.defaultSession.fetch(url, options),
+      openExternal: (url) => shell.openExternal(url), log,
+      onState: (state) => {
+        sendManager('update:state', state);
+        if (chatWindow && !chatWindow.isDestroyed() && !chatWindow.webContents.isDestroyed()) chatWindow.webContents.send('update:state', state);
+      }
+    });
     createTray();
     orchestrator = new RuntimeOrchestrator({
       settings,
@@ -1688,6 +1748,7 @@ if (!hasSingleInstanceLock) {
     registerIpc();
     const startupSettings = settings.load();
     createChatWindow();
+    updateService.start();
     taskNotificationService = new TaskNotificationService({
       getSettings: () => settings.load(),
       getWorkspace: () => settings.load().workspace,
@@ -1704,7 +1765,7 @@ if (!hasSingleInstanceLock) {
         return client.subscribeTaskEvents(listener, { onError, ...streamOptions });
       },
       onTaskEvent: (payload) => {
-        if (chatWindow && !chatWindow.isDestroyed()) chatWindow.webContents.send('chat:task-event', payload);
+        sendWindow(chatWindow, 'chat:task-event', payload);
         sendManager('runtime:task-event', payload);
       },
       getChatWindow: () => chatWindow,
@@ -1717,18 +1778,19 @@ if (!hasSingleInstanceLock) {
     taskNotificationService.start();
     contextUsageTracker.on('change', (snapshot) => {
       if (chatWindow && !chatWindow.isDestroyed()) {
-        chatWindow.webContents.send('context:usage-changed', snapshot);
+        sendWindow(chatWindow, 'context:usage-changed', snapshot);
       }
     });
     superviseTimer = null;
     const scheduleSupervise = (delayMs = 5000) => {
+      if (forceQuit) return;
       if (superviseTimer) clearTimeout(superviseTimer);
       superviseTimer = setTimeout(() => {
         orchestrator.supervise().then((status) => {
           taskNotificationService?.acceptRuntimeStatus?.(status);
           updateTrayTooltip(status);
           sendManager('runtime:heartbeat', status);
-          if (chatWindow && !chatWindow.isDestroyed()) chatWindow.webContents.send('runtime:heartbeat', status);
+          sendWindow(chatWindow, 'runtime:heartbeat', status);
           try {
             const { performancePath } = workspaceStatePaths();
             fs.readFile(performancePath, 'utf8').then((raw) => {
@@ -1753,18 +1815,10 @@ if (!hasSingleInstanceLock) {
     }
   });
 
-  let loginQuitPending = false;
   app.on('before-quit', (event) => {
-    forceQuit = true;
-    if (superviseTimer) clearTimeout(superviseTimer);
-    taskNotificationService?.stop();
-    publicMcpGateway?.stop().catch(() => {});
-    if (chatController?.nativeLogin?.run) {
-      event.preventDefault();
-      if (loginQuitPending) return;
-      loginQuitPending = true;
-      chatController.cancelNativeLogin().finally(() => app.quit());
-    }
+    if (quitReady) return;
+    event.preventDefault();
+    void requestQuit();
   });
   app.on('window-all-closed', () => {
     if (!forceQuit && settings.load().keepRunningOnClose) return;

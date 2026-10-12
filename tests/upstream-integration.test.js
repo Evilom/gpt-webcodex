@@ -26,7 +26,7 @@ test('local drawer insets preserve the upstream chat boundary and avoid repeated
     window: { isDestroyed: () => false, getContentSize: () => [1360, 900] },
     toolbarHeight: 164
   });
-  controller.view = { setBounds: (value) => bounds.push(value) };
+  controller.view = { webContents: { isDestroyed: () => false }, setBounds: (value) => bounds.push(value) };
   controller.setContentInsets({ bottom: 320 });
   assert.deepEqual(bounds[0], { x: 0, y: 164, width: 1360, height: 416 });
   controller.setContentInsets({ bottom: 320 });

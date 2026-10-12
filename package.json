@@ -1,6 +1,6 @@
 {
   "name": "web-mcp-assistant",
-  "version": "0.9.5",
+  "version": "0.9.6",
   "description": "一键部署与管理 Coding Tools MCP、OpenAI Tunnel 和 ChatGPT 接入的 Windows/macOS 桌面助手",
   "author": "3169657175",
   "license": "MIT",
@@ -22,7 +22,8 @@
     "ui:smoke": "npm run ui:build && electron scripts/renderer-smoke-electron.js && node scripts/assert-renderer-smoke.js",
     "test:quick": "npm run ui:check && python scripts/check-schema-contract.py && node --test tests/assistant-state-v090.test.js tests/auto-memory-v042.test.js tests/task-notification.test.js tests/v090-architecture.test.js tests/mcp-session-recovery-v092.test.js tests/memory-views-v092.test.js tests/renderer-production-smoke-v092.test.js tests/runtime-info-v092.test.js tests/schema-hint-v092.test.js tests/service-state-v092.test.js tests/theme-v092.test.js tests/tunnel-recovery-v092.test.js tests/workspace-quick-switch-v092.test.js",
     "release:verify": "npm run ui:check && npm run ui:smoke && npm test && npm run soak:quick && node scripts/check-release-readiness.js",
-    "release:git-ready": "node scripts/check-release-git-ready.js"
+    "release:git-ready": "node scripts/check-release-git-ready.js",
+    "test:chat-lifecycle": "electron scripts/test-chat-lifecycle-electron.js"
   },
   "dependencies": {
     "electron-updater": "^6.8.9",
@@ -66,7 +67,8 @@
       "icon": "electron/app-icon.ico",
       "target": [
         "nsis"
-      ]
+      ],
+      "verifyUpdateCodeSignature": false
     },
     "nsis": {
       "oneClick": false,
@@ -79,6 +81,14 @@
       "uninstallerIcon": "electron/app-icon.ico",
       "installerHeaderIcon": "electron/app-icon.ico",
       "runAfterFinish": true
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Evilom",
+        "repo": "gpt-webcodex",
+        "releaseType": "release"
+      }
+    ]
   }
 }

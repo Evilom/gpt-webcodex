@@ -14,7 +14,7 @@
 Apple Silicon Mac 发行包还内置以下运行组件：
 
 - CPython 3.12.10（Python Software Foundation License），通过 https://github.com/astral-sh/python-build-standalone 的 20250409 发行版提供；发行树中的第三方许可文件保留在 Python 目录。
-- OpenAI Tunnel Client 0.0.10（Apache License 2.0），https://github.com/openai/tunnel-client 。
+- OpenAI Tunnel Client 0.0.16（Apache License 2.0），https://github.com/openai/tunnel-client 。
 - ripgrep 14.1.1（MIT / Unlicense），https://github.com/BurntSushi/ripgrep 。
 - fd 10.2.0（MIT / Apache License 2.0），https://github.com/sharkdp/fd 。
 

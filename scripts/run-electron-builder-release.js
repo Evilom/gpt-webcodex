@@ -73,7 +73,7 @@ function resolveElectronDist(projectRoot = root) {
 function runBuilder(projectRoot = root) {
   const cli = resolveBuilderCli(projectRoot);
   const electronDist = resolveElectronDist(projectRoot);
-  return spawnSync(process.execPath, [cli, '--win', 'nsis', `--config.electronDist=${electronDist}`], {
+  return spawnSync(process.execPath, [cli, '--win', 'nsis', '--publish', 'never', `--config.electronDist=${electronDist}`], {
     cwd: projectRoot,
     env: process.env,
     stdio: 'inherit',

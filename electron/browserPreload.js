@@ -1,6 +1,15 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('browserAssistant', {
+  updateStatus: () => ipcRenderer.invoke('update:status'),
+  checkUpdate: () => ipcRenderer.invoke('update:check'),
+  downloadUpdate: () => ipcRenderer.invoke('update:download'),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
+  onUpdate: (listener) => {
+    const wrapped = (_event, payload) => listener(payload);
+    ipcRenderer.on('update:state', wrapped);
+    return () => ipcRenderer.removeListener('update:state', wrapped);
+  },
   openManager: () => ipcRenderer.invoke('manager:open'),
   openWorkspaceWindow: () => ipcRenderer.invoke('workspace-window:open'),
   navigate: (action) => ipcRenderer.invoke('chat:navigate', action),

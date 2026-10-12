@@ -15,6 +15,7 @@
         <button id="backButton" class="icon-button" title="后退" disabled>←</button>
         <button id="forwardButton" class="icon-button" title="前进" disabled>→</button>
         <button id="reloadButton" class="icon-button" title="刷新">↻</button>
+        <button id="recoverPageButton" class="home-button" type="button" hidden title="刷新无响应的 ChatGPT 页面，本地任务继续运行">恢复页面</button>
         <button id="homeButton" class="home-button"><span class="logo-mark">AI</span><b>ChatGPT</b></button>
       </div>
       <div class="page-state" id="pageState"><i></i><span>正在准备 ChatGPT…</span></div>
@@ -61,6 +62,7 @@
         <button id="schemaRefreshHint" class="schema-refresh-hint" type="button" hidden title="当前聊天仍使用旧版工具定义；点击可暂时关闭此提示">工具已更新 · 建议新建聊天 ×</button>
         <button id="nativeLoginButton" class="login-action login-entry" type="button" title="打开登录中心：优先在应用内登录，成功后自动返回">登录 / 登录帮助</button>
         <button id="managerButton" class="manager-button">设置</button>
+        <button id="updateAction" class="manager-button" type="button" hidden>检查更新</button>
       </div>
     </div>
     <div class="workspace-bar">
@@ -178,5 +180,6 @@
   <script src="progressPresentation.js"></script>
   <script src="assistantState.js"></script>
   <script src="browser.js"></script>
+  <script src="update-ui.js"></script>
 </body>
 </html>
