@@ -40,7 +40,9 @@ const { autoUpdater } = require('electron-updater');
 const { notificationStateFile, dataRoot, mcpLogFile } = require('./paths');
 
 // Keep the established profile across the product rename (login, settings and secrets).
-app.setPath('userData', path.join(app.getPath('appData'), 'web-mcp-assistant'));
+if (!app.commandLine.hasSwitch('user-data-dir')) {
+  app.setPath('userData', path.join(app.getPath('appData'), 'web-mcp-assistant'));
+}
 
 let chatWindow;
 let managerWindow;

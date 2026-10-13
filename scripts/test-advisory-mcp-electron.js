@@ -40,7 +40,9 @@ app.whenReady().then(async () => {
   await new Promise((resolve) => allocator.listen(0, '127.0.0.1', resolve));
   const port = allocator.address().port;
   await new Promise((resolve) => allocator.close(resolve));
-  const python = path.join(root, 'resources', 'native-python', 'python.exe');
+  const python = process.platform === 'win32'
+    ? path.join(root, 'resources', 'native-python', 'python.exe')
+    : path.join(root, 'resources', 'mac-arm64', 'native-python', 'bin', 'python3');
   const mcpRoot = path.join(root, 'resources', 'coding-tools-mcp');
   child = spawn(python, ['-B', '-m', 'coding_tools_mcp', '--workspace', directory, '--host', '127.0.0.1', '--port', String(port), '--permission-mode', 'dangerous'], {
     windowsHide: true, stdio: ['ignore', 'ignore', 'ignore'], env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1',
