@@ -27,7 +27,6 @@
     advisoryImport: () => ok(advisory),
     advisoryModels: () => { advisory.models = models; return ok(advisory); },
     advisorySelect: (selected) => { advisory.selected = selected; return ok(advisory); },
-    advisorySubmit: () => { advisory.job = { id: 'demo_advisory_123', status: 'completed' }; return ok({ ...advisory.job, responses: [{ model: advisory.selected[0], answer: '这是模拟辅助意见，用于验证界面；没有调用上游模型。' }] }); },
     advisoryResult: () => ok({ ...advisory.job, responses: [{ model: advisory.selected[0], answer: '这是模拟辅助意见。' }] }),
     setContentInsets: (insets) => {
       const frame = document.getElementById('previewChat');

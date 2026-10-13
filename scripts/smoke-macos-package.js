@@ -95,7 +95,7 @@ async function main() {
     assert.equal(identity.version, pkg.version);
     assert.equal(identity.processId, child.pid);
     assert.equal(identity.workspace, workspace);
-    assert.equal(identity.toolCount, 10);
+    assert.equal(identity.toolCount, 11);
     if (previousIdentity) assert.notEqual(identity.runtimeInstanceId, previousIdentity.runtimeInstanceId);
     const result = await client.callTool('exec_command', { cmd: 'printf mac-mini-ok', yield_time_ms: 1000 });
     assert.notEqual(result.isError, true);

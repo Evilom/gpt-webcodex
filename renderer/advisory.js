@@ -3,13 +3,13 @@
   const $ = (id) => document.getElementById(id);
   let state = { configured: false, models: [], selected: [], job: null };
   let busy = false;
+  let renderedJobId = '';
   const terminal = new Set(['completed', 'partial', 'failed', 'interrupted']);
-  const statusLabels = { submitting: '提交结果待确认，请查询原任务', queued: '辅助咨询排队中', running: '辅助模型正在回答', completed: '辅助咨询已完成', partial: '部分模型已返回', failed: '辅助咨询失败', interrupted: '辅助咨询已中断' };
+  const statusLabels = { preparing: 'AI 正在检查辅助输入预算', submitting: '提交结果待确认，保留原任务', queued: 'AI 辅助咨询排队中', running: '辅助模型正在回答', completed: 'AI 辅助咨询已完成', partial: '部分模型已返回', failed: '辅助咨询失败', interrupted: '辅助咨询已中断' };
   function render() {
     const focusedModel = document.activeElement?.closest('#extensionProviders input')?.value;
     $('advisoryImport').disabled = busy;
     $('advisoryRefresh').disabled = busy || !state.configured;
-    $('advisorySubmit').disabled = busy || !state.selected.length || Boolean(state.job && !terminal.has(state.job.status));
     $('advisoryResult').hidden = !state.job;
     $('advisoryResult').disabled = busy;
     const models = state.models.length ? state.models : [{ id: 'anthropic::claude-opus-5-5', name: '太极 · Opus 5.5' }, { id: 'google::gemini-3.8-flash-high', name: 'AntiGravity · Gemini 3.8 Flash High' }];
@@ -42,7 +42,7 @@
       const input = Array.from($('extensionProviders').querySelectorAll('input')).find((item) => item.value === focusedModel);
       if (input) { if (!preferred.has(focusedModel)) others.open = true; input.focus(); }
     }
-    $('advisoryStatus').textContent = state.job ? `${statusLabels[state.job.status] || state.job.status} · ${state.job.id}` : state.configured ? '已配置；读取目录后选择最多三个模型。' : '未配置；请导入现有服务的客户端 JSON。';
+    $('advisoryStatus').textContent = state.job ? `${statusLabels[state.job.status] || state.job.status} · ${state.job.id}${state.job.error ? ' · ' + state.job.error : ''}` : state.configured ? state.selected.length ? 'AI 辅助已启用；主 AI 按需发起咨询。' : '已配置；勾选模型以允许主 AI 使用辅助。' : '未配置；请导入现有服务的客户端 JSON。';
   }
   async function perform(action, result = false) {
     if (busy) return;
@@ -53,13 +53,14 @@
       if (!response?.ok) throw new Error(response?.error || '辅助服务操作失败');
       if (result) {
         const job = response.data;
+        renderedJobId = job.id;
         $('advisoryAnswers').replaceChildren();
         for (const item of job.responses || []) {
           const article = document.createElement('article');
           const title = document.createElement('h3');
           title.textContent = item.model || item.model_id || '辅助模型';
           const answer = document.createElement('p');
-          answer.textContent = item.answer || item.error || '暂无结果';
+          answer.textContent = item.answer || item.error?.message || item.error || '暂无结果';
           article.append(title, answer);
           $('advisoryAnswers').append(article);
         }
@@ -79,8 +80,17 @@
   }
   $('advisoryImport').onclick = () => perform(() => api.advisoryImport());
   $('advisoryRefresh').onclick = () => perform(() => api.advisoryModels());
-  $('advisorySubmit').onclick = () => perform(() => api.advisorySubmit($('advisoryQuestion').value), true);
   $('advisoryResult').onclick = () => perform(() => api.advisoryResult(), true);
-  if (api.advisoryStatus) void perform(() => api.advisoryStatus());
+  if (api.advisoryStatus) {
+    void perform(async () => {
+      const status = await api.advisoryStatus();
+      return status?.data?.configured ? api.advisoryModels() : status;
+    });
+    setInterval(async () => {
+      if (busy || document.hidden) return;
+      await perform(() => api.advisoryStatus());
+      if (state.job && (state.job.id !== renderedJobId || !terminal.has(state.job.status))) await perform(() => api.advisoryResult(), true);
+    }, 15000);
+  }
   else { render(); $('advisoryStatus').textContent = '当前运行版本尚未提供扩展接口。'; }
 })();

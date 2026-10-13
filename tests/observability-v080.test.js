@@ -21,7 +21,7 @@ test('0.9.2 exposes recent activity, process and diagnosis without raw heartbeat
 
 test('0.8.0 runtime publishes progress_due and an old-schema operation fallback', () => {
   const server = read('resources/coding-tools-mcp/coding_tools_mcp/server.py');
-  assert.match(server, /TOOL_SCHEMA_VERSION = 14/);
+  assert.match(server, /TOOL_SCHEMA_VERSION = 15/);
   assert.match(server, /"progress_due": report_due/);
   assert.match(server, /compatibility_fallback_action/);
   assert.match(server, /fallback_action": "operation/);

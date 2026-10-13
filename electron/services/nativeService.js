@@ -89,8 +89,9 @@ function currentRuntimeState(input = {}) {
 }
 
 class NativeService {
-  constructor(log) {
+  constructor(log, { advisoryBridgeUrl = () => '' } = {}) {
     this.log = log;
+    this.advisoryBridgeUrl = advisoryBridgeUrl;
   }
 
   async start(settings, token, progress) {
@@ -136,6 +137,7 @@ class NativeService {
       CODING_TOOLS_MCP_LAUNCH_ID: launchId,
       CODING_TOOLS_MCP_SOURCE_FINGERPRINT: sourceFingerprint
     };
+    env.CODING_TOOLS_MCP_ADVISORY_URL = this.advisoryBridgeUrl();
     const bundledTools = path.join(resourcesRoot(), 'tools');
     const vendoredPython = path.join(resourcesRoot(), 'coding-tools-mcp', 'python_vendor');
     env.PATH = [bundledTools, process.env.PATH || ''].filter(Boolean).join(path.delimiter);

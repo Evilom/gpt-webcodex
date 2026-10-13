@@ -238,14 +238,14 @@ function setMcpAuthorizedRoots(port, token, roots) {
 }
 
 class RuntimeOrchestrator {
-  constructor({ settings, secrets, environment, log, emitProgress, emitStatus = () => {} }) {
+  constructor({ settings, secrets, environment, log, emitProgress, emitStatus = () => {}, advisoryBridgeUrl }) {
     this.settingsStore = settings;
     this.secrets = secrets;
     this.environment = environment;
     this.log = log;
     this.emitProgress = emitProgress;
     this.emitStatus = emitStatus;
-    this.native = new NativeService(log);
+    this.native = new NativeService(log, { advisoryBridgeUrl });
     this.tunnel = new TunnelService(log);
     this.busy = false;
     this.snapshotCache = null;

@@ -57,13 +57,11 @@
       </section>
       <section><h2>最近下载</h2><p id="downloadState" class="download-state">暂无附件下载</p><button id="openDownloadButton" type="button" class="shell-button" hidden><img class="shell-icon" src="icons/document-text.svg" alt=""><span>打开附件</span></button></section>
       <section><h2>扩展辅助</h2>
-        <p class="shell-muted">太极 / AntiGravity 共用辅助服务。勾选用于下一次咨询；已提交的任务继续运行。</p>
+        <p class="shell-muted">允许主 AI 按需调用勾选的太极 / AntiGravity 模型。由 AI 提交必要材料、查询结果并复核意见；取消勾选只影响后续咨询。</p>
         <div class="advisory-actions"><button id="advisoryImport" class="shell-button" type="button">导入客户端配置</button><button id="advisoryRefresh" class="shell-button" type="button">读取模型</button></div>
         <p id="advisoryStatus" class="shell-muted" role="status">正在读取服务配置…</p>
         <div id="extensionProviders" class="extension-providers"></div>
-        <label class="advisory-question" for="advisoryQuestion">咨询问题</label>
-        <textarea id="advisoryQuestion" rows="3" maxlength="8000" placeholder="仅发送你填写的材料，不自动读取当前聊天"></textarea>
-        <div class="advisory-actions"><button id="advisorySubmit" class="shell-button" type="button">发起辅助咨询</button><button id="advisoryResult" class="shell-button" type="button" hidden>查询原任务</button></div>
+        <div class="advisory-actions"><button id="advisoryResult" class="shell-button" type="button" hidden>刷新辅助进度</button></div>
         <div id="advisoryAnswers" class="advisory-answers" aria-live="polite"></div>
       </section>
       <section><h2>当前工作区</h2><div class="workspace-label" id="workspaceLabel"><button id="workspaceHealthButton" class="shell-button" type="button" aria-label="查看工作区同步状态" aria-expanded="false"><img class="shell-icon" src="icons/folder.svg" alt=""><span>同步状态</span><i></i></button><div id="workspaceHealthPopover" class="workspace-health-popover" hidden>

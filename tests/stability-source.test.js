@@ -11,7 +11,7 @@ test('smart mode keeps a fixed compact tool surface with hidden compatibility', 
   const block = server.match(/"smart": frozenset\(\{([\s\S]*?)\}\),/)?.[1] || '';
   const tools = [...block.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
   assert.deepEqual(tools.sort(), [
-    'agent_workflow', 'coding_tools_guide', 'command_control', 'document_workflow', 'exec_command',
+    'consult_advisors', 'agent_workflow', 'coding_tools_guide', 'command_control', 'document_workflow', 'exec_command',
     'remember_context', 'request_permissions', 'task_control', 'view_image', 'workspace_context'
   ].sort());
   assert.match(server, /SMART_COMPAT_TOOL_NAMES/);
@@ -54,10 +54,10 @@ test('runtime exposes a versioned schema contract and desktop health detects sta
   const native = read('electron/services/nativeService.js');
   const health = read('electron/services/healthService.js');
   const contract = JSON.parse(read('resources/coding-tools-mcp/schema-contract.json'));
-  assert.equal(contract.schema_version, 14);
-  assert.equal(contract.tool_count, 10);
+  assert.equal(contract.schema_version, 15);
+  assert.equal(contract.tool_count, 11);
   assert.match(contract.schema_hash, /^[a-f0-9]{64}$/);
-  assert.match(server, /TOOL_SCHEMA_VERSION = 14/);
+  assert.match(server, /TOOL_SCHEMA_VERSION = 15/);
   assert.match(server, /tool_schema_hash/);
   assert.match(protocol, /schemaHash/);
   assert.match(native, /runtimeSourceFingerprint/);

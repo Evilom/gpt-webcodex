@@ -73,8 +73,7 @@ app.whenReady().then(async () => {
     const escaped = document.getElementById('moreMenu').hidden;
     click('workbenchToggle'); click('advisoryRefresh'); await wait();
     const check = document.querySelector('#extensionProviders input'); check.click(); await wait();
-    document.getElementById('advisoryQuestion').value = '模拟设计核对'; click('advisorySubmit'); await wait();
-    const consulted = document.getElementById('advisoryAnswers').textContent.includes('没有调用上游模型');
+    const consulted = !document.getElementById('advisoryQuestion') && !document.getElementById('advisorySubmit') && document.getElementById('advisoryStatus').textContent.includes('AI 辅助已启用');
     click('openTerminalButton'); await wait();
     const consoleOpen = !document.getElementById('taskConsoleDrawer').hidden;
     click('closeConsoleBtn'); await wait();

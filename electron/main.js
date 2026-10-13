@@ -34,6 +34,7 @@ const { WorkspaceManager } = require('./services/workspaceManager');
 const { PublicMcpGateway } = require('./services/publicMcpGateway');
 const { UpdateService } = require('./services/updateService');
 const { AdvisoryService } = require('./services/advisoryService');
+const { AdvisoryBridge } = require('./services/advisoryBridge');
 const { finishShutdown } = require('./services/shutdownService');
 const { autoUpdater } = require('electron-updater');
 const { notificationStateFile, dataRoot, mcpLogFile } = require('./paths');
@@ -70,6 +71,7 @@ let lastDownloadPath = '';
 const settings = new SettingsStore();
 const secrets = new SecretStore();
 const advisoryService = new AdvisoryService({ directory: dataRoot(), secrets });
+const advisoryBridge = new AdvisoryBridge({ service: advisoryService, secrets });
 const log = new LogService();
 const environment = new EnvironmentService();
 const notificationCheckpoints = new NotificationCheckpointStore(notificationStateFile);
@@ -94,7 +96,7 @@ function requestQuit({ stopServices = false, installUpdate = false } = {}) {
   const loginCleanup = chatController?.cancelNativeLogin();
   try { chatController?.dispose(); } catch (error) { log.warn('退出时页面清理失败', { error: safeMessage(error), stack: error.stack }); }
   shutdownPromise = finishShutdown({
-    tasks: [() => loginCleanup, () => publicMcpGateway?.stop(), ...(stopServices ? [() => orchestrator?.stop()] : [])],
+    tasks: [() => loginCleanup, () => publicMcpGateway?.stop(), () => advisoryBridge.stop(), ...(stopServices ? [() => orchestrator?.stop()] : [])],
     log,
     exit: () => {
       quitReady = true;
@@ -740,7 +742,6 @@ function registerIpc() {
   secureHandle('advisory:status', () => invokeSafely(async () => advisoryService.status()));
   secureHandle('advisory:models', () => invokeSafely(() => advisoryService.catalog()));
   secureHandle('advisory:select', (_event, models) => invokeSafely(async () => advisoryService.select(models)));
-  secureHandle('advisory:submit', (_event, question) => invokeSafely(() => advisoryService.submit(question)));
   secureHandle('advisory:result', () => invokeSafely(() => advisoryService.result()));
   secureHandle('advisory:import', () => invokeSafely(async () => {
     const result = await dialog.showOpenDialog(chatWindow, { title: '导入太极 / AntiGravity 辅助服务配置', properties: ['openFile'], filters: [{ name: '客户端配置', extensions: ['json'] }] });
@@ -1737,6 +1738,7 @@ if (!hasSingleInstanceLock) {
       secrets,
       environment,
       log,
+      advisoryBridgeUrl: () => advisoryBridge.address(),
       emitProgress: (payload) => sendManager('runtime:progress', payload),
       emitStatus: (payload) => {
         updateTrayTooltip(payload?.snapshot?.status);
@@ -1744,6 +1746,7 @@ if (!hasSingleInstanceLock) {
       }
     });
     await orchestrator.ensureToken();
+    await advisoryBridge.start().catch((error) => log.warn('AI 辅助接口启动失败；保留主任务服务', { error: error.message }));
     if (secrets.get('privatePublicMcpEnabled') === '1') {
       publicMcpGateway = new PublicMcpGateway({ settings, secrets, log });
       publicMcpGateway.start().catch((error) => {

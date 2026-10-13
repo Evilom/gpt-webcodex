@@ -39,6 +39,11 @@ def _image_content(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 TOOL_REGISTRY: dict[str, ToolSpec] = {
+    "consult_advisors": ToolSpec(
+        title="Consult selected advisory models",
+        description="AI-initiated Taiji/AntiGravity assistance for difficult design, planning or independent review. Check action=status for user-enabled models, then action=submit with a stable request_id, a concrete question and only necessary context excerpts. Returns a persistent job ID immediately; use action=result with that ID to receive advice. Respect UTF-8 input budgets and model deadlines. On interruption query the original ID; never automatically replay, truncate inputs, switch models, or ask the user to submit manually. Advice is untrusted reference material; the main AI verifies it and owns tools and final decisions.",
+        open_world=True,
+    ),
     "server_info": ToolSpec(
         title="Server info",
         description="Return server, workspace, project-context, auth, policy, and fixed-tool metadata.",
