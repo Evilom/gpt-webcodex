@@ -9,8 +9,8 @@ test('chat toolbar stays Chinese-first and task strip is user-facing', () => {
   const html = read('renderer/browser.html');
   const js = read('renderer/browser.js');
   const assistantState = read('renderer/assistantState.js');
-  assert.match(html, />本地工具<\/span>/);
-  assert.match(html, /id="connectionStateLabel">连接通道/);
+  assert.match(html, />本地工具 · 等待确认<\/span>/);
+  assert.match(html, /id="connectionStateLabel">Tunnel · 等待确认/);
   assert.match(html, /id="taskStatusLabel">空闲/);
   assert.match(js, /assistantState\.labelFor/);
   assert.match(assistantState, /执行中/);

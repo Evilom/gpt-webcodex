@@ -4,20 +4,20 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self' http://127.0.0.1:*;">
-  <title>网页 MCP 助手</title>
+  <title>超级智囊团</title>
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="manager-v2.css">
 </head>
 <body class="booting">
 <script src="theme-bootstrap.js"></script>
-<div class="manager-window-bar"><span>网页 MCP 助手 · 管理中心</span><button id="closeManager" title="关闭">×</button></div>
-<div class="boot-screen" id="bootScreen"><div class="boot-logo"><span></span><span></span><span></span></div><b>正在读取本地状态</b><small>检查工作区、Runtime 与连接通道…</small><i></i></div>
+<div class="manager-window-bar"><span>超级智囊团 · 管理中心</span><button id="closeManager" title="关闭">×</button></div>
+<div class="boot-screen" id="bootScreen"><img class="boot-logo" src="brand-icon.png" alt="超级智囊团"><b>正在读取本地状态</b><small>检查工作区、Runtime 与连接通道…</small><i></i></div>
 
 <div class="app-shell">
   <aside class="sidebar">
     <div class="brand">
-      <div class="brand-mark"><span></span><span></span><span></span></div>
-      <div><strong>网页 MCP 助手</strong><small>本地开发助手 <span id="brandVersion" hidden></span></small></div>
+      <img class="brand-mark" src="brand-icon.png" alt="">
+      <div><strong>超级智囊团</strong><small>本地开发助手 <span id="brandVersion" hidden></span></small></div>
     </div>
     <nav class="nav-list" aria-label="主导航">
       <div class="nav-section-label">工作</div>
@@ -300,7 +300,7 @@
         <details class="panel diagnostic-details" id="doctorDetails"><summary><span><b>技术诊断详情</b><small>只有排查连接问题时需要展开</small></span><span>展开</span></summary><div class="diagnostic-detail-list" id="doctorResults"><span class="task-muted">运行一键诊断后显示详细证据。</span></div></details>
         <details class="panel diagnostic-details"><summary><span><b>运行日志</b><small>密钥、Token 和 Cookie 会自动脱敏</small></span><span>展开</span></summary><div class="compact-log-toolbar"><span id="logCount">0 条日志</span><div><button class="secondary-button" id="refreshLogs">刷新</button><button class="danger-button" id="clearLogs">清空</button></div></div><div class="log-output" id="logOutput"><div class="empty-state"><b>暂无日志</b><span>出现运行或连接异常时再查看。</span></div></div></details>
         <article class="panel"><h3>助手更新</h3><p id="updateStatus" aria-live="polite">启动后自动检查，每 6 小时再次检查</p><div class="inline-actions"><button id="checkUpdate" class="secondary-button" type="button">检查更新</button><button id="updateAction" class="primary-button" type="button" hidden>下载更新</button></div><p>更新来自我们自己的 GitHub Release；通道配置、工作区和登录状态会保留。</p></article>
-        <article class="panel about-panel"><div class="brand-mark large"><span></span><span></span><span></span></div><div><h3>网页 MCP 助手 <span id="aboutVersion" hidden></span></h3><p>自动完成日常开发流程，同时保留必要的查看、配置和异常处理能力。</p></div></article>
+        <article class="panel about-panel"><img class="brand-mark large" src="brand-icon.png" alt=""><div><h3>超级智囊团 <span id="aboutVersion" hidden></span></h3><p>自动完成日常开发流程，同时保留必要的查看、配置和异常处理能力。</p></div></article>
       </section>
     </div>
   </main>

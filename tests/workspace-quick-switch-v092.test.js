@@ -9,7 +9,7 @@ const css = fs.readFileSync('renderer/browser.css', 'utf8');
 test('0.9.2 keeps the full Workspace Center as the primary workspace picker', () => {
   assert.doesNotMatch(html, /id="workspaceQuickMenu"/);
   assert.doesNotMatch(js, /renderWorkspaceQuickMenu/);
-  assert.match(html, /title="打开独立工作区中心"/);
+  assert.match(html, /title="打开工作区中心"/);
   assert.match(js, /api\.openWorkspaceWindow/);
   assert.doesNotMatch(css, /\.workspace-quick-menu/);
 });

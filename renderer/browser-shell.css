@@ -1,0 +1,94 @@
+/* Assistant-owned chrome; the embedded ChatGPT page keeps its native UI. */
+:root{--shell-top:56px;--shell-footer:36px;--shell-panel:300px;--toolbar-height:auto}
+[hidden]{display:none!important}
+body{font-family:"Segoe UI","Microsoft YaHei UI",sans-serif}
+button{white-space:nowrap;flex-shrink:0}
+button:focus-visible,[role="button"]:focus-visible{outline:2px solid var(--green);outline-offset:3px}
+.shell-icon{width:20px;height:20px;flex:0 0 20px;pointer-events:none}
+body[data-theme="dark"] .shell-icon{filter:invert(1)}
+.browser-toolbar{height:auto;background:var(--toolbar-bg);box-shadow:none;backdrop-filter:none;border-bottom:1px solid var(--toolbar-border)}
+.toolbar-main{height:56px;padding:0 16px;display:flex;gap:12px;min-width:0}
+.nav-actions{gap:2px;flex:0 0 auto}
+.shell-button,.terminal-toggle-btn.shell-button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:34px;padding:0 10px;border:1px solid transparent;border-radius:7px;background:transparent;color:var(--text);font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap}
+.shell-button:hover:not(:disabled){background:var(--icon-hover)}
+.shell-button:disabled{opacity:.4;cursor:default}
+.nav-actions .shell-button{width:32px;padding:0}
+.nav-actions .shell-button span:empty{display:none}
+.shell-brand{display:flex;align-items:center;gap:9px;flex:0 0 auto;padding:0 12px 0 0;border:0;border-right:1px solid var(--toolbar-border);background:transparent;color:var(--text);cursor:pointer}
+.shell-brand img{width:27px;height:27px;object-fit:contain}
+.shell-brand b{font-size:15px;letter-spacing:.2px}
+.shell-workspace{min-width:100px;max-width:260px;display:flex;align-items:center;gap:9px;height:34px;padding:0 10px;border:1px solid var(--btn-border);border-radius:7px;background:var(--btn-bg);color:var(--text);cursor:pointer}
+.shell-workspace strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:500}
+.shell-workspace .shell-icon:last-child{width:14px;height:14px;flex-basis:14px;margin-left:auto}
+.shell-spacer{flex:1;min-width:0}
+#connectionButton{color:var(--muted);font-size:12px}
+#connectionButton[data-tone="warning"]{color:#d59317}
+#connectionButton[data-tone="ready"]{color:var(--green-text)}
+#workbenchToggle[aria-expanded="true"]{background:var(--green-soft);color:var(--green-text);border-color:var(--green-btn-border)}
+.shell-more-wrap{position:relative}
+.shell-menu{position:absolute;right:0;top:calc(100% + 12px);z-index:110;width:260px;padding:8px;border:1px solid var(--popover-border);border-radius:10px;background:var(--popover-bg);box-shadow:var(--popover-shadow)}
+.shell-menu .shell-button{width:100%;justify-content:flex-start;margin:0;font-weight:500}
+.shell-menu p{margin:6px 8px;font-size:12px;line-height:1.5}
+.connection-incident{display:flex;align-items:center;gap:12px;min-height:52px;padding:8px 18px;background:var(--changes-bg);border-top:1px solid var(--changes-border);color:var(--changes-text)}
+.connection-incident>.shell-icon{flex:0 0 20px}
+.incident-copy{flex:1;min-width:0}
+.incident-copy b{display:block;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.incident-copy small{display:block;color:var(--muted);font-size:11px;line-height:1.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.connection-incident .shell-button{border-color:var(--changes-border);color:inherit}
+.workbench{position:fixed;right:0;top:var(--shell-top);bottom:var(--shell-footer);width:var(--shell-panel);max-width:calc(100vw - 260px);z-index:40;display:flex;flex-direction:column;background:var(--popover-bg);border-left:1px solid var(--popover-border)}
+.workbench-header{display:flex;align-items:center;justify-content:space-between;min-height:62px;padding:0 18px;border-bottom:1px solid var(--popover-divider)}
+.workbench-header h1{margin:0;font-size:17px;font-weight:600}
+.workbench-content{min-height:0;overflow:auto;padding:0 20px 16px;scrollbar-width:thin}
+.workbench section{padding:18px 0;border-bottom:1px solid var(--popover-divider)}
+.workbench section:last-child{border:0}
+.workbench h2{margin:0 0 14px;font-size:13px;font-weight:600;color:var(--text)}
+.health-row{margin:14px 0 0}
+.health-row>div{display:flex;align-items:center;gap:9px;font-size:13px;line-height:1.5;color:var(--text)}
+.health-row i{width:8px;height:8px;flex:0 0 8px;border-radius:50%;background:var(--muted);box-shadow:none}
+.health-row .ready i{background:var(--green)}
+.health-row .error i{background:#e5a000}
+.health-row .error{color:var(--changes-text)}
+.health-row em{font-style:normal}
+.health-row small{display:block;margin:4px 0 0 17px;color:var(--muted);font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+#pageState{min-width:0;justify-content:flex-start}
+.workbench .task-strip{display:flex;flex-wrap:wrap;max-width:none;padding:0;background:transparent!important;box-shadow:none;gap:8px;font-size:13px}
+.workbench .task-strip b{font-size:13px;font-weight:500}
+.workbench .task-strip small{display:block!important;flex:1 0 100%;max-width:none;white-space:normal;line-height:1.6;font-size:12px;color:var(--muted)}
+.shell-muted{margin:8px 0;color:var(--muted);font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.download-state{display:block;color:var(--text)!important;font-size:13px;line-height:1.6;overflow-wrap:anywhere}
+.workbench .workspace-label{display:block;min-width:0}
+.workbench .workspace-health-popover,.workbench .context-usage-popover{position:static;width:100%;margin-top:8px;padding:10px 0;border:0;border-radius:0;box-shadow:none;max-height:none;overflow:visible}
+.workbench .workspace-health-popover code{white-space:normal;overflow-wrap:anywhere}
+.workbench .context-usage-wrap{display:block}
+.workbench .context-usage-button{max-width:100%;font-size:12px}
+.workbench .popover-bar{display:none}
+.workbench-actions .shell-button{display:flex;width:100%;justify-content:flex-start;margin:4px 0}
+.extension-row{display:block;margin:12px 0;font-size:13px;line-height:1.6}
+.extension-row input{accent-color:var(--green);margin:0 8px 0 0;vertical-align:middle}
+.extension-row small{display:block;color:var(--muted);font-size:11px;margin-left:24px}
+.extension-providers details{font-size:12px;color:var(--muted);margin-top:12px}
+.extension-providers summary{cursor:pointer}
+.advisory-actions{display:flex;flex-wrap:wrap;gap:4px}
+.advisory-actions .shell-button{padding:0 7px;font-size:12px;border:1px solid var(--btn-border)}
+.advisory-question{display:block;margin:12px 0 6px;font-size:12px}
+#advisoryQuestion{width:100%;resize:vertical;min-height:76px;max-height:240px;margin-bottom:8px;padding:8px;border:1px solid var(--btn-border);border-radius:7px;background:var(--bg);color:var(--text);font:inherit;font-size:12px;line-height:1.6}
+#advisoryQuestion:focus-visible{outline:2px solid var(--green);outline-offset:1px}
+.advisory-answers article{padding:12px 0;border-bottom:1px solid var(--popover-divider)}
+.advisory-answers h3{font-size:12px;overflow-wrap:anywhere}
+.advisory-answers p{font-size:12px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere}
+.shell-footer{position:fixed;left:0;right:0;bottom:0;height:var(--shell-footer);z-index:50;background:var(--toolbar-bg);border-top:1px solid var(--toolbar-border)}
+.shell-footer .progress-band,.shell-footer .progress-band.compact{height:35px;min-height:35px;padding:0 12px;gap:8px;background:transparent!important;border:0;box-shadow:none;transition:none}
+.shell-footer .progress-detail-trigger{flex:1;max-width:none;min-width:0;padding:0;gap:6px;margin:0;border:0;background:transparent}
+.shell-footer .progress-band-copy{min-width:0}
+.shell-footer .progress-band-copy b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;font-weight:500}
+.shell-footer .progress-band-copy small{display:none}
+.shell-footer .progress-band time{font-size:11px;white-space:nowrap}
+.shell-footer .shell-button,.shell-footer .terminal-toggle-btn,.shell-footer .progress-action{font-size:12px;min-height:26px;height:26px;border:0;background:transparent;border-radius:5px;padding:0 7px;white-space:nowrap}
+.shell-footer .task-history-popover{top:auto;bottom:calc(100% + 10px);left:auto;right:0}
+.shell-footer .activity-toggle{display:none!important}
+.task-console-drawer{bottom:var(--shell-footer)}
+.loading-stage{position:fixed;top:var(--shell-top);left:0;right:0;bottom:var(--shell-footer);height:auto}
+@media(max-width:1100px){.toolbar-main{gap:6px;padding:0 10px}.shell-workspace{max-width:190px}#connectionButton span{display:none}.shell-footer time{display:none}}
+@media(max-width:850px){.shell-brand b{display:none}.shell-brand{padding-right:8px}.toolbar-main{gap:5px}.shell-workspace{max-width:170px}#managerButton span,#moreButton span{display:none}.shell-footer #downloadsButton span{display:none}}
+@media(max-width:650px){.nav-actions #forwardButton{display:none}#workbenchToggle span{display:none}.shell-workspace{max-width:150px;flex:1;min-width:70px}.shell-spacer{display:none}.connection-incident{padding:7px 10px;gap:6px}.connection-incident>#incidentDetailsButton{display:none}.shell-footer #taskChangesBtn,.shell-footer #openTaskHistoryButton{display:none}.workbench{--shell-panel:280px}.incident-copy small{display:none}}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}

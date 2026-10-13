@@ -20,6 +20,48 @@ let activityCloseTimer = null;
 let currentConversationKey = '';
 let currentChatSchemaIdentity = '';
 let dismissedSchemaMismatch = '';
+let lastChatState = {};
+
+function renderConnections() {
+  const view = window.shellPresentation.describe(lastChatState, lastRuntimeState, lastStreamState);
+  for (const [id, row, name] of [['pageState', view.page, 'ChatGPT'], ['mcpState', view.mcp, '本地工具'], ['tunnelState', view.tunnel, 'Tunnel']]) {
+    const node = $(`#${id}`);
+    node.classList.toggle('ready', row.tone === 'ready');
+    node.classList.toggle('error', row.tone === 'warning');
+    node.querySelector('span,em').textContent = `${name} · ${row.label}`;
+  }
+  $('#pageHealthDetail').textContent = lastChatState.error || (view.page.tone === 'ready' ? '网页已连接' : '保留当前会话，等待网页状态');
+  $('#mcpHealthDetail').textContent = view.mcp.tone === 'ready' ? 'MCP 服务运行中' : '读取本地服务状态';
+  $('#tunnelHealthDetail').textContent = view.tunnel.tone === 'ready' ? '本地通道与上游均可达' : '分别检查本地通道与上游';
+  const button = $('#connectionButton');
+  button.dataset.tone = view.tone;
+  button.querySelector('span').textContent = view.label;
+  button.title = `ChatGPT：${view.page.label}；本地工具：${view.mcp.label}；Tunnel：${view.tunnel.label}`;
+  const incident = $('#connectionIncident');
+  incident.hidden = !view.incident;
+  $('#incidentMessage').textContent = view.incident?.message || '';
+  $('#incidentDetail').textContent = view.incident?.detail || '';
+  $('#incidentDetail').title = view.incident?.detail || '';
+  $('#recoverPageButton').hidden = !view.incident?.canRecover;
+  syncChatContentInsets();
+}
+
+function toggleWorkbench(force) {
+  const panel = $('#workbench');
+  const open = typeof force === 'boolean' ? force : panel.hidden;
+  panel.hidden = !open;
+  $('#workbenchToggle').setAttribute('aria-expanded', String(open));
+  if (!open && panel.contains(document.activeElement)) $('#workbenchToggle').focus();
+  syncChatContentInsets();
+}
+
+function toggleMore(force) {
+  const menu = $('#moreMenu');
+  const open = typeof force === 'boolean' ? force : menu.hidden;
+  menu.hidden = !open;
+  $('#moreButton').setAttribute('aria-expanded', String(open));
+  syncChatContentInsets();
+}
 
 function syncToolbarDensity(view, forceExpanded = false) {
   const expandedStates = new Set(['local_running', 'testing', 'building', 'planning', 'recovering', 'quiet', 'suspected_stall', 'stalled', 'failed', 'waiting_user', 'generating']);
@@ -96,7 +138,8 @@ function baseName(value) {
 }
 
 function taskPresentation(task, runningOperation, streamState, available = true, activity = null, runtimeLayers = null) {
-  const view = window.assistantState.describe(task, runningOperation, streamState, Date.now(), available, activity, !available, runtimeLayers);
+  // Local execution and webpage recovery have separate status surfaces.
+  const view = window.assistantState.describe(task, runningOperation, { status: 'unknown' }, Date.now(), available, activity, !available, runtimeLayers);
   return { key: view.key, tone: window.assistantState.toneFor(view), label: window.assistantState.labelFor(view), detail: view.message, canStop: Boolean(view.canStop) };
 }
 
@@ -285,6 +328,7 @@ function renderActivityPanel() {
 
 function renderChatState(state) {
   if (!state) return;
+  lastChatState = state;
   const nextConversationKey = chatConversationKey(state.url);
   if (nextConversationKey !== currentConversationKey) {
     const previousIdentity = currentChatSchemaIdentity;
@@ -309,19 +353,13 @@ function renderChatState(state) {
   renderProgress();
   $('#backButton').disabled = !state.canGoBack;
   $('#forwardButton').disabled = !state.canGoForward;
-  const element = $('#pageState');
-  element.classList.toggle('loading', Boolean(state.loading));
-  element.classList.toggle('ready', !state.loading && !state.error);
-  element.classList.toggle('error', Boolean(state.error));
-  $('#recoverPageButton').hidden = state.errorLayer !== 'chat-renderer';
-  element.querySelector('span').textContent = state.error
-    ? `加载失败：${state.error}`
-    : state.url?.startsWith('https://accounts.google.com/') ? 'Google 登录请使用右侧「登录修复」'
-    : state.loading ? '正在切换页面…' : 'ChatGPT 已就绪';
+  renderConnections();
 }
 
 function renderProgress() {
   renderActivityPanel();
+  const detail = buildActivityDetailPayload();
+  $('#workbenchTaskDetail').textContent = progressInput.task || progressInput.operation ? detail.stage || detail.waitReason || '暂无运行记录' : '当前没有运行中的本地任务';
   const login = nativeLoginState;
   const activeLogin = login.active || ['starting', 'waiting', 'syncing', 'closing'].includes(login.status);
   $('#nativeLoginButton').disabled = ['starting', 'syncing', 'closing'].includes(login.status);
@@ -363,6 +401,7 @@ function renderProgress() {
   syncToolbarDensity(view);
   $('#progressMessage').textContent = view.message;
   $('#progressDetail').textContent = view.detail;
+  $('#progressDetailTrigger').title = `${view.message}${view.detail ? `；${view.detail}` : ''}`;
   $('#progressElapsed').textContent = view.elapsed ? `已运行 ${view.elapsed}` : '';
   const action = $('#progressAction');
   if (action) {
@@ -376,15 +415,8 @@ function renderProgress() {
 function renderServiceState(state) {
   lastRuntimeState = state || null;
   lastRuntimeCheckAt = Date.now();
-  const connectionRunning = state?.tunnelRunning;
   refreshSchemaHint();
-  const label = $('#connectionStateLabel');
-  if (label) label.textContent = '连接通道';
-  [['#mcpState', state?.mcpRunning], ['#tunnelState', connectionRunning]].forEach(([selector, value]) => {
-    const element = $(selector);
-    element.classList.toggle('ready', Boolean(value));
-    element.classList.toggle('error', !value);
-  });
+  renderConnections();
   renderWorkspaceHealth();
 }
 
@@ -492,7 +524,8 @@ function renderWorkspace(hub) {
   const workspaces = Array.isArray(hub.workspaces)
     ? hub.workspaces
     : (hub.recentWorkspaces || []).filter(Boolean).map((workspace) => ({ path: workspace, name: baseName(workspace), active: workspace === activeWorkspace, status: 'ready' }));
-  $('#workspacePickerButton').textContent = `全部工作区（${workspaces.length}）${Number(hub.invalidCount || 0) ? ` · ⚠ ${hub.invalidCount}` : ''}`;
+  $('#workspacePickerButton').title = `当前：${activeWorkspace || '未选择'}；打开工作区中心（${workspaces.length} 个）`;
+  $('#workbenchWorkspace').textContent = activeWorkspace || '未选择工作区';
 }
 
 async function refreshWorkspace() {
@@ -616,7 +649,7 @@ document.addEventListener('click', (event) => {
   }
   const progressDetailTrigger = $('#progressDetailTrigger');
   const activityToggle = $('#activityToggle');
-  if (activityPopoverPinned && !progressDetailTrigger?.contains(event.target) && !activityToggle?.contains(event.target)) closeActivityPanel({ force: true });
+  if (activityPopoverPinned && !progressDetailTrigger?.contains(event.target) && !activityToggle?.contains(event.target) && !$('#workbenchActivity')?.contains(event.target)) closeActivityPanel({ force: true });
 });
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && activityDetailVisible) closeActivityPanel({ force: true });
@@ -675,6 +708,7 @@ api.onHeartbeat(renderServiceState);
 api.onTaskEvent?.(() => refreshTask());
 api.onWorkspaceChanged?.(renderWorkspace);
 api.onDownload((item) => {
+  $('#downloadsButton').title = item.error || item.path || '查看下载状态';
   const node = $('#downloadState');
   const openButton = $('#openDownloadButton');
   node.title = item.error || item.path || '';
@@ -709,7 +743,7 @@ let lastTaskStatus = null;
 // WebContentsView (ChatGPT) is a native layer above HTML overlays.
 // Tell main process how much room console drawer / hanging popovers need.
 function hangOverlaySelectors() {
-  return ['#taskHistoryPopover', '#contextUsagePopover', '#workspaceHealthPopover', '#workspaceCleanPopover'];
+  return ['#taskHistoryPopover', '#moreMenu'];
 }
 
 function hangOverlaysOpen() {
@@ -721,6 +755,7 @@ function hangOverlaysOpen() {
 
 function closeHangOverlays(exceptSelector = '') {
   const map = {
+    '#moreMenu': () => toggleMore(false),
     '#taskHistoryPopover': () => toggleTaskHistory(false),
     '#contextUsagePopover': () => {
       const popover = $('#contextUsagePopover');
@@ -743,24 +778,36 @@ function closeHangOverlays(exceptSelector = '') {
 function syncChatContentInsets() {
   if (!api?.setContentInsets) return;
   const drawer = $('#taskConsoleDrawer');
-  let bottom = 0;
+  const footerHeight = Math.round($('#shellFooter')?.getBoundingClientRect().height || 36);
+  let bottom = footerHeight;
   if (drawer && !drawer.hidden) {
     const rect = drawer.getBoundingClientRect();
     // Clamp so a short window cannot get an inset larger than the content area.
-    bottom = Math.round(Math.min(rect.height || 320, window.innerHeight * 0.55));
+    bottom += Math.round(Math.min(rect.height || 320, window.innerHeight * 0.55));
   }
   const toolbar = $('.browser-toolbar');
-  const toolbarHeight = toolbar ? Math.round(toolbar.getBoundingClientRect().height) : 164;
+  const toolbarHeight = toolbar ? Math.ceil(toolbar.getBoundingClientRect().height) : 56;
+  document.documentElement.style.setProperty('--shell-top', `${toolbarHeight}px`);
+  const workbench = $('#workbench');
+  const right = workbench && !workbench.hidden ? Math.ceil(workbench.getBoundingClientRect().width) : 0;
   let overlayBottom = 0;
   for (const selector of hangOverlaySelectors()) {
     const el = $(selector);
     if (!el || el.hidden) continue;
     const rect = el.getBoundingClientRect();
+    if (selector === '#taskHistoryPopover') {
+      bottom = Math.max(bottom, Math.min(window.innerHeight - toolbarHeight, Math.ceil(window.innerHeight - rect.top)));
+      continue;
+    }
     overlayBottom = Math.max(overlayBottom, Math.ceil(rect.bottom));
   }
   // top overlay is measured from below the toolbar (content area origin)
   const top = Math.max(0, Math.min(overlayBottom - toolbarHeight, Math.round(window.innerHeight * 0.4)));
-  Promise.resolve(api.setContentInsets({ top, bottom })).catch(() => {});
+  const insets = { top, bottom, right, toolbarHeight };
+  const key = JSON.stringify(insets);
+  if (syncChatContentInsets.lastKey === key) return;
+  syncChatContentInsets.lastKey = key;
+  Promise.resolve(api.setContentInsets(insets)).catch(() => { syncChatContentInsets.lastKey = ''; });
 }
 
 function playTaskCompletionSound() {
@@ -1023,9 +1070,8 @@ function renderContextUsage(usage) {
   if (dot) {
     dot.className = `context-dot ${level}`;
   }
-  const tokenK = (usage.totalTokens / 1000).toFixed(1);
   if (summary) {
-    summary.textContent = `MCP 负载 ${tokenK}k`;
+    summary.textContent = `累计调用流量 ${formatBytes(usage.totalBytes || 0)}`;
   }
   const button = $('#contextUsageButton');
   if (button) {
@@ -1035,13 +1081,12 @@ function renderContextUsage(usage) {
 
   const progress = $('#contextUsageProgress');
   if (progress) {
-    progress.style.width = `${usage.percent}%`;
+    progress.style.width = '0%';
     progress.className = level;
   }
   const percentLabel = $('#contextUsagePercent');
   if (percentLabel) {
-    const budgetK = Math.round((usage.contextBudget || 128000) / 1000);
-    percentLabel.textContent = `${usage.percent}% / ${budgetK}k`;
+    percentLabel.textContent = '累计流量，不代表模型上下文或额度';
   }
 
   if ($('#contextTotalTokens')) $('#contextTotalTokens').textContent = `${usage.totalTokens.toLocaleString()} 估 tokens`;
@@ -1201,6 +1246,8 @@ async function refreshTaskHistoryList() {
     empty.className = 'task-history-empty';
     empty.textContent = `读取失败：${error.message || error}`;
     list.appendChild(empty);
+  } finally {
+    syncChatContentInsets();
   }
 }
 
@@ -1213,6 +1260,7 @@ function toggleTaskHistory(force) {
   popover.hidden = nextHidden;
   btn.setAttribute('aria-expanded', String(!nextHidden));
   if (!nextHidden) refreshTaskHistoryList();
+  syncChatContentInsets();
   requestAnimationFrame(syncChatContentInsets);
 }
 
@@ -1500,7 +1548,7 @@ document.addEventListener('click', (event) => {
   if (!$('.task-history-wrap')?.contains(event.target)) toggleTaskHistory(false);
 });
 window.addEventListener('resize', () => {
-  if (!$('#taskConsoleDrawer')?.hidden || hangOverlaysOpen()) requestAnimationFrame(syncChatContentInsets);
+  requestAnimationFrame(syncChatContentInsets);
 });
 
 api.onThemeChanged?.((mode) => {
@@ -1511,3 +1559,24 @@ api.onThemeChanged?.((mode) => {
 $('#recoverPageButton').addEventListener('click', () => {
   if (window.confirm('恢复页面会刷新当前聊天，可能中断网页上的回答。本地 MCP 任务会继续运行。')) api.navigate('recover').catch(() => {});
 });
+
+$('#workbenchToggle').onclick = () => toggleWorkbench();
+$('#closeWorkbench').onclick = () => toggleWorkbench(false);
+$('#connectionButton').onclick = $('#incidentDetailsButton').onclick = () => toggleWorkbench(true);
+$('#downloadsButton').onclick = () => { toggleWorkbench(true); $('#downloadState').scrollIntoView({ block: 'nearest' }); };
+$('#moreButton').onclick = (event) => { event.stopPropagation(); toggleMore(); };
+$('#workbenchConsole').onclick = () => toggleTaskConsole();
+$('#workbenchHistory').onclick = (event) => { event.stopPropagation(); toggleTaskHistory(); };
+$('#workbenchActivity').onclick = () => openActivityPanel($('#workbenchActivity'), { pin: true });
+document.addEventListener('click', (event) => {
+  if (!$('.shell-more-wrap').contains(event.target)) toggleMore(false);
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    if (!$('#moreMenu').hidden) { toggleMore(false); $('#moreButton').focus(); }
+    else if (!$('#workbench').hidden) toggleWorkbench(false);
+  }
+});
+const shellResizeObserver = new ResizeObserver(() => requestAnimationFrame(syncChatContentInsets));
+for (const selector of ['.browser-toolbar', '#workbench', '#shellFooter', '#taskConsoleDrawer', '#taskHistoryPopover', '#moreMenu']) shellResizeObserver.observe($(selector));
+requestAnimationFrame(syncChatContentInsets);

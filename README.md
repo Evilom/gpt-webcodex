@@ -1,24 +1,30 @@
-# 网页 MCP 助手（GPT-WebCodex）
+# 超级智囊团（GPT-WebCodex）
 
 让 **ChatGPT 网页版直接连接 Windows 本地开发环境** 的桌面开发助手。
 
 它把 ChatGPT 的模型能力与本地 Electron + Coding Tools MCP 结合起来，让网页聊天可以真正读取项目、修改代码、执行命令、运行测试、构建安装包、处理 Git，并在长任务中持续汇报和恢复执行。
 
-> 项目定位：个人使用的轻量级 Codex 桌面助手。
-> ChatGPT Web 负责模型能力，本地应用负责项目、工具、执行与状态管理，不额外维护第二套 OpenAI 模型 API。
+> 项目定位：个人使用的 AI 智囊团工作台。
+> ChatGPT Web 负责主会话，本地应用负责项目、工具和执行状态；太极 / AntiGravity 可作为独立的扩展辅助服务。
 
 ## 当前版本
 
 | 组件 | 版本 |
 | --- | --- |
-| 网页 MCP 助手 Desktop | **v0.9.9** |
-| Coding Tools MCP Runtime | **v0.9.9** |
+| 超级智囊团 Desktop | **v0.9.10** |
+| Coding Tools MCP Runtime | **v0.9.10** |
 | MCP Tool Schema | **v14 / 10 tools** |
 | Schema Hash | `631ba25229260ab745932f2fcc1cef3deb982ddc0cf3bbcb900047c458e321fd` |
 | Electron | **43.2.0** |
 | 平台 | **Windows** |
 
 ## 能做什么
+
+0.9.10 更名为「超级智囊团」，采用简洁顶栏、可收起的工作台和分层连接提示。网页区域随实际工具栏高度、侧栏与控制台调整；网页异常不会把健康的本地任务误报为失败。
+
+工作台内可导入现有太极辅助服务的客户端 JSON，再读取真实模型目录，勾选 Opus / Gemini 等模型并手动发起咨询。太极与 AntiGravity 使用同一服务入口；密钥由主进程加密保存，不发送到网页。默认不启用辅助，不自动读取或发送主聊天内容。咨询结果独立显示；提交超时保留请求 ID，查询不会再次提交模型任务。
+
+产品名称和图标已更换，更新身份及 `web-mcp-assistant` 配置目录继续沿用，以保留已有登录、工作区与通道。当前版本构建后的安装与实际上游验收需在任务空闲时进行。
 
 - **直接操作本地项目**：读取、搜索、修改和创建代码文件。
 - **执行开发命令**：运行 PowerShell、Git、npm、Python 和项目自己的脚本。
@@ -85,7 +91,7 @@ Mac 打包参考 [Chat On Steroids 的 macOS 封装与签名校验](https://gith
 
 安装后：
 
-1. 启动网页 MCP 助手。
+1. 启动超级智囊团。
 2. 登录 ChatGPT。
 3. 在顶部选择或添加本地工作区。
 4. 直接在 ChatGPT 中让 AI 查看项目、修改代码、运行测试或构建。
@@ -96,7 +102,7 @@ Mac 打包参考 [Chat On Steroids 的 macOS 封装与签名校验](https://gith
 ChatGPT Web
     │
     ▼
-网页 MCP 助手（Electron）
+超级智囊团（Electron）
     │
     ├── Workspace / Authorized Roots
     ├── Runtime / Task / Recovery

@@ -19,3 +19,5 @@ Apple Silicon Mac 发行包还内置以下运行组件：
 - fd 10.2.0（MIT / Apache License 2.0），https://github.com/sharkdp/fd 。
 
 Mac 构建产物附带 runtime-manifest.json，记录组件下载来源、固定版本和归档 SHA-256。
+
+界面图标使用 Heroicons 2.2.0（MIT），来源 https://github.com/tailwindlabs/heroicons 。许可保存在 `renderer/icons/LICENSE`。

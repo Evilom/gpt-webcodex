@@ -500,7 +500,7 @@ class TaskNotificationService {
         active: '任务进行中', waiting: needsHumanAttention(state) ? '等待你的处理' : '任务等待中',
         paused: '任务已暂停', failed: '任务失败', stopped: '任务已中断', completed: '任务已完成'
       }[status] || '后台运行中';
-      try { tray.setToolTip(`网页 MCP 助手 · ${label}${objective ? ` · ${objective}` : ''}`); } catch { /* no-op */ }
+      try { tray.setToolTip(`超级智囊团 · ${label}${objective ? ` · ${objective}` : ''}`); } catch { /* no-op */ }
     }
   }
 
@@ -514,7 +514,7 @@ class TaskNotificationService {
     const detail = notificationDetail(event, state, elapsed);
     try {
       const notification = new NotificationClass({
-        title: `网页 MCP 助手 · ${titleForEvent(event)}`,
+        title: `超级智囊团 · ${titleForEvent(event)}`,
         body: `${objective}${detail ? `\n${detail}` : ''}`,
         icon: this.icon,
         silent: !settings.taskNotificationSound,
@@ -540,7 +540,7 @@ class TaskNotificationService {
     }
     try {
       const notification = new NotificationClass({
-        title: `网页 MCP 助手 · ${title}`,
+        title: `超级智囊团 · ${title}`,
         body: String(body || '').slice(0, 260),
         icon: this.icon,
         silent: !settings.taskNotificationSound,
@@ -564,7 +564,7 @@ class TaskNotificationService {
       throw new Error('当前系统不支持桌面通知。');
     }
     const notification = new NotificationClass({
-      title: '网页 MCP 助手 · 桌面提醒测试',
+      title: '超级智囊团 · 桌面提醒测试',
       body: '任务完成、失败、中断或需要你处理时，会在 Windows 右下角提醒你。',
       icon: this.icon,
       silent: !settings.taskNotificationSound,

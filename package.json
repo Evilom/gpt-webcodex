@@ -1,7 +1,7 @@
 {
   "name": "web-mcp-assistant",
-  "version": "0.9.9",
-  "description": "一键部署与管理 Coding Tools MCP、OpenAI Tunnel 和 ChatGPT 接入的 Windows/macOS 桌面助手",
+  "version": "0.9.10",
+  "description": "超级智囊团：ChatGPT 工作台、Coding Tools MCP 与太极 / AntiGravity 扩展辅助",
   "author": "3169657175",
   "license": "MIT",
   "main": "electron/main.js",
@@ -18,10 +18,12 @@
     "resources:mac": "python3 scripts/prepare-macos-resources.py",
     "dist:mac": "npm run release:verify && node scripts/build-macos.js",
     "ui:build": "vite build --config renderer-ui/vite.config.ts",
+    "ui:shell-preview": "node scripts/shell-preview-server.js",
+    "ui:shell-smoke": "electron scripts/test-shell-redesign-electron.js",
     "ui:check": "tsc -p renderer-ui/tsconfig.json --noEmit",
     "ui:smoke": "npm run ui:build && electron scripts/renderer-smoke-electron.js && node scripts/assert-renderer-smoke.js",
     "test:quick": "npm run ui:check && python scripts/check-schema-contract.py && node --test tests/assistant-state-v090.test.js tests/auto-memory-v042.test.js tests/task-notification.test.js tests/v090-architecture.test.js tests/mcp-session-recovery-v092.test.js tests/memory-views-v092.test.js tests/renderer-production-smoke-v092.test.js tests/runtime-info-v092.test.js tests/schema-hint-v092.test.js tests/service-state-v092.test.js tests/theme-v092.test.js tests/tunnel-recovery-v092.test.js tests/workspace-quick-switch-v092.test.js",
-    "release:verify": "npm run ui:check && npm run ui:smoke && npm test && npm run soak:quick && node scripts/check-release-readiness.js",
+    "release:verify": "npm run ui:check && npm run ui:smoke && npm run ui:shell-smoke && npm test && npm run soak:quick && node scripts/check-release-readiness.js",
     "release:git-ready": "node scripts/check-release-git-ready.js",
     "test:chat-lifecycle": "electron scripts/test-chat-lifecycle-electron.js",
     "test:chat-downloads": "electron scripts/test-chat-downloads-electron.js"
@@ -41,7 +43,7 @@
   },
   "build": {
     "appId": "com.gptwebcodex.assistant",
-    "productName": "网页 MCP 助手",
+    "productName": "超级智囊团",
     "artifactName": "web-mcp-assistant-setup-${version}.${ext}",
     "directories": {
       "output": "dist"
@@ -77,7 +79,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
-      "shortcutName": "网页 MCP 助手",
+      "shortcutName": "超级智囊团",
       "installerIcon": "electron/app-icon.ico",
       "uninstallerIcon": "electron/app-icon.ico",
       "installerHeaderIcon": "electron/app-icon.ico",

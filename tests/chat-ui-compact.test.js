@@ -11,7 +11,7 @@ test('chat chrome reserves space for verified live progress and quick workspace 
   const main = read('electron/main.js');
   assert.match(css, /--toolbar-height:164px/);
   assert.match(css, /\.browser-toolbar\{[^}]*height:var\(--toolbar-height\)/);
-  assert.match(main, /toolbarHeight:\s*164/);
+  assert.match(main, /toolbarHeight:\s*56/);
   assert.doesNotMatch(main, /chat:toolbar-height/);
   assert.match(html, /id="progressBand"/);
   assert.match(html, /progressPresentation\.js/);

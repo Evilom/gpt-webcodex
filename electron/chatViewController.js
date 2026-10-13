@@ -179,12 +179,16 @@ class ChatViewController {
     this.boundResize = () => this.resize();
   }
 
-  setContentInsets({ top = 0, bottom = 0 } = {}) {
+  setContentInsets({ top = 0, bottom = 0, right = 0, toolbarHeight = this.toolbarHeight } = {}) {
     const nextTop = Math.max(0, Number(top) || 0);
     const nextBottom = Math.max(0, Number(bottom) || 0);
-    if (this.topOverlay === nextTop && this.bottomInset === nextBottom) return;
+    const nextRight = Math.max(0, Math.min(600, Number(right) || 0));
+    const nextToolbar = Math.max(0, Math.min(240, Number(toolbarHeight) || 0));
+    if (this.topOverlay === nextTop && this.bottomInset === nextBottom && (this.rightInset || 0) === nextRight && this.toolbarHeight === nextToolbar) return;
     this.topOverlay = nextTop;
     this.bottomInset = nextBottom;
+    this.rightInset = nextRight;
+    this.toolbarHeight = nextToolbar;
     this.resize();
   }
 
@@ -1144,16 +1148,17 @@ class ChatViewController {
     const [width, height] = this.window.getContentSize();
     // WebContentsView is a native layer that always paints above HTML.
     // Leave room for console drawer (bottom) and toolbar popovers that hang into content (top).
-    const top = Math.max(this.toolbarHeight, this.toolbarHeight + (this.topOverlay || 0));
-    const bottom = Math.max(0, this.bottomInset || 0);
+    const top = Math.min(Math.max(0, height), this.toolbarHeight + (this.topOverlay || 0));
+    const bottom = Math.min(Math.max(0, height - top), Math.max(0, this.bottomInset || 0));
+    const right = Math.min(Math.max(0, width - 240), this.rightInset || 0);
     const viewHeight = Math.max(0, height - top - bottom);
     this.view.setBounds({
       x: 0,
       y: top,
-      width: Math.max(0, width),
+      width: Math.max(0, width - right),
       height: viewHeight
     });
-    for (const authView of this.liveAuthViews()) authView.setBounds({ x: 0, y: this.toolbarHeight, width: Math.max(0, width), height: Math.max(0, height - this.toolbarHeight) });
+    for (const authView of this.liveAuthViews()) authView.setBounds({ x: 0, y: this.toolbarHeight, width: Math.max(0, width - right), height: Math.max(0, height - this.toolbarHeight - bottom) });
   }
 
   emitState() {

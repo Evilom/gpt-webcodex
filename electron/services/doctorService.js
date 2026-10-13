@@ -46,7 +46,7 @@ function renderSupportReport(doctor) {
   const checks = Array.isArray(doctor?.checks) ? doctor.checks : [];
   const errors = Array.isArray(doctor?.recentErrors) ? doctor.recentErrors.slice(-8) : [];
   const lines = [
-    '网页 MCP 助手 Support Report',
+    '超级智囊团 Support Report',
     `生成时间: ${doctor?.inspectedAt || new Date().toISOString()}`,
     `总体状态: ${doctor?.severity || 'unknown'} · ${doctor?.summary || ''}`,
     '',

@@ -107,7 +107,7 @@ async function main() {
   const desktop = launch(path.join(app, 'Contents/MacOS', pkg.build.productName), [`--user-data-dir=${profile}`]);
   let started = false;
   for (let attempt = 0; attempt < 100; attempt++) {
-    try { started = fs.readFileSync(path.join(profile, 'logs/assistant.log'), 'utf8').includes('网页 MCP 助手已启动'); } catch {}
+    try { started = fs.readFileSync(path.join(profile, 'logs/assistant.log'), 'utf8').includes('超级智囊团已启动'); } catch {}
     if (started) break;
     await wait(200);
   }

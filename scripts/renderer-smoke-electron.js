@@ -1,6 +1,8 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
+app.setPath('userData', fs.mkdtempSync(path.join(os.tmpdir(), 'think-tank-renderer-smoke-')));
 
 const root = path.resolve(__dirname, '..');
 const outDir = path.join(root, 'build', 'ui-smoke');
@@ -87,7 +89,8 @@ function installHandlers() {
     'task-state:read': () => ok({ state: taskRuntime().state }),
     'mcp:task-runtime': () => ok(taskRuntime()),
     'mcp:task-worktrees': () => ok({ worktrees: [] }),
-    'app:lightweight-snapshot': () => ok({ workspace: demoWorkspace, mcpRunning: true, tunnelRunning: true, fullyReady: true }),
+    'app:lightweight-snapshot': () => ok({ workspace: demoWorkspace, mcpRunning: true, tunnelRunning: true, connectionRunning: true, fullyReady: true }),
+    'advisory:status': () => ok({ configured: false, models: [], selected: [], job: null }),
     'chat:status': () => ok({ url: 'https://chatgpt.com/', loading: false }),
     'approval:list': () => ok({ items: [] }),
     'context:usage': () => ok({ totalTokens: 0, totalBytes: 0, percent: 0, level: 'safe', topTools: [] }),
@@ -230,7 +233,7 @@ async function runBrowser(theme, width) {
         .filter((node) => node.getBoundingClientRect().right > innerWidth + 2).map((node) => node.id || node.className)
     };
   })()`);
-  if (state.theme !== theme || state.toolbarHeight !== 164 || !state.consoleOpen || !state.filesOpen || state.overflow.length || errors.length) {
+  if (state.theme !== theme || state.toolbarHeight < 56 || state.toolbarHeight > 58 || !state.consoleOpen || !state.filesOpen || state.overflow.length || errors.length) {
     throw new Error(`Browser integration smoke failed: ${JSON.stringify({ theme, width, state, errors })}`);
   }
   await win.webContents.executeJavaScript(`document.getElementById('closeConsoleBtn').click(); document.getElementById('openTaskHistoryButton').click();`);

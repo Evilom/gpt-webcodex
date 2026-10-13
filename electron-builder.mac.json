@@ -1,7 +1,7 @@
 {
   "extends": null,
   "appId": "com.gptwebcodex.assistant",
-  "productName": "网页 MCP 助手",
+  "productName": "超级智囊团",
   "artifactName": "web-mcp-assistant-${version}-mac-${arch}.${ext}",
   "directories": { "output": "dist" },
   "afterPack": "scripts/afterpack-macos.js",
@@ -18,7 +18,7 @@
   ],
   "mac": {
     "target": ["dmg", "zip"],
-    "icon": "electron/app-icon.png",
+    "icon": "electron/app-icon.icns",
     "category": "public.app-category.developer-tools",
     "minimumSystemVersion": "13.0",
     "identity": null,

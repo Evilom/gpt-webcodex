@@ -33,9 +33,13 @@ const { AutoMemoryService } = require('./services/autoMemoryService');
 const { WorkspaceManager } = require('./services/workspaceManager');
 const { PublicMcpGateway } = require('./services/publicMcpGateway');
 const { UpdateService } = require('./services/updateService');
+const { AdvisoryService } = require('./services/advisoryService');
 const { finishShutdown } = require('./services/shutdownService');
 const { autoUpdater } = require('electron-updater');
 const { notificationStateFile, dataRoot, mcpLogFile } = require('./paths');
+
+// Keep the established profile across the product rename (login, settings and secrets).
+app.setPath('userData', path.join(app.getPath('appData'), 'web-mcp-assistant'));
 
 let chatWindow;
 let managerWindow;
@@ -65,6 +69,7 @@ let publicMcpGateway;
 let lastDownloadPath = '';
 const settings = new SettingsStore();
 const secrets = new SecretStore();
+const advisoryService = new AdvisoryService({ directory: dataRoot(), secrets });
 const log = new LogService();
 const environment = new EnvironmentService();
 const notificationCheckpoints = new NotificationCheckpointStore(notificationStateFile);
@@ -264,10 +269,10 @@ function showChatWindow() {
 }
 
 function trayStatusText(status) {
-  if (!status) return '网页 MCP 助手 · 服务未启动';
-  if (status.fullyReady) return '网页 MCP 助手 · 服务已就绪';
-  if (status.mcpRunning) return '网页 MCP 助手 · 等待连接通道';
-  return '网页 MCP 助手 · 服务未启动';
+  if (!status) return '超级智囊团 · 服务未启动';
+  if (status.fullyReady) return '超级智囊团 · 服务已就绪';
+  if (status.mcpRunning) return '超级智囊团 · 等待连接通道';
+  return '超级智囊团 · 服务未启动';
 }
 
 function updateTrayTooltip(status) {
@@ -280,7 +285,7 @@ function createTray() {
   tray = new Tray(icon);
   tray.setToolTip(trayStatusText(null));
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: '打开网页 MCP 助手', click: () => showChatWindow() },
+    { label: '打开超级智囊团', click: () => showChatWindow() },
     { label: '打开管理设置', click: () => { showChatWindow(); openManagerWindow(); } },
     { type: 'separator' },
     { label: '检查助手更新', click: () => { showChatWindow(); void updateService?.check(); } },
@@ -306,7 +311,7 @@ function createChatWindow() {
     minHeight: 640,
     show: false,
     backgroundColor: initialTheme === 'dark' ? '#000000' : '#f7f7f8',
-    title: '网页 MCP 助手',
+    title: '超级智囊团',
     icon: appIconPath(),
     webPreferences: {
       preload: path.join(__dirname, 'browserPreload.js'),
@@ -322,7 +327,7 @@ function createChatWindow() {
     window: chatWindow,
     log,
     settings,
-    toolbarHeight: 164,
+    toolbarHeight: 56,
     nativeLoginRoot: path.join(dataRoot(), 'native-login'),
     onState: (payload) => {
       sendWindow(chatWindow, 'chat:state', payload);
@@ -394,7 +399,7 @@ function openWorkspaceWindow() {
     frame: false,
     transparent: false,
     backgroundColor: '#f7f7f8',
-    title: '网页 MCP 助手 · 工作区中心',
+    title: '超级智囊团 · 工作区中心',
     icon: appIconPath(),
     webPreferences: {
       preload: path.join(__dirname, 'workspacePreload.js'),
@@ -450,7 +455,7 @@ function ensureActivityDetailWindow() {
     fullscreenable: false,
     hasShadow: true,
     backgroundColor: '#f7f8f8',
-    title: '网页 MCP 助手 · 运行详情',
+    title: '超级智囊团 · 运行详情',
     webPreferences: {
       preload: path.join(__dirname, 'activityDetailPreload.js'),
       contextIsolation: true,
@@ -555,7 +560,7 @@ function openApprovalWindow() {
     frame: false,
     resizable: true,
     backgroundColor: '#f7f7f8',
-    title: '网页 MCP 助手 · 需要确认',
+    title: '超级智囊团 · 需要确认',
     icon: appIconPath(),
     webPreferences: {
       preload: path.join(__dirname, 'approvalPreload.js'),
@@ -610,7 +615,7 @@ function openManagerWindow() {
     frame: false,
     transparent: false,
     backgroundColor: '#f7f7f8',
-    title: '网页 MCP 助手 · 管理中心',
+    title: '超级智囊团 · 管理中心',
     icon: appIconPath(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -732,6 +737,18 @@ function registerIpc() {
     return { ...snapshot, appVersion: app.getVersion(), chat: chatController?.getState() || null };
   }));
   secureHandle('app:lightweight-snapshot', () => invokeSafely(() => orchestrator.lightweightSnapshot()));
+  secureHandle('advisory:status', () => invokeSafely(async () => advisoryService.status()));
+  secureHandle('advisory:models', () => invokeSafely(() => advisoryService.catalog()));
+  secureHandle('advisory:select', (_event, models) => invokeSafely(async () => advisoryService.select(models)));
+  secureHandle('advisory:submit', (_event, question) => invokeSafely(() => advisoryService.submit(question)));
+  secureHandle('advisory:result', () => invokeSafely(() => advisoryService.result()));
+  secureHandle('advisory:import', () => invokeSafely(async () => {
+    const result = await dialog.showOpenDialog(chatWindow, { title: '导入太极 / AntiGravity 辅助服务配置', properties: ['openFile'], filters: [{ name: '客户端配置', extensions: ['json'] }] });
+    if (result.canceled) return advisoryService.status();
+    const stat = await fs.stat(result.filePaths[0]);
+    if (stat.size > 65536) throw new Error('客户端配置文件过大。');
+    return advisoryService.importConfiguration(JSON.parse(await fs.readFile(result.filePaths[0], 'utf8')));
+  }));
   secureHandle('workspace:hub', () => invokeSafely(() => workspaceManager.hub()));
   secureHandle('workspace:inspect', () => invokeSafely(() => workspaceManager.inspectAll()));
   secureHandle('workspace:remove', (_event, workspace) => invokeSafely(() => broadcastWorkspaceHub(workspaceManager.remove(workspace))));
@@ -1279,7 +1296,9 @@ function registerIpc() {
   secureHandle('chat:set-content-insets', (_event, insets = {}) => invokeSafely(async () => {
     chatController?.setContentInsets({
       top: Number(insets.top) || 0,
-      bottom: Number(insets.bottom) || 0
+      bottom: Number(insets.bottom) || 0,
+      right: Number(insets.right) || 0,
+      toolbarHeight: Number.isFinite(Number(insets.toolbarHeight)) ? Number(insets.toolbarHeight) : chatController?.toolbarHeight
     });
     return true;
   }));
@@ -1809,7 +1828,7 @@ if (!hasSingleInstanceLock) {
       superviseTimer.unref?.();
     };
     scheduleSupervise(5000);
-    log.info('网页 MCP 助手已启动');
+    log.info('超级智囊团已启动');
     if (startupSettings.autoStartServices && !orchestrator.isManuallyStopped()) {
       orchestrator.start({ automatic: true }).catch((error) => log.error(error.message, { stage: 'auto-start' }));
     }

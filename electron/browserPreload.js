@@ -1,6 +1,12 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('browserAssistant', {
+  advisoryStatus: () => ipcRenderer.invoke('advisory:status'),
+  advisoryImport: () => ipcRenderer.invoke('advisory:import'),
+  advisoryModels: () => ipcRenderer.invoke('advisory:models'),
+  advisorySelect: (models) => ipcRenderer.invoke('advisory:select', models),
+  advisorySubmit: (question) => ipcRenderer.invoke('advisory:submit', question),
+  advisoryResult: () => ipcRenderer.invoke('advisory:result'),
   updateStatus: () => ipcRenderer.invoke('update:status'),
   checkUpdate: () => ipcRenderer.invoke('update:check'),
   downloadUpdate: () => ipcRenderer.invoke('update:download'),
