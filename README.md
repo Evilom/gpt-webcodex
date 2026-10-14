@@ -11,14 +11,16 @@
 
 | 组件 | 版本 |
 | --- | --- |
-| 超级智囊团 Desktop | **v0.9.11** |
-| Coding Tools MCP Runtime | **v0.9.11** |
+| 超级智囊团 Desktop | **v0.9.12** |
+| Coding Tools MCP Runtime | **v0.9.12** |
 | MCP Tool Schema | **v15 / 11 tools** |
 | Schema Hash | `5eb2e81a0c92a40c55777208625b47e91cc62f45e486ff9e86360b39ad623bcb` |
 | Electron | **43.2.0** |
 | 平台 | **Windows** |
 
 ## 能做什么
+
+0.9.12 默认收起工作台中的辅助意见，只显示模型名称、回答状态和耗时；点击展开后正文限制高度并单独滚动。进度刷新保留展开状态和阅读位置，新咨询重新收起。主 AI 接收的 MCP 辅助结果保持完整。
 
 0.9.11 将太极 / AntiGravity 辅助接入 `consult_advisors` MCP 工具：主 AI 按需提交必要材料、查询原任务并复核意见；工作台只设置允许使用的模型并显示进度。输入按服务端 UTF-8 字节预算检查，超时不自动重发或切换模型。
 

@@ -73,9 +73,11 @@ body[data-theme="dark"] .shell-icon{filter:invert(1)}
 .advisory-question{display:block;margin:12px 0 6px;font-size:12px}
 #advisoryQuestion{width:100%;resize:vertical;min-height:76px;max-height:240px;margin-bottom:8px;padding:8px;border:1px solid var(--btn-border);border-radius:7px;background:var(--bg);color:var(--text);font:inherit;font-size:12px;line-height:1.6}
 #advisoryQuestion:focus-visible{outline:2px solid var(--green);outline-offset:1px}
-.advisory-answers article{padding:12px 0;border-bottom:1px solid var(--popover-divider)}
-.advisory-answers h3{font-size:12px;overflow-wrap:anywhere}
-.advisory-answers p{font-size:12px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere}
+.advisory-answers details{border-bottom:1px solid var(--popover-divider)}
+.advisory-answers summary{padding:10px 0;font-size:12px;line-height:1.5;cursor:pointer;overflow-wrap:anywhere}
+.advisory-answers summary:focus-visible{outline:2px solid var(--green);outline-offset:2px;border-radius:4px}
+.advisory-answers summary small{display:block;margin-left:16px;font-size:11px;color:var(--muted)}
+.advisory-answers p{max-height:240px;overflow:auto;overscroll-behavior:contain;font-size:12px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere}
 .shell-footer{position:fixed;left:0;right:0;bottom:0;height:var(--shell-footer);z-index:50;background:var(--toolbar-bg);border-top:1px solid var(--toolbar-border)}
 .shell-footer .progress-band,.shell-footer .progress-band.compact{height:35px;min-height:35px;padding:0 12px;gap:8px;background:transparent!important;border:0;box-shadow:none;transition:none}
 .shell-footer .progress-detail-trigger{flex:1;max-width:none;min-width:0;padding:0;gap:6px;margin:0;border:0;background:transparent}

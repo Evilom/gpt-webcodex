@@ -53,16 +53,25 @@
       if (!response?.ok) throw new Error(response?.error || '辅助服务操作失败');
       if (result) {
         const job = response.data;
+        const previous = renderedJobId === job.id ? new Map(Array.from($('advisoryAnswers').querySelectorAll('details'), (item) => [item.dataset.model, { open: item.open, scrollTop: item.querySelector('p').scrollTop }])) : new Map();
         renderedJobId = job.id;
         $('advisoryAnswers').replaceChildren();
         for (const item of job.responses || []) {
-          const article = document.createElement('article');
-          const title = document.createElement('h3');
-          title.textContent = item.model || item.model_id || '辅助模型';
+          const model = item.model || item.model_id || item.requested_model || '辅助模型';
+          const article = document.createElement('details');
+          article.dataset.model = model;
+          article.open = previous.get(model)?.open || false;
+          const title = document.createElement('summary');
+          const name = document.createElement('span');
+          name.textContent = state.models.find((entry) => entry.id === model)?.name || model;
+          const meta = document.createElement('small');
+          meta.textContent = `${item.status === 'answered' ? '已回答' : item.status === 'failed' ? '失败' : item.status || '等待结果'}${Number.isFinite(item.elapsed_seconds) ? ' · ' + item.elapsed_seconds.toFixed(1) + ' 秒' : ''}`;
+          title.append(name, meta);
           const answer = document.createElement('p');
           answer.textContent = item.answer || item.error?.message || item.error || '暂无结果';
           article.append(title, answer);
           $('advisoryAnswers').append(article);
+          answer.scrollTop = previous.get(model)?.scrollTop || 0;
         }
         state.job = { ...(state.job || {}), id: job.id, status: job.status };
         const fresh = await api.advisoryStatus();
