@@ -1551,11 +1551,6 @@ window.addEventListener('resize', () => {
   requestAnimationFrame(syncChatContentInsets);
 });
 
-api.onThemeChanged?.((mode) => {
-  const theme = mode === 'system' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : mode;
-  document.body.dataset.theme = theme;
-  document.documentElement.dataset.theme = theme;
-});
 $('#recoverPageButton').addEventListener('click', () => {
   if (window.confirm('恢复页面会刷新当前聊天，可能中断网页上的回答。本地 MCP 任务会继续运行。')) api.navigate('recover').catch(() => {});
 });

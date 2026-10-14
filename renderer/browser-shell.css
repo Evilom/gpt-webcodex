@@ -33,7 +33,7 @@ body[data-theme="dark"] .shell-icon{filter:invert(1)}
 .connection-incident>.shell-icon{flex:0 0 20px}
 .incident-copy{flex:1;min-width:0}
 .incident-copy b{display:block;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.incident-copy small{display:block;color:var(--muted);font-size:11px;line-height:1.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.incident-copy small{display:block;color:var(--muted);font-size:12px;line-height:1.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .connection-incident .shell-button{border-color:var(--changes-border);color:inherit}
 .workbench{position:fixed;right:0;top:var(--shell-top);bottom:var(--shell-footer);width:var(--shell-panel);max-width:calc(100vw - 260px);z-index:40;display:flex;flex-direction:column;background:var(--popover-bg);border-left:1px solid var(--popover-border)}
 .workbench-header{display:flex;align-items:center;justify-content:space-between;min-height:62px;padding:0 18px;border-bottom:1px solid var(--popover-divider)}
@@ -65,7 +65,7 @@ body[data-theme="dark"] .shell-icon{filter:invert(1)}
 .workbench-actions .shell-button{display:flex;width:100%;justify-content:flex-start;margin:4px 0}
 .extension-row{display:block;margin:12px 0;font-size:13px;line-height:1.6}
 .extension-row input{accent-color:var(--green);margin:0 8px 0 0;vertical-align:middle}
-.extension-row small{display:block;color:var(--muted);font-size:11px;margin-left:24px}
+.extension-row small{display:block;color:var(--muted);font-size:12px;margin-left:24px}
 .extension-providers details{font-size:12px;color:var(--muted);margin-top:12px}
 .extension-providers summary{cursor:pointer}
 .advisory-actions{display:flex;flex-wrap:wrap;gap:4px}
@@ -76,7 +76,7 @@ body[data-theme="dark"] .shell-icon{filter:invert(1)}
 .advisory-answers details{border-bottom:1px solid var(--popover-divider)}
 .advisory-answers summary{padding:10px 0;font-size:12px;line-height:1.5;cursor:pointer;overflow-wrap:anywhere}
 .advisory-answers summary:focus-visible{outline:2px solid var(--green);outline-offset:2px;border-radius:4px}
-.advisory-answers summary small{display:block;margin-left:16px;font-size:11px;color:var(--muted)}
+.advisory-answers summary small{display:block;margin-left:16px;font-size:12px;color:var(--muted)}
 .advisory-answers p{max-height:240px;overflow:auto;overscroll-behavior:contain;font-size:12px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere}
 .shell-footer{position:fixed;left:0;right:0;bottom:0;height:var(--shell-footer);z-index:50;background:var(--toolbar-bg);border-top:1px solid var(--toolbar-border)}
 .shell-footer .progress-band,.shell-footer .progress-band.compact{height:35px;min-height:35px;padding:0 12px;gap:8px;background:transparent!important;border:0;box-shadow:none;transition:none}
@@ -84,7 +84,7 @@ body[data-theme="dark"] .shell-icon{filter:invert(1)}
 .shell-footer .progress-band-copy{min-width:0}
 .shell-footer .progress-band-copy b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;font-weight:500}
 .shell-footer .progress-band-copy small{display:none}
-.shell-footer .progress-band time{font-size:11px;white-space:nowrap}
+.shell-footer .progress-band time{font-size:12px;white-space:nowrap}
 .shell-footer .shell-button,.shell-footer .terminal-toggle-btn,.shell-footer .progress-action{font-size:12px;min-height:26px;height:26px;border:0;background:transparent;border-radius:5px;padding:0 7px;white-space:nowrap}
 .shell-footer .task-history-popover{top:auto;bottom:calc(100% + 10px);left:auto;right:0}
 .shell-footer .activity-toggle{display:none!important}
@@ -94,3 +94,10 @@ body[data-theme="dark"] .shell-icon{filter:invert(1)}
 @media(max-width:850px){.shell-brand b{display:none}.shell-brand{padding-right:8px}.toolbar-main{gap:5px}.shell-workspace{max-width:170px}#managerButton span,#moreButton span{display:none}.shell-footer #downloadsButton span{display:none}}
 @media(max-width:650px){.nav-actions #forwardButton{display:none}#workbenchToggle span{display:none}.shell-workspace{max-width:150px;flex:1;min-width:70px}.shell-spacer{display:none}.connection-incident{padding:7px 10px;gap:6px}.connection-incident>#incidentDetailsButton{display:none}.shell-footer #taskChangesBtn,.shell-footer #openTaskHistoryButton{display:none}.workbench{--shell-panel:280px}.incident-copy small{display:none}}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+.shell-button,.terminal-toggle-btn.shell-button,.shell-workspace strong,.workbench h2,.health-row>div,.shell-muted,.advisory-answers summary{font-size:14px;font-weight:500}
+.workbench-header h1{font-size:18px}
+.advisory-answers p{font-size:14px;line-height:1.7}
+.extension-providers label{font-size:14px}
+.shell-workspace,.shell-button{border-radius:8px}
+#connectionButton[data-tone="warning"]{color:var(--ui-warning)}

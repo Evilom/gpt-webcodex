@@ -48,12 +48,12 @@ button,input{font:inherit}
 }
 .overview-copy{min-width:0}
 .eyebrow{
-  display:block;margin-bottom:2px;color:var(--accent);font-size:8px;
+  display:block;margin-bottom:2px;color:var(--accent);font-size:12px;
   font-weight:800;letter-spacing:.09em;text-transform:uppercase
 }
 .overview h1{margin:0;font-size:21px;line-height:1.2;letter-spacing:-.02em}
 .overview p{
-  overflow:hidden;margin:5px 0 0;color:var(--muted);font-size:9px;
+  overflow:hidden;margin:5px 0 0;color:var(--muted);font-size:12px;
   line-height:1.45;text-overflow:ellipsis;white-space:nowrap
 }
 
@@ -68,16 +68,16 @@ button,input{font:inherit}
 }
 .current-copy{min-width:0}
 .current-copy span,.current-copy b,.current-copy code{display:block}
-.current-copy span{color:color-mix(in srgb,var(--accent) 74%,var(--muted));font-size:7px;font-weight:750}
+.current-copy span{color:color-mix(in srgb,var(--accent) 74%,var(--muted));font-size:12px;font-weight:750}
 .current-copy b,.current-copy code{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.current-copy b{margin-top:1px;font-size:10px}
+.current-copy b{margin-top:1px;font-size:12px}
 .current-copy code{
   margin-top:2px;color:var(--muted);
-  font:7px/1.3 "Cascadia Code",Consolas,monospace
+  font:12px/1.3 "Cascadia Code",Consolas,monospace
 }
 .current-state{
   padding:3px 6px;border-radius:999px;background:var(--surface);
-  color:var(--accent);font-size:7px;font-weight:750;white-space:nowrap
+  color:var(--accent);font-size:12px;font-weight:750;white-space:nowrap
 }
 
 .view-tabs{
@@ -87,13 +87,13 @@ button,input{font:inherit}
 .view-tab{
   min-width:118px;height:31px;display:flex;align-items:center;justify-content:center;gap:7px;
   padding:0 12px;border:0;border-radius:7px;background:transparent;
-  color:var(--muted);font-size:9px;font-weight:700;cursor:pointer
+  color:var(--muted);font-size:12px;font-weight:700;cursor:pointer
 }
 .view-tab:hover{color:var(--text);background:color-mix(in srgb,var(--surface) 72%,transparent)}
 .view-tab.active{background:var(--surface);color:var(--text);box-shadow:0 1px 4px rgba(0,0,0,.07)}
 .view-tab b{
   min-width:18px;padding:2px 5px;border-radius:999px;background:var(--surface-hover);
-  color:var(--subtle);font-size:7px;font-weight:800
+  color:var(--subtle);font-size:12px;font-weight:800
 }
 .view-tab.active b{background:var(--accent-soft);color:var(--accent)}
 
@@ -109,9 +109,9 @@ button,input{font:inherit}
   gap:14px;padding:10px 12px;border-bottom:1px solid var(--border)
 }
 .view-header>div:first-child{min-width:0}
-.view-header h2{margin:0;font-size:11px}
+.view-header h2{margin:0;font-size:12px}
 .view-header p{
-  overflow:hidden;margin:3px 0 0;color:var(--muted);font-size:8px;
+  overflow:hidden;margin:3px 0 0;color:var(--muted);font-size:12px;
   line-height:1.35;text-overflow:ellipsis;white-space:nowrap
 }
 .view-actions{display:flex;gap:6px;flex:0 0 auto}
@@ -119,7 +119,7 @@ button,input{font:inherit}
 .button{
   height:31px;padding:0 10px;border:1px solid var(--border-strong);
   border-radius:7px;background:var(--surface);color:var(--text);
-  font-size:8px;font-weight:700;cursor:pointer
+  font-size:12px;font-weight:700;cursor:pointer
 }
 .button:hover{background:var(--surface-hover)}
 .button.primary{border-color:#24272a;background:#24272a;color:#fff}
@@ -137,7 +137,7 @@ button,input{font:inherit}
   border-color:color-mix(in srgb,var(--accent) 45%,var(--border));
   background:var(--surface);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 8%,transparent)
 }
-.search-box input{width:100%;border:0;outline:0;background:transparent;color:var(--text);font-size:9px}
+.search-box input{width:100%;border:0;outline:0;background:transparent;color:var(--text);font-size:12px}
 .search-box input::placeholder{color:var(--subtle)}
 
 .workspace-list,.authorized-list{
@@ -167,23 +167,23 @@ button,input{font:inherit}
 
 .workspace-main{min-width:0;cursor:pointer}
 .workspace-main b,.workspace-main code{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.workspace-main b{font-size:9px}
-.workspace-main code{margin-top:2px;color:var(--muted);font:7px/1.3 "Cascadia Code",Consolas,monospace}
+.workspace-main b{font-size:12px}
+.workspace-main code{margin-top:2px;color:var(--muted);font:12px/1.3 "Cascadia Code",Consolas,monospace}
 .workspace-status{
   padding:3px 6px;border-radius:999px;background:var(--surface-hover);
-  color:var(--muted);font-size:7px;white-space:nowrap
+  color:var(--muted);font-size:12px;white-space:nowrap
 }
 .current .workspace-status{background:color-mix(in srgb,var(--accent) 12%,var(--surface));color:var(--accent)}
 .missing .workspace-status,.not_directory .workspace-status{background:#f8dfe1;color:var(--danger)}
 .switch-button{
   height:28px;border:1px solid var(--border);border-radius:7px;background:var(--surface);
-  color:var(--text);font-size:8px;font-weight:700;cursor:pointer
+  color:var(--text);font-size:12px;font-weight:700;cursor:pointer
 }
 .switch-button:hover:not(:disabled){border-color:color-mix(in srgb,var(--accent) 36%,var(--border));color:var(--accent)}
 .switch-button:disabled{cursor:default;opacity:.5}
 .workspace-empty{
   display:grid;height:100%;min-height:150px;place-items:center;
-  color:var(--subtle);font-size:9px
+  color:var(--subtle);font-size:12px
 }
 
 .access-note{
@@ -191,8 +191,8 @@ button,input{font:inherit}
   min-height:39px;padding:7px 12px;border-bottom:1px solid var(--border);
   background:var(--surface-soft)
 }
-.access-note span{color:var(--text);font-size:8px;font-weight:700}
-.access-note small{overflow:hidden;color:var(--muted);font-size:7px;text-overflow:ellipsis;white-space:nowrap}
+.access-note span{color:var(--text);font-size:12px;font-weight:700}
+.access-note small{overflow:hidden;color:var(--muted);font-size:12px;text-overflow:ellipsis;white-space:nowrap}
 
 .authorized-row{
   display:grid;grid-template-columns:28px minmax(0,1fr) auto auto;
@@ -205,28 +205,28 @@ button,input{font:inherit}
 .authorized-row.unavailable{background:var(--warning-soft)}
 .authorized-icon{
   display:grid;width:27px;height:27px;place-items:center;border-radius:7px;
-  background:var(--accent-soft);color:var(--accent);font-size:9px;font-weight:900
+  background:var(--accent-soft);color:var(--accent);font-size:12px;font-weight:900
 }
 .authorized-row.missing .authorized-icon,.authorized-row.not_directory .authorized-icon{background:#f8dfe1;color:var(--danger)}
 .authorized-copy{min-width:0}
 .authorized-copy b,.authorized-copy code{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.authorized-copy b{font-size:9px}
-.authorized-copy code{margin-top:2px;color:var(--muted);font:7px/1.3 "Cascadia Code",Consolas,monospace}
+.authorized-copy b{font-size:12px}
+.authorized-copy code{margin-top:2px;color:var(--muted);font:12px/1.3 "Cascadia Code",Consolas,monospace}
 .authorized-status{
   padding:3px 6px;border-radius:999px;background:var(--accent-soft);
-  color:var(--accent);font-size:7px;white-space:nowrap
+  color:var(--accent);font-size:12px;white-space:nowrap
 }
 .authorized-remove{height:28px;color:var(--danger);border-color:color-mix(in srgb,var(--danger) 18%,var(--border))}
 .authorized-empty{
   height:100%;min-height:150px;display:flex;align-items:center;justify-content:center;
   flex-direction:column;gap:4px;color:var(--muted);text-align:center
 }
-.authorized-empty b{color:var(--text);font-size:9px}
-.authorized-empty span{font-size:8px}
+.authorized-empty b{color:var(--text);font-size:12px}
+.authorized-empty span{font-size:12px}
 
 .footer-bar{
   min-width:0;display:flex;align-items:center;justify-content:space-between;
-  gap:12px;color:var(--muted);font-size:8px
+  gap:12px;color:var(--muted);font-size:12px
 }
 .footer-status,.storage-actions{min-width:0;display:flex;align-items:center;gap:7px}
 .footer-status{overflow:hidden}
@@ -237,7 +237,7 @@ button,input{font:inherit}
 }
 .storage-actions button{
   height:25px;padding:0 8px;border:0;border-radius:6px;background:transparent;
-  color:var(--muted);font-size:8px;font-weight:650;cursor:pointer
+  color:var(--muted);font-size:12px;font-weight:650;cursor:pointer
 }
 .storage-actions button:hover{background:var(--surface-hover);color:var(--text)}
 
@@ -284,3 +284,11 @@ button,input{font:inherit}
   .footer-bar{gap:6px}
   .storage-actions span{display:none}
 }
+
+.view-tab,.button,.view-header h2,.workspace-main b,.authorized-main b,.current-copy b,.switch-button,.search-box input{font-size:14px;font-weight:500}
+.view-tab,.button{min-height:36px;height:auto}
+.overview p,.view-header p,.access-note{font-size:14px;line-height:1.6}
+.workspace-row{min-height:60px;grid-template-columns:28px minmax(0,1fr) auto 70px 28px}
+.current-icon,[data-theme="dark"] .current-icon{background:var(--ui-hover);color:var(--ui-text)}
+.button.primary,[data-theme="dark"] .button.primary{background:var(--ui-primary);border-color:var(--ui-primary);color:var(--ui-on-primary)}
+.button.primary:hover,[data-theme="dark"] .button.primary:hover{background:var(--ui-primary-hover)}

@@ -1,6 +1,11 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('activityDetail', {
+  onThemeChanged: (listener) => {
+    const wrapped = (_event, mode) => listener(mode);
+    ipcRenderer.on('theme:changed', wrapped);
+    return () => ipcRenderer.removeListener('theme:changed', wrapped);
+  },
   setHover: (value) => ipcRenderer.invoke('activity-detail:hover', Boolean(value)),
   close: () => ipcRenderer.invoke('activity-detail:close'),
   pin: () => ipcRenderer.invoke('activity-detail:pin'),

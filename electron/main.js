@@ -1,7 +1,7 @@
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const crypto = require('node:crypto');
-const { app, BrowserWindow, dialog, ipcMain, shell, Tray, Menu, nativeImage, session, Notification, screen } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, shell, Tray, Menu, nativeImage, nativeTheme, session, Notification, screen } = require('electron');
 const { SettingsStore } = require('./services/settingsStore');
 const { SecretStore } = require('./services/secretStore');
 const { LogService } = require('./services/logService');
@@ -79,6 +79,19 @@ const environment = new EnvironmentService();
 const notificationCheckpoints = new NotificationCheckpointStore(notificationStateFile);
 const approvalService = new ApprovalService(settings);
 const workspaceManager = new WorkspaceManager(settings);
+
+function themeBackground(mode = settings.load().theme) {
+  const dark = mode === 'dark' || (mode === 'system' && nativeTheme.shouldUseDarkColors);
+  return dark ? '#000000' : '#ffffff';
+}
+
+function broadcastTheme(mode) {
+  for (const window of [chatWindow, managerWindow, workspaceWindow, activityDetailWindow, approvalWindow]) {
+    if (!window || window.isDestroyed()) continue;
+    window.webContents.send('theme:changed', mode);
+    window.setBackgroundColor(themeBackground(mode));
+  }
+}
 
 process.on('uncaughtException', (error) => {
   try { log.error('助手主进程异常，将退出；本地 MCP 服务保留', { error: error.message, stack: error.stack }); } catch {}
@@ -314,7 +327,7 @@ function createChatWindow() {
     minWidth: 960,
     minHeight: 640,
     show: false,
-    backgroundColor: initialTheme === 'dark' ? '#000000' : '#f7f7f8',
+    backgroundColor: themeBackground(initialTheme),
     title: '超级智囊团',
     icon: appIconPath(),
     webPreferences: {
@@ -402,7 +415,7 @@ function openWorkspaceWindow() {
     skipTaskbar: true,
     frame: false,
     transparent: false,
-    backgroundColor: '#f7f7f8',
+    backgroundColor: themeBackground(),
     title: '超级智囊团 · 工作区中心',
     icon: appIconPath(),
     webPreferences: {
@@ -458,7 +471,7 @@ function ensureActivityDetailWindow() {
     minimizable: false,
     fullscreenable: false,
     hasShadow: true,
-    backgroundColor: '#f7f8f8',
+    backgroundColor: themeBackground(),
     title: '超级智囊团 · 运行详情',
     webPreferences: {
       preload: path.join(__dirname, 'activityDetailPreload.js'),
@@ -468,7 +481,7 @@ function ensureActivityDetailWindow() {
     }
   });
   activityDetailWindow.removeMenu();
-  activityDetailWindow.loadFile(path.join(__dirname, '..', 'renderer', 'activity-detail.html'));
+  activityDetailWindow.loadFile(path.join(__dirname, '..', 'renderer', 'activity-detail.html'), { query: { theme: settings.load().theme } });
   activityDetailWindow.webContents.on('did-finish-load', () => {
     if (activityDetailPayload) activityDetailWindow.webContents.send('activity-detail:payload', activityDetailPayload);
     sendActivityDetailState();
@@ -563,7 +576,7 @@ function openApprovalWindow() {
     skipTaskbar: true,
     frame: false,
     resizable: true,
-    backgroundColor: '#f7f7f8',
+    backgroundColor: themeBackground(),
     title: '超级智囊团 · 需要确认',
     icon: appIconPath(),
     webPreferences: {
@@ -574,7 +587,7 @@ function openApprovalWindow() {
     }
   });
   approvalWindow.removeMenu();
-  approvalWindow.loadFile(path.join(__dirname, '..', 'renderer', 'approval.html'));
+  approvalWindow.loadFile(path.join(__dirname, '..', 'renderer', 'approval.html'), { query: { theme: settings.load().theme } });
   approvalWindow.once('ready-to-show', () => approvalWindow.show());
   approvalWindow.on('close', (event) => {
     if (forceQuit) return;
@@ -618,7 +631,7 @@ function openManagerWindow() {
     skipTaskbar: true,
     frame: false,
     transparent: false,
-    backgroundColor: '#f7f7f8',
+    backgroundColor: themeBackground(),
     title: '超级智囊团 · 管理中心',
     icon: appIconPath(),
     webPreferences: {
@@ -1630,11 +1643,7 @@ function registerIpc() {
       });
     }
     if (Object.hasOwn(clean, 'mcpPort')) taskNotificationService?.restartStream();
-    if (Object.hasOwn(clean, 'theme') && chatWindow && !chatWindow.isDestroyed()) {
-      const nextTheme = saved.theme;
-      chatWindow.webContents.send('theme:changed', nextTheme);
-      chatWindow.setBackgroundColor(nextTheme === 'dark' ? '#000000' : '#f7f7f8');
-    }
+    if (Object.hasOwn(clean, 'theme')) broadcastTheme(saved.theme);
     clearProxyCache();
     if (proxyChanged && chatController) await chatController.applyBrowserProxyPolicy({ closeConnections: true, forceProbe: true });
     return saved;
@@ -1834,6 +1843,9 @@ if (!hasSingleInstanceLock) {
     };
     scheduleSupervise(5000);
     log.info('超级智囊团已启动');
+    nativeTheme.on('updated', () => {
+      if (settings.load().theme === 'system') broadcastTheme('system');
+    });
     if (startupSettings.autoStartServices && !orchestrator.isManuallyStopped()) {
       orchestrator.start({ automatic: true }).catch((error) => log.error(error.message, { stage: 'auto-start' }));
     }

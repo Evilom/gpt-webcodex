@@ -89,6 +89,9 @@ function installHandlers() {
     'task-state:read': () => ok({ state: taskRuntime().state }),
     'mcp:task-runtime': () => ok(taskRuntime()),
     'mcp:task-worktrees': () => ok({ worktrees: [] }),
+    'memory:control': (_event, request = {}) => ok(request.action === 'status'
+      ? { count: 1, active_count: 1, archived_count: 0, candidate_count: 0, config: { auto_memory: 'off' } }
+      : { items: request.action === 'candidates' ? [] : [{ memory_id: 'theme-memory', title: '工程上下文', category: 'project_context', content: '保留工作区与已确认的工程约束。', source: 'model_summary', updated_at: '2026-10-14T01:38:04Z' }] }),
     'app:lightweight-snapshot': () => ok({ workspace: demoWorkspace, mcpRunning: true, tunnelRunning: true, connectionRunning: true, fullyReady: true }),
     'advisory:status': () => ok({ configured: false, models: [], selected: [], job: null }),
     'chat:status': () => ok({ url: 'https://chatgpt.com/', loading: false }),
@@ -129,26 +132,17 @@ async function waitForRenderer(win, theme) {
 }
 
 async function capturePageStable(win, theme) {
+  // Keep the isolated fixture offscreen while its compositor renders a real frame.
+  const bounds = win.getBounds();
+  win.setBounds({ ...bounds, x: -10000, y: -10000 }, false);
+  win.showInactive();
+  await new Promise(resolve => setTimeout(resolve, 180));
   try {
-    const image = await win.capturePage(undefined, { stayHidden: true, stayAwake: true });
-    if (!image.isEmpty()) return image;
-    throw new Error(`Empty capture for ${theme}`);
-  } catch (error) {
-    const message = String(error?.message || error || '');
-    if (!/UnknownVizError|surface|empty capture/i.test(message)) throw error;
-
-    const previousBounds = win.getBounds();
-    win.setBounds({ x: -10000, y: -10000, width: previousBounds.width, height: previousBounds.height }, false);
-    win.showInactive();
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    try {
-      const image = await win.capturePage();
-      if (image.isEmpty()) throw new Error(`Renderer screenshot remained empty for ${theme}`);
-      return image;
-    } finally {
-      win.hide();
-      win.setBounds(previousBounds, false);
-    }
+    const image = await win.capturePage();
+    if (image.isEmpty()) throw new Error(`Empty capture for ${theme}`);
+    return image;
+  } finally {
+    win.hide(); win.setBounds(bounds, false);
   }
 }
 
@@ -184,6 +178,20 @@ async function runTheme(theme) {
   const pngPath = path.join(outDir, `${theme}.png`);
   fs.writeFileSync(pngPath, image.toPNG());
 
+  const pages = [];
+  for (const page of ['status', 'workspace', 'memory', 'settings', 'setup-guide']) {
+    await win.webContents.executeJavaScript(`document.querySelector('[data-page="${page}"]').click()`);
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const appearance = await win.webContents.executeJavaScript(`(() => {
+      const css = getComputedStyle(document.body);
+      const text = Array.from(document.querySelectorAll('.page.active *,.sidebar *,.topbar *')).filter(el=>el.getClientRects().length && Array.from(el.childNodes).some(n=>n.nodeType===3 && n.textContent.trim()));
+      return {bg:css.backgroundColor,size:parseFloat(css.fontSize),small:text.filter(el=>parseFloat(getComputedStyle(el).fontSize)<12).map(el=>({class:el.className,size:getComputedStyle(el).fontSize})),overflow:document.documentElement.scrollWidth>innerWidth};
+    })()`);
+    if (appearance.bg !== (theme === 'dark' ? 'rgb(0, 0, 0)' : 'rgb(255, 255, 255)') || appearance.size !== 14 || appearance.small.length || appearance.overflow) throw new Error(`Manager appearance ${theme}/${page}: ${JSON.stringify(appearance)}`);
+    fs.writeFileSync(path.join(outDir, `manager-${page}-${theme}.png`), (await capturePageStable(win,theme)).toPNG());
+    pages.push({page,appearance});
+  }
+
   const fatalErrors = errors.filter((item) => {
     const text = JSON.stringify(item);
     return item.type !== 'console' || /ReferenceError|TypeError|Uncaught|process is not defined|Failed to load/i.test(text);
@@ -192,7 +200,7 @@ async function runTheme(theme) {
   if (state.width.scroll > state.width.client + 2) throw new Error(`Horizontal overflow in ${theme}: ${state.width.scroll} > ${state.width.client}`);
   if (fatalErrors.length) throw new Error(`Renderer errors in ${theme}: ${JSON.stringify(fatalErrors)}`);
 
-  return { theme, state, errors, screenshot: path.relative(root, pngPath).replaceAll('\\', '/') };
+  return { theme, state, pages, errors, screenshot: path.relative(root, pngPath).replaceAll('\\', '/') };
 }
 
 function destroySmokeWindows() {

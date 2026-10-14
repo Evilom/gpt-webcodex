@@ -4,14 +4,6 @@ let hubState = { workspaces: [], authorizedRoots: [] };
 let busy = false;
 let activeWorkspaceView = 'workspaces';
 
-const theme = new URLSearchParams(location.search).get('theme');
-const themeMode = ['light', 'dark', 'system'].includes(theme) ? theme : 'light';
-const resolvedTheme = themeMode === 'system'
-  ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-  : themeMode;
-document.documentElement.dataset.theme = resolvedTheme;
-document.documentElement.dataset.themeMode = themeMode;
-
 function unwrap(result) {
   if (!result?.ok) throw new Error(result?.error || '操作失败');
   return result.data;

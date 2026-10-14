@@ -1,0 +1,67 @@
+/* Shared ChatGPT-style surfaces and typography for every assistant-owned view. */
+:root {
+  --ui-bg:#fff; --ui-sidebar:#f9f9f9; --ui-surface:#f9f9f9; --ui-raised:#fff;
+  --ui-hover:#ececec; --ui-border:#e5e5e5; --ui-border-strong:#d1d1d1;
+  --ui-text:#0d0d0d; --ui-muted:#5d5d5d;
+  --ui-primary:#0d0d0d; --ui-primary-hover:#2f2f2f; --ui-on-primary:#fff;
+  --ui-success:#087f65; --ui-success-soft:#e7f6f1;
+  --ui-warning:#876800; --ui-warning-soft:#fff8e1;
+  --ui-danger:#b3362f; --ui-danger-soft:#fbeeec;
+  --ui-shadow:0 12px 36px #0000001f;
+  --ui-font:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei UI",sans-serif;
+  --ui-mono:ui-monospace,"Cascadia Code",Consolas,monospace;
+  color-scheme:light;
+}
+html[data-theme="dark"],body[data-theme="dark"] {
+  --ui-bg:#000; --ui-sidebar:#000; --ui-surface:#212121; --ui-raised:#2f2f2f;
+  --ui-hover:#2f2f2f; --ui-border:#ffffff1a; --ui-border-strong:#ffffff33;
+  --ui-text:#fff; --ui-muted:#b4b4b4;
+  --ui-primary:#fff; --ui-primary-hover:#ececec; --ui-on-primary:#0d0d0d;
+  --ui-success:#5ee3b5; --ui-success-soft:#12352b;
+  --ui-warning:#f5cc66; --ui-warning-soft:#332b18;
+  --ui-danger:#ff9b94; --ui-danger-soft:#3c2220;
+  --ui-shadow:0 16px 48px #00000099;
+  color-scheme:dark;
+}
+/* Keep existing component names while giving them one palette. */
+:root,body[data-theme] {
+  --bg:var(--ui-bg); --sidebar:var(--ui-sidebar); --surface:var(--ui-surface);
+  --surface-2:var(--ui-raised); --surface-3:var(--ui-hover);
+  --surface-soft:var(--ui-surface); --surface-hover:var(--ui-hover); --panel:var(--ui-surface);
+  --text:var(--ui-text); --muted:var(--ui-muted); --muted-2:var(--ui-muted); --subtle:var(--ui-muted);
+  --border:var(--ui-border); --border-strong:var(--ui-border-strong);
+  --accent:var(--ui-success); --accent-soft:var(--ui-success-soft); --accent-line:var(--ui-border);
+  --green:var(--ui-success); --yellow:var(--ui-warning); --red:var(--ui-danger);
+  --warning:var(--ui-warning); --warning-soft:var(--ui-warning-soft);
+  --danger:var(--ui-danger); --danger-soft:var(--ui-danger-soft);
+  --blue:var(--ui-text); --blue-2:var(--ui-primary); --violet:var(--ui-text); --cyan:var(--ui-text);
+  --m-bg:var(--ui-bg); --m-sidebar:var(--ui-sidebar); --m-surface:var(--ui-surface);
+  --m-soft:var(--ui-surface); --m-soft2:var(--ui-hover); --m-border:var(--ui-border); --m-border2:var(--ui-border-strong);
+  --m-text:var(--ui-text); --m-muted:var(--ui-muted); --m-subtle:var(--ui-muted);
+  --m-accent:var(--ui-success); --m-accent-hover:var(--ui-success); --m-accent-soft:var(--ui-success-soft);
+  --m-green:var(--ui-success); --m-green-soft:var(--ui-success-soft);
+  --m-yellow:var(--ui-warning); --m-yellow-soft:var(--ui-warning-soft); --m-red:var(--ui-danger); --m-red-soft:var(--ui-danger-soft);
+  --toolbar-bg:var(--ui-bg); --toolbar-border:var(--ui-border); --sub-border:var(--ui-border);
+  --icon:var(--ui-text); --icon-hover:var(--ui-hover); --icon-disabled:var(--ui-muted);
+  --btn-bg:var(--ui-surface); --btn-border:var(--ui-border); --btn-hover:var(--ui-hover);
+  --btn-text:var(--ui-text); --btn-text-strong:var(--ui-text);
+  --popover-bg:var(--ui-surface); --popover-border:var(--ui-border); --popover-title:var(--ui-text);
+  --popover-strong:var(--ui-text); --popover-muted:var(--ui-muted); --popover-tip:var(--ui-bg); --popover-divider:var(--ui-border);
+  --strip-bg:var(--ui-surface); --strip-text:var(--ui-muted); --strip-title:var(--ui-text);
+  --strip-btn-bg:var(--ui-hover); --strip-btn-text:var(--ui-text);
+  --green-soft:var(--ui-success-soft); --green-text:var(--ui-success); --green-btn-bg:var(--ui-success-soft); --green-btn-border:var(--ui-border);
+  --danger-text:var(--ui-danger); --danger-border:var(--ui-border);
+  --changes-bg:var(--ui-warning-soft); --changes-border:var(--ui-border); --changes-text:var(--ui-warning); --changes-hover:var(--ui-warning-soft);
+  --progress-track:var(--ui-hover); --progress-text:var(--ui-muted);
+  --loading-from:var(--ui-bg); --loading-mid:var(--ui-surface); --loading-to:var(--ui-bg);
+  --spinner-track:var(--ui-border); --spinner-head:var(--ui-text); --popover-shadow:var(--ui-shadow);
+}
+body { font-family:var(--ui-font); font-size:14px; line-height:1.5; letter-spacing:normal; }
+body[data-theme] { background:var(--ui-bg)!important; color:var(--ui-text)!important; }
+button,input,select,textarea { font-family:inherit; }
+button { white-space:nowrap; flex-shrink:0; }
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible {
+  outline:2px solid var(--ui-text); outline-offset:3px;
+}
+code,pre { font-family:var(--ui-mono); }
+::selection { background:var(--ui-hover); color:var(--ui-text); }

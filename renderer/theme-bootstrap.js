@@ -1,10 +1,18 @@
 (() => {
   const requested = new URLSearchParams(location.search).get('theme');
-  const mode = ['light', 'dark', 'system'].includes(requested) ? requested : 'light';
-  const theme = mode === 'system'
-    ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-    : mode;
-  document.body.dataset.theme = theme;
-  document.body.dataset.themeMode = mode;
-  document.documentElement.dataset.theme = theme;
+  const systemTheme = window.matchMedia?.('(prefers-color-scheme: dark)');
+  function apply(mode) {
+    mode = ['light', 'dark', 'system'].includes(mode) ? mode : 'light';
+    const theme = mode === 'system' ? (systemTheme?.matches ? 'dark' : 'light') : mode;
+    for (const node of [document.documentElement, document.body]) {
+      node.dataset.theme = theme;
+      node.dataset.themeMode = mode;
+    }
+  }
+  apply(requested);
+  systemTheme?.addEventListener('change', () => {
+    if (document.body.dataset.themeMode === 'system') apply('system');
+  });
+  const api = window.browserAssistant || window.mcpAssistant || window.workspaceAssistant || window.activityDetail || window.approvalAssistant;
+  api?.onThemeChanged?.(apply);
 })();

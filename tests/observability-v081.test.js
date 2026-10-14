@@ -22,7 +22,7 @@ test('0.8.4 compact progress trigger opens a native owned Activity Detail window
   assert.doesNotMatch(js, /\$\('#progressBand'\)\?\.addEventListener\('mouseenter'/);
   assert.match(preload, /activityDetailShow|activityDetailUpdate|onActivityDetailState/);
   assert.match(main, /activityDetailWindow = new BrowserWindow\(\{[\s\S]*?parent: chatWindow && !chatWindow\.isDestroyed\(\) \? chatWindow : undefined/);
-  assert.match(main, /loadFile\(path\.join\(__dirname, '\.\.', 'renderer', 'activity-detail\.html'\)\)/);
+  assert.match(main, /loadFile\(path\.join\(__dirname, '\.\.', 'renderer', 'activity-detail\.html'\), \{ query: \{ theme: settings\.load\(\)\.theme \} \}\)/);
   assert.doesNotMatch(main, /activity-detail:[\s\S]{0,600}toolbarHeight\s*=|activity-detail:[\s\S]{0,600}chatController\.resize/);
   assert.match(controller, /y: this\.toolbarHeight/);
   assert.match(detailHtml, /id="facts"/);

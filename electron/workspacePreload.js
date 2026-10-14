@@ -1,6 +1,11 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('workspaceAssistant', {
+  onThemeChanged: (listener) => {
+    const wrapped = (_event, mode) => listener(mode);
+    ipcRenderer.on('theme:changed', wrapped);
+    return () => ipcRenderer.removeListener('theme:changed', wrapped);
+  },
   closeWindow: () => ipcRenderer.invoke('workspace-window:close'),
   removeRecentWorkspaces: (targets) => ipcRenderer.invoke('workspace:remove-recent', targets),
   clearActiveWorkspace: () => ipcRenderer.invoke('workspace:clear-active'),

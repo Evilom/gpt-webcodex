@@ -1,6 +1,11 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('mcpAssistant', {
+  onThemeChanged: (listener) => {
+    const wrapped = (_event, mode) => listener(mode);
+    ipcRenderer.on('theme:changed', wrapped);
+    return () => ipcRenderer.removeListener('theme:changed', wrapped);
+  },
   updateStatus: () => ipcRenderer.invoke('update:status'),
   checkUpdate: () => ipcRenderer.invoke('update:check'),
   downloadUpdate: () => ipcRenderer.invoke('update:download'),
