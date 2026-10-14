@@ -11,15 +11,20 @@ app.on('window-all-closed', () => {});
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const errors = [], results = [];
 const probeLayout = require('./ui-layout-probe');
+async function captureBounded(promise) {
+  let timer;
+  try { return await Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('capture timed out')),5000);})]); }
+  finally { clearTimeout(timer); }
+}
 async function capture(win) {
   try {
-    const image = await win.capturePage(undefined,{stayHidden:true,stayAwake:true});
+    const image = await captureBounded(win.capturePage(undefined,{stayHidden:true,stayAwake:true}));
     if (!image.isEmpty()) return image;
-  } catch (error) { if (!/UnknownVizError|surface/i.test(error.message)) throw error; }
+  } catch (error) { if (!/UnknownVizError|surface|capture timed out/i.test(error.message)) throw error; }
   const bounds = win.getBounds();
   win.setBounds({...bounds,x:-10000,y:-10000}); win.showInactive();
   await delay(250);
-  try { return await win.capturePage(); }
+  try { return await captureBounded(win.capturePage()); }
   finally { win.hide(); win.setBounds(bounds); }
 }
 const fixture = { status:'本地步骤已完成，正在等待主 AI 核对较长的设计方案与工程结果', capturedAt:'状态读取 · 刚刚', state:'等待 ChatGPT', stage:'核对工程结果', elapsed:'2 分 18 秒', lastSeen:'刚刚', process:'已结束 · 退出码 0', waitReason:'等待网页回复', nextStep:'由主 AI 核对结果', channel:'MCP · 正常', command:'npm run test', output:'297 项测试通过。\n没有执行中的本地命令。\n'.repeat(30), outputMeta:'最近 90 行', diagnosis:'本地命令已完成，连接正常。'.repeat(8), timeline:[{label:'命令已完成',detail:'回归检查通过 · '+ 'extended_source_file_name_'.repeat(12),time:'09:38:04'}] };
@@ -68,6 +73,7 @@ app.whenReady().then(async () => {
         win.setContentSize(width,view.height); await delay(100);
         const layout=await win.webContents.executeJavaScript(`(${probeLayout.toString()})(${JSON.stringify(view.groups)})`);
         assert.deepEqual(layout.issues,[],`${view.name}/${theme}/${width}`); assert.equal(layout.bodyOverflow,false);
+        assert.ok(layout.scrollbars.length&&layout.scrollbars.every(s=>s.width==='6px'&&s.track==='rgba(0, 0, 0, 0)'&&s.buttons==='none'&&s.nativeWidth==='auto'),'shared custom scrollbars');
         layouts.push({width,layout});
         fs.writeFileSync(path.join(output,`${view.name}-${theme}-${width}-expanded.png`),(await capture(win)).toPNG());
       }

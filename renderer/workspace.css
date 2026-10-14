@@ -141,8 +141,7 @@ button,input{font:inherit}
 .search-box input::placeholder{color:var(--subtle)}
 
 .workspace-list,.authorized-list{
-  min-height:0;flex:1;overflow:auto;padding:5px 7px 7px;
-  scrollbar-width:thin;scrollbar-color:var(--border-strong) transparent
+  min-height:0;flex:1;overflow:auto;padding:5px 7px 7px
 }
 .workspace-row{
   display:grid;grid-template-columns:28px minmax(0,1fr) auto 62px 28px;

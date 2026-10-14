@@ -22,5 +22,11 @@ module.exports = function probeLayout(selectors) {
     const label=row.querySelector('span:first-child'),control=row.querySelector('select');
     if (label && control && label.getBoundingClientRect().width < 140 && row.getBoundingClientRect().width > 260) issues.push({kind:'cramped-label',control:name(control),width:label.getBoundingClientRect().width});
   }
-  return {issues,viewport:{width:innerWidth,height:innerHeight},bodyOverflow:document.documentElement.scrollWidth>innerWidth+2};
+  const scrollbars=Array.from(document.querySelectorAll('body *')).filter(el=>visible(el)&&/auto|scroll/.test(getComputedStyle(el).overflow)).map(el=>({
+    width:getComputedStyle(el,'::-webkit-scrollbar').width,
+    track:getComputedStyle(el,'::-webkit-scrollbar-track').backgroundColor,
+    buttons:getComputedStyle(el,'::-webkit-scrollbar-button').display,
+    nativeWidth:getComputedStyle(el).scrollbarWidth
+  }));
+  return {issues,scrollbars,viewport:{width:innerWidth,height:innerHeight},bodyOverflow:document.documentElement.scrollWidth>innerWidth+2};
 };

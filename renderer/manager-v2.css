@@ -567,7 +567,7 @@ body[data-theme="light"] .nav-item.active{color:var(--ui-text)}
 .topbar h1{font-size:24px;font-weight:600;line-height:1.35}
 .topbar p:last-child{font-size:var(--ui-font-meta);line-height:1.55;overflow-wrap:anywhere}
 .top-actions{flex:0 0 auto;justify-content:flex-end;max-width:100%}
-.content-viewport{height:auto;min-height:0;flex:1;padding:24px 32px 36px;scrollbar-width:thin}
+.content-viewport{height:auto;min-height:0;flex:1;padding:24px 32px 36px}
 .section-header,.panel-title,.hero-status,.memory-mode-panel,.react-insight-strip{flex-direction:row;flex-wrap:wrap;align-items:flex-start}
 .section-header>div:first-child,.panel-title>div:first-child,.memory-mode-panel>div:first-child{min-width:0;flex:1 1 280px}
 .section-header h2{font-size:20px;font-weight:600;line-height:1.4}

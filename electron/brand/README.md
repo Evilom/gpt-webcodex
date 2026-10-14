@@ -1,0 +1,9 @@
+# 超级智囊团图标
+
+源图：`think-tank-source.png`。使用内置 ImageGen 生成，以环、负形星、暖白几何面融合 OpenAI / Gemini / Anthropic 的视觉意象。一个完整的独立标记，不直接拼贴现有商标或字母。
+
+从源图缩放编码出 1024px PNG、Windows 多尺寸 ICO、Mac ICNS 与 128px 工具栏 PNG。`npm run icon:build` 将已提交的品牌容器复制到两平台统一的构建路径。
+
+最终生成提示词：
+
+> Use case: logo-brand. Create ONE finished independent AI workbench app icon. Art direction: exceptionally restrained, intelligent, graphic-design-studio quality. The previous idea of many interwoven colored ribbons was rejected as too busy: this must be radically simpler. Design a single original near-monochrome emblem that subtly synthesizes OpenAI's continuous loop, Gemini's four-point star and Anthropic's warm geometric rays into ONE shape, NOT separate logos. Subject: ONE thick continuous gently folded loop, with only ONE clean crossing, enclosing a crisp four-point star-shaped NEGATIVE SPACE. The star must be cut out of the shape and show the dark background, not a second floating element. Use one broad soft angular facet to suggest radiating intelligence, rather than decorative rays. Shape should feel like a precise typographic glyph, compact, balanced, with bold open silhouette recognizable at 16px. Flat 2D vector style, superb curves, optical balance. Palette: overwhelmingly warm off-white/silver against a perfectly uniform near-black charcoal rounded-square app tile. At most ONE small muted periwinkle-blue facet occupying under 10% of the emblem; no other colors. No multicolor sections, no gradient, no glow, no texture, no shadows, no 3D bevel, no metallic sculpture, no green or teal. Composition: centered emblem using 56-62% of square width, abundant negative space, consistent generous margin. No wordmarks, no letters A O G, no text, no tiny details, no spiral ball of ribbons, no four-way knot with many crossings, no mosaic, no collage. One single polished icon, no comparison grid, no variations. Produce a minimalist brand identity, not generic AI art.

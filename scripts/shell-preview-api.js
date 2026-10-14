@@ -9,7 +9,7 @@
   const chat = { url: 'https://chatgpt.com/c/design-preview', canGoBack: false, canGoForward: false, loading: false, streamState: { status: query.get('scenario') === 'interrupted' ? 'interrupted' : 'completed', updatedAt: Date.now() }, login: { status: 'idle', prompt: false }, nativeLogin: { status: 'idle' } };
   const runtime = { mcpRunning: true, tunnelRunning: true, connectionRunning: query.get('scenario') !== 'tunnel', schemaIdentity: { version: '0.9.9', schemaVersion: 14, schemaHash: 'preview', toolCount: 10 } };
   let advisory = { configured: true, baseUrl: 'https://demo.invalid', selected: [], models: [], job: null };
-  const models = [{ id: 'anthropic::claude-opus-5-5', name: '太极 · Opus 5.5' }, { id: 'google::gemini-3.8-flash-high', name: 'AntiGravity · Gemini 3.8 Flash High' }];
+  const models = [{ id: 'anthropic::claude-opus-5-5', name: '太极 · Opus 5.5' }, { id: 'google::gemini-4-argon', name: 'AntiGravity · Gemini Argon 4' }, { id: 'google::gemini-3.8-flash-high', name: 'AntiGravity · Gemini 3.8 Flash High' }];
   window.browserAssistant = new Proxy({
     chatStatus: () => ok(chat),
     lightweightStatus: () => ok(runtime),

@@ -79,6 +79,7 @@ app.whenReady().then(async () => {
     await delay(120);
     const layout=await window.webContents.executeJavaScript(`(${probeLayout.toString()})('.workbench .advisory-actions,.workbench .popover-header,.workbench .popover-actions,.workbench .workspace-quick-tools,.workbench .popover-grid,.workbench .health-row>div')`);
     assert.deepEqual(layout.issues,[],`${theme}/${width} expanded workbench`); assert.equal(layout.bodyOverflow,false);
+    assert.ok(layout.scrollbars.length&&layout.scrollbars.every(s=>s.width==='6px'&&s.track==='rgba(0, 0, 0, 0)'&&s.buttons==='none'&&s.nativeWidth==='auto'),'shared workbench scrollbars');
     const reading=await window.webContents.executeJavaScript(`(() => {
       const panel=document.querySelector('.workbench-content'),answers=Array.from(document.querySelectorAll('.advisory-answers p'));
       const before=answers.map(el=>el.textContent); panel.scrollTop=panel.scrollHeight;
@@ -108,6 +109,14 @@ app.whenReady().then(async () => {
     click('workbenchToggle'); click('advisoryRefresh'); await wait();
     const check = document.querySelector('#extensionProviders input'); check.click(); await wait();
     const consulted = !document.getElementById('advisoryQuestion') && !document.getElementById('advisorySubmit') && document.getElementById('advisoryStatus').textContent.includes('AI 辅助已启用');
+    const providers=document.getElementById('extensionProviders');
+    const argon=providers.querySelector('input[value="google::gemini-4-argon"]');
+    const argonPromoted=!!argon&&!argon.closest('details');
+    const otherModels=providers.querySelector('details'); otherModels.open=true;
+    click('advisoryRefresh'); await wait();
+    const modelListStatePreserved=providers.querySelector('details').open;
+    providers.querySelector('input[value="google::gemini-3.8-flash-high"]').click(); await wait();
+    const selectedModelVisible=!providers.querySelector('input[value="google::gemini-3.8-flash-high"]').closest('details');
     const advisoryFixture = {id:'collapse_fixture_123',status:'completed',responses:[{model:'anthropic::claude-opus-5-5',status:'answered',elapsed_seconds:43.28,answer:'这是较长的辅助意见。\\n'.repeat(120)},{model:'google::gemini-3.8-flash-high',status:'answered',elapsed_seconds:22.47,answer:'这是另一份辅助意见。'}]};
     window.browserAssistant.advisoryResult = () => Promise.resolve({ok:true,data:advisoryFixture});
     window.browserAssistant.advisoryStatus = () => Promise.resolve({ok:true,data:{configured:true,models:[],selected:[],job:advisoryFixture}});
@@ -131,7 +140,7 @@ app.whenReady().then(async () => {
     const history = document.getElementById('taskHistoryPopover').getBoundingClientRect();
     const frame = document.getElementById('previewChat').getBoundingClientRect();
     const historyReserved = !document.getElementById('taskHistoryPopover').hidden && frame.bottom <= history.top + 1;
-    return {opened,closed,more,escaped,consulted,answersCollapsed,answersScrollable,answerStatePreserved,nextAnswersCollapsed,consoleOpen,consoleClosed,historyReserved};
+    return {opened,closed,more,escaped,consulted,argonPromoted,modelListStatePreserved,selectedModelVisible,answersCollapsed,answersScrollable,answerStatePreserved,nextAnswersCollapsed,consoleOpen,consoleClosed,historyReserved};
   })()`);
   for (const [name, value] of Object.entries(interactions)) assert.equal(value, true, name);
   const { ChatViewController } = require('../electron/chatViewController');

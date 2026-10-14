@@ -8,17 +8,19 @@
   const statusLabels = { preparing: 'AI 正在检查辅助输入预算', submitting: '提交结果待确认，保留原任务', queued: 'AI 辅助咨询排队中', running: '辅助模型正在回答', completed: 'AI 辅助咨询已完成', partial: '部分模型已返回', failed: '辅助咨询失败', interrupted: '辅助咨询已中断' };
   function render() {
     const focusedModel = document.activeElement?.closest('#extensionProviders input')?.value;
+    const othersOpen = $('extensionProviders').querySelector('details')?.open || false;
     $('advisoryImport').disabled = busy;
     $('advisoryRefresh').disabled = busy || !state.configured;
     $('advisoryResult').hidden = !state.job;
     $('advisoryResult').disabled = busy;
-    const models = state.models.length ? state.models : [{ id: 'anthropic::claude-opus-5-5', name: '太极 · Opus 5.5' }, { id: 'google::gemini-3.8-flash-high', name: 'AntiGravity · Gemini 3.8 Flash High' }];
+    const models = state.models;
     $('extensionProviders').replaceChildren();
     const others = document.createElement('details');
     const summary = document.createElement('summary');
     summary.textContent = '其他辅助模型';
     others.append(summary);
-    const preferred = new Set(['anthropic::claude-opus-5-5', 'google::gemini-3.8-flash-high']);
+    others.open = othersOpen;
+    const preferred = new Set(models.filter((model) => model.id === 'anthropic::claude-opus-5-5' || model.id.startsWith('google::') && /\b(?:argon[\s._-]*4|4[\s._-]*argon)\b/i.test(`${model.id} ${model.name}`) || state.selected.includes(model.id)).map((model) => model.id));
     for (const model of models) {
       const label = document.createElement('label');
       label.className = 'extension-row';

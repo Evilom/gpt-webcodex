@@ -36,6 +36,12 @@ app.whenReady().then(async () => {
   const results = [];
   for (const mode of ['anchor-blob', 'popup-blob', 'popup-blank', 'popup-http', 'popup-file-host']) {
     await contents.loadURL(home);
+    const scrollbars=await contents.executeJavaScript(`(() => {
+      const el=document.createElement('div');el.style.cssText='height:20px;overflow:auto;scrollbar-width:thin;scrollbar-color:red white';el.tabIndex=0;el.textContent='长内容。'.repeat(300);document.body.append(el);
+      const base={width:getComputedStyle(el,'::-webkit-scrollbar').width,track:getComputedStyle(el,'::-webkit-scrollbar-track').backgroundColor,buttons:getComputedStyle(el,'::-webkit-scrollbar-button').display,nativeWidth:getComputedStyle(el).scrollbarWidth};
+      document.documentElement.classList.add('dark');el.focus();base.focusedThumb=getComputedStyle(el,'::-webkit-scrollbar-thumb').backgroundColor;el.scrollTop=el.scrollHeight;base.scrollable=el.scrollTop>0;el.remove();document.documentElement.classList.remove('dark');return base;
+    })()`);
+    assert.deepEqual(scrollbars,{width:'6px',track:'rgba(0, 0, 0, 0)',buttons:'none',nativeWidth:'auto',focusedThumb:'rgb(85, 85, 85)',scrollable:true},'native ChatGPT scrollbar style and scrolling');
     const before = downloads.length;
     let pageError = '';
     try {

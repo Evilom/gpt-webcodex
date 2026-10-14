@@ -16,6 +16,7 @@ const required = [
   'renderer/index.html',
   'renderer/browser.html',
   'renderer/browser.js',
+  'renderer/scrollbars.css',
   'renderer/app.js',
   'resources/coding-tools-mcp/coding_tools_mcp/server.py',
   'resources/coding-tools-mcp/coding_tools_mcp/__init__.py',

@@ -1,3 +1,4 @@
+@import url("scrollbars.css");
 /* Shared ChatGPT-style surfaces and typography for every assistant-owned view. */
 :root {
   --ui-bg:#fff; --ui-sidebar:#f9f9f9; --ui-surface:#f9f9f9; --ui-raised:#fff;

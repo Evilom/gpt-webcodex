@@ -23,7 +23,7 @@ app.whenReady().then(async () => {
   const { LocalMcpClient } = require('../electron/services/localMcpClient');
   const token = crypto.randomBytes(24).toString('hex');
   const stored = live ? new SecretStore() : null;
-  const selected = ['anthropic::claude-opus-5-5', 'google::gemini-3.8-flash-high'];
+  const selected = ['anthropic::claude-opus-5-5', live ? 'google::gemini-3.8-flash-high' : 'google::gemini-4-argon'];
   const original = live ? JSON.parse(fs.readFileSync(path.join(profile, 'extensions.json'), 'utf8')) : { baseUrl: 'https://assist.example' };
   fs.writeFileSync(path.join(directory, 'extensions.json'), JSON.stringify({ baseUrl: original.baseUrl, selected }));
   const secrets = { get: (name) => name === 'mcpAuthToken' ? token : live ? stored.get(name) : 'fixture-key' };

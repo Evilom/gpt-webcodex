@@ -1,10 +1,13 @@
 const { shell, session, WebContentsView } = require('electron');
+const fs = require('node:fs');
+const path = require('node:path');
 const { DownloadService } = require('./services/downloadService');
 const { normalizeProxyValue, resolveProxy } = require('./services/proxyService');
 const { NativeLoginService, SESSION_CHECK } = require('./services/nativeLoginService');
 const { AUTH_HOSTS, authUrl, readAuthenticatedSession, LOGIN_DOCUMENT_PROBE } = require('./services/chatLoginPolicy');
 
 const CHAT_HOME = 'https://chatgpt.com/';
+const CHAT_SCROLLBARS = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'scrollbars.css'), 'utf8');
 const CHAT_PARTITION = 'persist:chatgpt-session';
 const NAVIGATION_HOSTS = new Set([
   'chatgpt.com', 'www.chatgpt.com', 'openai.com', 'www.openai.com',
@@ -411,6 +414,9 @@ class ChatViewController {
       this.emitState();
     });
     listen('dom-ready', () => {
+      if (isChatGptNavigation(contents.getURL()) && !authUrl(contents.getURL())) {
+        void contents.insertCSS(CHAT_SCROLLBARS, { cssOrigin: 'user' }).catch((error) => this.log.warn('网页滚动条样式未载入', { message: error.message }));
+      }
       this.scheduleChatUiEnhancements();
       if (authUrl(contents.getURL()) || parseUrl(contents.getURL())?.pathname === '/') this.startLoginWatch();
       void this.probeLogin(contents);

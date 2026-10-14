@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const fs = require('node:fs');
+const assert = require('node:assert/strict');
 const path = require('node:path');
 const os = require('node:os');
 app.setPath('userData', fs.mkdtempSync(path.join(os.tmpdir(), 'think-tank-renderer-smoke-')));
@@ -202,6 +203,7 @@ async function runTheme(theme) {
       await win.webContents.executeJavaScript(`document.querySelectorAll('.page.active details').forEach(el=>el.open=true)`);
       await new Promise(resolve => setTimeout(resolve,80));
       const layout=await win.webContents.executeJavaScript(`(${probeLayout.toString()})('.topbar,.section-header,.hero-status,.panel-title,.memory-mode-panel,.memory-bulk-toolbar,.memory-toolbar,.memory-pagination,.setting-row,.settings-section-heading,.react-insight-strip,.setup-link-row,.input-action.wide')`);
+      assert.ok(layout.scrollbars.length&&layout.scrollbars.every(s=>s.width==='6px'&&s.track==='rgba(0, 0, 0, 0)'&&s.buttons==='none'&&s.nativeWidth==='auto'),'shared manager scrollbars');
       const reading=await win.webContents.executeJavaScript(`(() => {
         const viewport=document.querySelector('.content-viewport');viewport.scrollTop=viewport.scrollHeight;
         const end=document.querySelector('.page.active').getBoundingClientRect().bottom<=viewport.getBoundingClientRect().bottom+2;
