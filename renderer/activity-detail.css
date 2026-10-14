@@ -32,3 +32,12 @@ body{padding:8px}
 .timeline li time{display:block;margin-top:6px;color:var(--ui-muted);font-size:12px}
 [hidden]{display:none!important}
 @media(max-width:680px){.facts{grid-template-columns:repeat(2,minmax(0,1fr))}.timeline ol{grid-template-columns:1fr}}
+
+.activity-head>div:first-child{min-width:0;flex:1;overflow-wrap:anywhere}
+.head-actions{flex-shrink:0}
+.fact b,.diagnosis b{font-size:var(--ui-font-body);font-weight:400;line-height:1.6}
+.fact span,.activity-head p,.eyebrow,.diagnosis span,.command>span,.output span,.output small,.timeline>span,.timeline li time{font-size:var(--ui-font-meta);line-height:1.5}
+.fact.mono b,.command code,.output pre{font-size:var(--ui-font-meta);line-height:1.65}
+.timeline li{font-size:var(--ui-font-body);line-height:1.6;overflow-wrap:anywhere}
+.diagnosis,.output>div{flex-wrap:wrap}
+.diagnosis b{min-width:0;flex:1 1 240px;overflow-wrap:anywhere}

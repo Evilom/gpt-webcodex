@@ -21,3 +21,7 @@ main{height:calc(100% - 48px);padding:20px;overflow:auto}
 .approval-actions button.danger{color:var(--ui-danger)}
 .approval-actions button:hover{background:var(--ui-hover)}
 .approval-actions button.primary:hover{background:var(--ui-primary-hover)}
+
+.intro,.approval-card p{font-size:var(--ui-font-body);line-height:1.65}
+.approval-meta span{font-size:var(--ui-font-meta)}
+.approval-card h3{overflow-wrap:anywhere}

@@ -9,6 +9,7 @@ const outDir = path.join(root, 'build', 'ui-smoke');
 const demoWorkspace = 'C:\\smoke\\workspace';
 let currentTheme = 'light';
 const smokeWindows = [];
+const probeLayout = require('./ui-layout-probe');
 
 function ok(data) { return { ok: true, data }; }
 
@@ -138,9 +139,16 @@ async function capturePageStable(win, theme) {
   win.showInactive();
   await new Promise(resolve => setTimeout(resolve, 180));
   try {
-    const image = await win.capturePage();
-    if (image.isEmpty()) throw new Error(`Empty capture for ${theme}`);
-    return image;
+    for(let attempt=0;attempt<3;attempt++) {
+      try {
+        const image = await win.capturePage();
+        if (image.isEmpty()) throw new Error(`Empty capture for ${theme}`);
+        return image;
+      } catch(error) {
+        if(attempt===2 || !/UnknownVizError|surface|Empty capture/i.test(error.message)) throw error;
+        await new Promise(resolve=>setTimeout(resolve,250));
+      }
+    }
   } finally {
     win.hide(); win.setBounds(bounds, false);
   }
@@ -188,8 +196,24 @@ async function runTheme(theme) {
       return {bg:css.backgroundColor,size:parseFloat(css.fontSize),small:text.filter(el=>parseFloat(getComputedStyle(el).fontSize)<12).map(el=>({class:el.className,size:getComputedStyle(el).fontSize})),overflow:document.documentElement.scrollWidth>innerWidth};
     })()`);
     if (appearance.bg !== (theme === 'dark' ? 'rgb(0, 0, 0)' : 'rgb(255, 255, 255)') || appearance.size !== 14 || appearance.small.length || appearance.overflow) throw new Error(`Manager appearance ${theme}/${page}: ${JSON.stringify(appearance)}`);
-    fs.writeFileSync(path.join(outDir, `manager-${page}-${theme}.png`), (await capturePageStable(win,theme)).toPNG());
-    pages.push({page,appearance});
+    const layouts=[];
+    for (const width of [1440,980,820]) {
+      win.setContentSize(width,width===820?640:720);
+      await win.webContents.executeJavaScript(`document.querySelectorAll('.page.active details').forEach(el=>el.open=true)`);
+      await new Promise(resolve => setTimeout(resolve,80));
+      const layout=await win.webContents.executeJavaScript(`(${probeLayout.toString()})('.topbar,.section-header,.hero-status,.panel-title,.memory-mode-panel,.memory-bulk-toolbar,.memory-toolbar,.memory-pagination,.setting-row,.settings-section-heading,.react-insight-strip,.setup-link-row,.input-action.wide')`);
+      const reading=await win.webContents.executeJavaScript(`(() => {
+        const viewport=document.querySelector('.content-viewport');viewport.scrollTop=viewport.scrollHeight;
+        const end=document.querySelector('.page.active').getBoundingClientRect().bottom<=viewport.getBoundingClientRect().bottom+2;
+        viewport.scrollTop=0;
+        return {end,viewportHeight:viewport.clientHeight,insightHeight:document.querySelector('.page.active .react-insight-strip')?.getBoundingClientRect().height||0,memoryFont:document.querySelector('.page.active .memory-content')?getComputedStyle(document.querySelector('.page.active .memory-content')).fontSize:null};
+      })()`);
+      fs.writeFileSync(path.join(outDir, `manager-${page}-${theme}-${width}-expanded.png`),(await capturePageStable(win,theme)).toPNG());
+      if(layout.bodyOverflow || layout.issues.length) throw new Error(`Expanded manager ${theme}/${page}/${width}: ${JSON.stringify(layout)}`);
+      if(!reading.end || reading.viewportHeight<200 || reading.insightHeight>190 || reading.memoryFont&&reading.memoryFont!=='16px') throw new Error(`Expanded reading ${theme}/${page}/${width}: ${JSON.stringify(reading)}`);
+      layouts.push({width,layout,reading});
+    }
+    pages.push({page,appearance,layouts});
   }
 
   const fatalErrors = errors.filter((item) => {
@@ -271,14 +295,12 @@ app.whenReady().then(async () => {
     fs.writeFileSync(path.join(outDir, 'result.json'), JSON.stringify(report, null, 2));
     console.log(`Renderer smoke PASS: ${results.map((item) => item.theme).join(', ')}`);
     destroySmokeWindows();
-    process.exitCode = 0;
-    app.quit();
+    app.exit(0);
   } catch (error) {
     const report = { ok: false, generatedAt: new Date().toISOString(), error: error?.stack || error?.message || String(error), results };
     fs.writeFileSync(path.join(outDir, 'result.json'), JSON.stringify(report, null, 2));
     console.error(report.error);
     destroySmokeWindows();
-    process.exitCode = 1;
-    app.quit();
+    app.exit(1);
   }
 });

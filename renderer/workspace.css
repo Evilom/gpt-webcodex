@@ -292,3 +292,18 @@ button,input{font:inherit}
 .current-icon,[data-theme="dark"] .current-icon{background:var(--ui-hover);color:var(--ui-text)}
 .button.primary,[data-theme="dark"] .button.primary{background:var(--ui-primary);border-color:var(--ui-primary);color:var(--ui-on-primary)}
 .button.primary:hover,[data-theme="dark"] .button.primary:hover{background:var(--ui-primary-hover)}
+
+.shell{gap:12px;grid-template-rows:auto auto minmax(0,1fr) auto}
+.overview{gap:16px;grid-template-columns:minmax(0,1fr) minmax(260px,38%)}
+.overview-copy,.current-copy{min-width:0}
+.view-header,.footer-bar,.storage-actions,.view-actions,.access-note{flex-wrap:wrap;gap:10px}
+.view-header>div:first-child{flex:1 1 240px;min-width:0}
+.overview p,.view-header p{white-space:normal;font-size:var(--ui-font-body);line-height:1.55;overflow-wrap:anywhere}
+.view-actions{justify-content:flex-start}
+.view-tabs{flex-wrap:wrap}
+.workspace-row{grid-template-columns:28px minmax(0,1fr) auto 70px 28px}
+.workspace-main code,.current-copy code,.authorized-main code{font-size:var(--ui-font-meta);line-height:1.55;overflow-wrap:anywhere}
+.current-copy span,.current-state,.workspace-status,.authorized-status,.footer-bar{font-size:var(--ui-font-meta);line-height:1.5}
+.footer-bar{height:auto;min-height:32px}
+.storage-actions{min-width:0;justify-content:flex-end}
+@media(max-width:850px){.overview{grid-template-columns:1fr}.overview p{display:block}.current-compact{width:100%}.view-header{align-items:flex-start}.workspace-row{grid-template-columns:28px minmax(0,1fr) 70px 28px}.workspace-status{display:none}}

@@ -1,5 +1,5 @@
 /* Assistant-owned chrome; the embedded ChatGPT page keeps its native UI. */
-:root{--shell-top:56px;--shell-footer:36px;--shell-panel:300px;--toolbar-height:auto}
+:root{--shell-top:56px;--shell-footer:36px;--shell-panel:clamp(280px,27vw,360px);--toolbar-height:auto}
 [hidden]{display:none!important}
 body{font-family:"Segoe UI","Microsoft YaHei UI",sans-serif}
 button{white-space:nowrap;flex-shrink:0}
@@ -101,3 +101,22 @@ body[data-theme="dark"] .shell-icon{filter:invert(1)}
 .extension-providers label{font-size:14px}
 .shell-workspace,.shell-button{border-radius:8px}
 #connectionButton[data-tone="warning"]{color:var(--ui-warning)}
+
+.workbench-header{flex:0 0 auto}
+.workbench-content{flex:1;min-width:0;overscroll-behavior:contain}
+.workbench section{min-width:0}
+.workbench h2{font-size:var(--ui-font-body);font-weight:600;line-height:1.5}
+.workbench .shell-muted,.download-state{font-size:var(--ui-font-body);line-height:1.65}
+.extension-row{font-size:var(--ui-font-control);overflow-wrap:anywhere}
+.extension-row small{font-size:var(--ui-font-meta);line-height:1.55;overflow-wrap:anywhere}
+.advisory-answers summary{font-size:var(--ui-font-body);line-height:1.5}
+.advisory-answers p{font-size:var(--ui-font-reading);line-height:1.65;min-width:0;margin:8px 0 16px;padding-right:8px;scrollbar-width:thin}
+.advisory-answers summary small{font-size:var(--ui-font-meta)}
+.workbench .popover-header{flex-wrap:wrap;align-items:flex-start}
+.workbench .popover-actions,.workbench .workspace-quick-tools{flex-wrap:wrap;gap:8px}
+.workbench .popover-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.workbench .popover-grid>div{min-width:0;overflow-wrap:anywhere;line-height:1.55}
+.workbench .workspace-health-popover>div{flex-wrap:wrap;gap:6px}
+.workbench .workspace-health-popover strong{min-width:0;overflow-wrap:anywhere}
+.workbench .context-usage-button{white-space:normal;text-align:left;line-height:1.5;min-height:36px}
+.shell-footer .shell-button,.shell-footer .terminal-toggle-btn,.shell-footer .progress-action,.shell-footer .progress-band-copy b,.shell-footer .progress-band time{font-size:var(--ui-font-meta)}

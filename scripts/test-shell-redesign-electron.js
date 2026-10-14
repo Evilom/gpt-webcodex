@@ -15,6 +15,12 @@ app.setPath('userData', fs.mkdtempSync(path.join(os.tmpdir(), 'think-tank-ui-smo
 app.on('window-all-closed', () => {});
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const errors = [];
+const probeLayout = require('./ui-layout-probe');
+async function captureFixture(win) {
+  const bounds=win.getBounds();win.setBounds({...bounds,x:-10000,y:-10000});win.showInactive();
+  await delay(180);
+  try{return await win.webContents.capturePage();}finally{win.hide();win.setBounds(bounds);}
+}
 let previewProcess;
 function startPreview() {
   return new Promise((resolve, reject) => {
@@ -55,8 +61,36 @@ app.whenReady().then(async () => {
     assert.ok(Math.abs(geometry.frame.y - geometry.toolbar.height) <= 1);
     assert.ok(Math.abs(geometry.frame.bottom - geometry.footer.y) <= 1);
     if (item.open) assert.ok(Math.abs(geometry.frame.right - geometry.panel.x) <= 1, `${item.name}: ${JSON.stringify(geometry)}`);
-    fs.writeFileSync(path.join(output, `${item.name}.png`), (await window.webContents.capturePage()).toPNG());
+    fs.writeFileSync(path.join(output, `${item.name}.png`), (await captureFixture(window)).toPNG());
     results.push({ ...item, geometry });
+  }
+  const expandedSidebars=[];
+  for (const theme of ['dark','light']) for (const width of [1440,960]) {
+    window.setContentSize(width,width===960?640:720);
+    await window.loadURL(`${previewUrl}/?theme=${theme}&workbench=1`); await delay(180);
+    await window.webContents.executeJavaScript(`(async()=>{
+      const job={id:'expanded_layout_fixture',status:'completed',responses:[{model:'anthropic::claude-opus-5-5',status:'answered',answer:'这是一段较长的设计审查意见，需要独立滚动阅读。\\n'.repeat(80)},{model:'google::gemini-3.8-flash-high',status:'answered',answer:'这是另一段较长的辅助分析意见。\\n'.repeat(60)}]};
+      window.browserAssistant.advisoryResult=()=>Promise.resolve({ok:true,data:job});
+      window.browserAssistant.advisoryStatus=()=>Promise.resolve({ok:true,data:{configured:true,models:[],selected:[],job}});
+      document.getElementById('advisoryResult').click(); await new Promise(resolve=>setTimeout(resolve,80));
+      document.getElementById('workspaceHealthButton').click();document.getElementById('contextUsageButton').click();
+      document.querySelectorAll('#workbench details').forEach(el=>el.open=true);
+    })()`);
+    await delay(120);
+    const layout=await window.webContents.executeJavaScript(`(${probeLayout.toString()})('.workbench .advisory-actions,.workbench .popover-header,.workbench .popover-actions,.workbench .workspace-quick-tools,.workbench .popover-grid,.workbench .health-row>div')`);
+    assert.deepEqual(layout.issues,[],`${theme}/${width} expanded workbench`); assert.equal(layout.bodyOverflow,false);
+    const reading=await window.webContents.executeJavaScript(`(() => {
+      const panel=document.querySelector('.workbench-content'),answers=Array.from(document.querySelectorAll('.advisory-answers p'));
+      const before=answers.map(el=>el.textContent); panel.scrollTop=panel.scrollHeight;
+      const bounds=document.querySelector('#workbench').getBoundingClientRect();
+      return {panelBounds:[bounds.left,bounds.right],scrolls:panel.scrollHeight>panel.clientHeight,contentHeight:panel.clientHeight,bodyBounded:answers.length===2&&answers.every(el=>el.clientHeight<=240&&el.scrollHeight>el.clientHeight),font:answers.map(el=>getComputedStyle(el).fontSize),retained:answers.every((el,i)=>el.textContent===before[i]),endReachable:document.querySelector('.workbench-actions').getBoundingClientRect().bottom<=panel.getBoundingClientRect().bottom+2};
+    })()`);
+    assert.ok(reading.scrolls&&reading.contentHeight>150&&reading.bodyBounded&&reading.retained&&reading.endReachable);
+    assert.deepEqual(reading.font,['16px','16px']);
+    assert.ok(reading.panelBounds[0]>=0&&Math.abs(reading.panelBounds[1]-width)<=1);
+    await window.webContents.executeJavaScript(`const panel=document.querySelector('.workbench-content');panel.scrollTop=document.querySelector('.advisory-answers').offsetTop-panel.offsetTop`); await delay(80);
+    fs.writeFileSync(path.join(output,`expanded-workbench-${theme}-${width}.png`),(await captureFixture(window)).toPNG());
+    expandedSidebars.push({theme,width,layout,reading});
   }
   await window.loadURL(`${previewUrl}/?theme=dark`);
   await delay(100);
@@ -101,6 +135,7 @@ app.whenReady().then(async () => {
   })()`);
   for (const [name, value] of Object.entries(interactions)) assert.equal(value, true, name);
   const { ChatViewController } = require('../electron/chatViewController');
+  window.setContentSize(640,600);
   const controller = new ChatViewController({ window, toolbarHeight: 56, settings: { load: () => ({}) }, log: { info(){},warn(){},error(){} } });
   controller.applyBrowserProxyPolicy = async () => {};
   controller.loadHome = async () => {};
@@ -111,7 +146,7 @@ app.whenReady().then(async () => {
   assert.deepEqual(bounds, { x: 0, y: 108, width: 340, height: 456 });
   controller.dispose();
   assert.deepEqual(errors, []);
-  fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify({ ok: true, scale, results, interactions, nativeBounds: bounds, errors }, null, 2));
+  fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify({ ok: true, scale, results, expandedSidebars, interactions, nativeBounds: bounds, errors }, null, 2));
   window.destroy();
   app.exit(0);
 }).catch((error) => { fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify({ ok: false, error: error.stack, errors }, null, 2)); app.exit(1); });

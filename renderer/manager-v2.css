@@ -559,3 +559,65 @@ body[data-theme="light"] .nav-item.active{color:var(--ui-text)}
 
 .top-actions,.inline-actions,.hero-actions{flex-wrap:wrap}
 .react-chip{flex-shrink:0}.react-chip small,.react-chip b{white-space:nowrap}
+
+/* Size the page by its available column, including expanded sections. */
+.main-area{display:flex;flex-direction:column;container-type:inline-size}
+.topbar{height:auto;min-height:104px;flex:0 0 auto;gap:20px;padding:18px 32px}
+.topbar>div:first-child{min-width:0;flex:1}
+.topbar h1{font-size:24px;font-weight:600;line-height:1.35}
+.topbar p:last-child{font-size:var(--ui-font-meta);line-height:1.55;overflow-wrap:anywhere}
+.top-actions{flex:0 0 auto;justify-content:flex-end;max-width:100%}
+.content-viewport{height:auto;min-height:0;flex:1;padding:24px 32px 36px;scrollbar-width:thin}
+.section-header,.panel-title,.hero-status,.memory-mode-panel,.react-insight-strip{flex-direction:row;flex-wrap:wrap;align-items:flex-start}
+.section-header>div:first-child,.panel-title>div:first-child,.memory-mode-panel>div:first-child{min-width:0;flex:1 1 280px}
+.section-header h2{font-size:20px;font-weight:600;line-height:1.4}
+.section-header p,.panel-title p,.hero-state p,.memory-mode-panel p,.setup-step-description,.setup-instructions,.setting-row small{font-size:var(--ui-font-body);line-height:1.65;overflow-wrap:anywhere}
+.hero-state{min-width:0;flex:1 1 320px}
+.hero-state>div{min-width:0;flex:1}
+.hero-actions{flex:0 1 auto;justify-content:flex-start}
+.memory-mode-panel select{flex:0 1 200px}
+.react-insight-strip>div:first-child{flex:1 1 280px}
+.react-chip-row{min-width:0;max-width:100%;justify-content:flex-start}
+.memory-bulk-toolbar{flex-wrap:wrap;gap:10px}
+.memory-toolbar input,.memory-toolbar select{width:100%;min-width:0;font-size:var(--ui-font-control)}
+.memory-pagination{flex-wrap:wrap}
+.memory-content{font:var(--ui-font-reading)/1.65 var(--ui-font);max-height:280px}
+.memory-conflict-grid pre,.worktree-diff,.log-output,.build-console{font-size:var(--ui-font-meta);line-height:1.65}
+.memory-card-summary{gap:12px}.memory-card-summary>div{min-width:0}
+.memory-card-summary b{font-size:var(--ui-font-body);line-height:1.5}
+.memory-card-summary small,.memory-card-head small,.history-meta,.tech-details summary,.tech-details>div{font-size:var(--ui-font-meta);line-height:1.55}
+.settings-section-heading{gap:12px;flex-wrap:wrap}
+.settings-section-heading h3{font-size:var(--ui-font-body);font-weight:600;line-height:1.5}
+.setting-row{gap:16px;min-width:0}
+.setting-row b{font-size:var(--ui-font-control);font-weight:500;line-height:1.5}
+.setting-row small{margin-top:5px;font-size:var(--ui-font-meta)}
+.setting-row select{flex:0 0 170px;width:170px}
+.input-action.wide{min-width:0;flex-wrap:wrap;align-items:center}
+.input-action.wide input{flex:1 1 220px;min-width:0}
+.input-action.wide button{min-height:36px}
+.service-card small,.workspace-auth-row code,.workspace-summary-card code,.setup-link-row code{white-space:normal;overflow-wrap:anywhere;line-height:1.55}
+.task-main-grid b{white-space:normal;overflow-wrap:anywhere;line-height:1.55;font-weight:500}
+.tech-details code,.setup-value-grid code{min-width:0;overflow-wrap:anywhere}
+.stage-row b{font-size:var(--ui-font-control);line-height:1.5}
+.stage-row small,.stage-row>span{font-size:var(--ui-font-meta);line-height:1.55}
+.setup-link-row{flex-wrap:wrap}
+.setup-link-row code{min-width:0;flex:1 1 240px}
+.section-kicker,.nav-section-label,.brand small,.service-card span,.service-card small,.status-card h3,.status-card p,.sidebar-health-status small,.sidebar-health-workspace span,.sidebar-health-workspace strong,.sidebar-health-badges em,.react-chip small,.react-insight-strip>div:first-child span,.setup-value-grid span,.setup-status-grid span,.setup-field-block label small,.setup-field-state{font-size:var(--ui-font-meta);line-height:1.55}
+.service-card strong,.react-chip b,.sidebar-health-status b,.sidebar-health-badges b{font-size:var(--ui-font-control);line-height:1.5}
+@container(max-width:840px){
+  .settings-grid{grid-template-columns:1fr}
+  .task-main-grid,.diagnostic-grid,.workspace-page-grid,.setup-status-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@container(max-width:660px){
+  .topbar{align-items:flex-start;flex-direction:column;gap:12px;padding:18px 24px}
+  .top-actions{width:100%;justify-content:flex-start}
+  .content-viewport{padding:20px 24px 32px}
+  .service-grid,.memory-status-grid,.workspace-page-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .memory-conflict-grid{grid-template-columns:1fr}
+}
+@container(max-width:460px){
+  .task-main-grid,.service-grid,.memory-status-grid,.diagnostic-grid,.workspace-page-grid,.setup-value-grid,.setup-status-grid,.worktree-main{grid-template-columns:1fr}
+  .setting-row:not(.setting-column){align-items:flex-start;flex-direction:column}
+  .setting-row select{width:100%;flex:auto}
+  .memory-toolbar{grid-template-columns:1fr}
+}
