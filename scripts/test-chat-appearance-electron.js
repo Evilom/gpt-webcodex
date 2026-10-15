@@ -119,7 +119,15 @@ app.whenReady().then(async()=>{
   assert.deepEqual(await execute(readData),branch,'native edits and branch changes must not be overwritten by a stale mirror');
   stage='stream-and-send';
   const counts=await contents.executeJavaScript('document.querySelectorAll("[data-message-author-role]").length');
-  await contents.executeJavaScript('document.querySelector("[data-testid=send-button]").click();true',true);await pause(80);
+  const readyDeadline=Date.now()+5000;
+  while(await contents.executeJavaScript('document.querySelector("[data-testid=send-button]").disabled')){
+    assert.ok(Date.now()<readyDeadline,'fixture attachment must finish before sending');await pause(30);
+  }
+  await contents.executeJavaScript('document.querySelector("[data-testid=send-button]").click();true',true);
+  const streamDeadline=Date.now()+5000;
+  while(!await contents.executeJavaScript('Array.from(document.querySelectorAll("[data-message-author-role=assistant]")).at(-1).textContent')){
+    assert.ok(Date.now()<streamDeadline,'fixture must deliver its first streamed character');await pause(30);
+  }
   const streaming=await contents.executeJavaScript('window.__streamedMessage=document.querySelector("[data-message-author-role=assistant]:last-child");document.querySelectorAll("[data-message-author-role=assistant]")[1].textContent');
   assert.ok(streaming.length>0);
   config.experimentalClaudeChat=false;await controller.applyChatAppearance();

@@ -130,7 +130,7 @@ app.whenReady().then(async()=>{
   await native.webContents.executeJavaScript(`document.getElementById('fixtureStream').click()`);
   await click('moreButton');await waitOpen('more');
   const started=await native.webContents.executeJavaScript(`document.querySelector('#thread').lastElementChild.textContent`);
-  await delay(200);
+  await until(async()=>await native.webContents.executeJavaScript(`document.querySelector('#thread').lastElementChild.textContent`)!==started);
   const stream=await native.webContents.executeJavaScript(`document.querySelector('#thread').lastElementChild.textContent`);
   assert.notEqual(stream,started);
   host.setContentSize(700,720);await until(()=>!popover.current);
