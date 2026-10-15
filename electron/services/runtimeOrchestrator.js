@@ -25,6 +25,7 @@ function probeMcpIdentity(port, token, expectedWorkspace = '') {
     }, (response) => {
       let body = '';
       response.setEncoding('utf8');
+      response.on('error', () => resolve(null));
       response.on('data', (chunk) => { if (body.length < 65536) body += chunk; });
       response.on('end', () => {
         if (response.statusCode !== 200) { resolve(null); return; }

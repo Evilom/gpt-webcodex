@@ -14,6 +14,7 @@ function readLocalJson(port, requestPath, timeoutMs = 900) {
     const request = http.get({ host: '127.0.0.1', port, path: requestPath, timeout: timeoutMs }, (response) => {
       let body = '';
       response.setEncoding('utf8');
+      response.on('error', () => resolve(null));
       response.on('data', (chunk) => { if (body.length < 131072) body += chunk; });
       response.on('end', () => {
         if (response.statusCode !== 200) { resolve(null); return; }
@@ -43,6 +44,7 @@ class TunnelService {
   constructor(log) {
     this.log = log;
     this.routeHealthCache = null;
+    this.routeHealthInFlight = null;
     this.lastRouteHealthy = null;
   }
 
@@ -139,18 +141,30 @@ class TunnelService {
     const routeKey = `${state.tunnelPid || 0}:${state.tunnelProxyUrl || 'direct'}`;
     if (this.routeHealthCache && this.routeHealthCache.key === routeKey
       && Date.now() - this.routeHealthCache.time < cacheMs) return this.routeHealthCache.healthy;
-    const healthy = state.tunnelProxyUrl
-      ? await probeHttpProxy(state.tunnelProxyUrl, 1200)
-      : await probeDirect(1800);
-    this.routeHealthCache = { key: routeKey, time: Date.now(), healthy };
-    if (this.lastRouteHealthy !== healthy) {
-      this.log[healthy ? 'info' : 'warn'](
-        healthy ? 'OpenAI Tunnel 上游网络路径可用' : 'OpenAI Tunnel 本地进程仍在运行，但上游网络路径不可用',
-        { route: state.tunnelProxyUrl || 'direct' }
-      );
-      this.lastRouteHealthy = healthy;
+    if (this.routeHealthInFlight?.key === routeKey) return this.routeHealthInFlight.promise;
+    const flight = { key: routeKey };
+    this.routeHealthInFlight = flight;
+    flight.promise = (async () => {
+      const probeHealthy = state.tunnelProxyUrl
+        ? await probeHttpProxy(state.tunnelProxyUrl, 2500)
+        : await probeDirect(5000);
+      const previous = this.routeHealthCache?.key === routeKey ? this.routeHealthCache : null;
+      const failures = probeHealthy ? 0 : (previous?.failures || 0) + 1;
+      const healthy = probeHealthy || (previous?.healthy === true && failures < 3);
+      this.routeHealthCache = { key: routeKey, time: Date.now(), healthy, failures };
+      if (this.lastRouteHealthy !== healthy) {
+        this.log[healthy ? 'info' : 'warn'](
+          healthy ? 'OpenAI Tunnel 上游网络路径可用' : 'OpenAI Tunnel 本地进程仍在运行，但上游网络路径不可用',
+          { route: state.tunnelProxyUrl || 'direct', failures }
+        );
+        this.lastRouteHealthy = healthy;
+      }
+      return healthy;
+    })();
+    try { return await flight.promise; }
+    finally {
+      if (this.routeHealthInFlight === flight) this.routeHealthInFlight = null;
     }
-    return healthy;
   }
 
   async status(settings, options = {}) {
@@ -166,14 +180,25 @@ class TunnelService {
     if (!localReady) {
       return { localReady: false, upstreamReachable: false, adminReady: false, mainChannelReady: false, controlPlaneReady: false };
     }
-    const [routeReachable, adminStatus] = await Promise.all([
-      this.routeHealthy(state, options).catch(() => false),
-      readLocalJson(settings.healthPort, '/api/status').catch(() => null)
+    const [adminStatus, health] = await Promise.all([
+      readLocalJson(settings.healthPort, '/api/status').catch(() => null),
+      readLocalJson(settings.healthPort, '/health?details=true').catch(() => null)
     ]);
     const admin = tunnelAdminState(adminStatus, settings.tunnelId);
+    const control = health?.components?.['control-plane'];
+    let controlReady = null;
+    if (health?.schema_version === 1 && control && !control.limited) {
+      if (!health.live || !health.ready) controlReady = false;
+      else if (control.status === 'ok' && control.details?.last_success) controlReady = true;
+      else if (['degraded', 'error', 'failed'].includes(control.status)) controlReady = false;
+    }
+    // Use the daemon's actual poll outcome; an unrelated root HEAD is only a
+    // fallback for older clients or startup before polling has been observed.
+    const routeReachable = controlReady ?? await this.routeHealthy(state, options).catch(() => false);
     return {
       localReady: true,
       upstreamReachable: Boolean(routeReachable && admin.adminReady && admin.mainChannelReady && admin.controlPlaneReady),
+      upstreamEvidence: controlReady === null ? 'route-probe' : 'control-plane',
       ...admin
     };
   }

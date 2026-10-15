@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
+const http = require('node:http');
 const jsonStore = require('../electron/services/jsonStore');
 
 function fixture(t, platform = process.platform) {
@@ -13,12 +14,13 @@ function fixture(t, platform = process.platform) {
   const active = new Set();
   const launches = [];
   const kills = [];
+  const probes = { direct: true, proxy: true };
   const modules = {
     '../paths': { tunnelExecutable: () => process.execPath, tunnelLogFile: () => path.join(root, 'tunnel.log'), stateFile: () => statePath },
     './jsonStore': jsonStore,
     './logService': { rotateLog() {} },
     './environmentService': { canConnect: async () => true },
-    './proxyService': { probeDirect: async () => true, probeHttpProxy: async () => true },
+    './proxyService': { probeDirect: async () => probes.direct, probeHttpProxy: async () => probes.proxy },
     './nativeService': { isAlive: (pid) => active.has(pid) },
     './commandRunner': {
       async run(command, args) {
@@ -44,8 +46,39 @@ function fixture(t, platform = process.platform) {
   mockProcess.kill = (pid) => { kills.push(Math.abs(pid)); active.delete(Math.abs(pid)); };
   vm.runInNewContext(source, { module, process: mockProcess, setTimeout, require: (name) => modules[name] || require(name) });
   const service = () => new module.exports.TunnelService({ info() {}, warn() {} });
-  return { service, launches, kills, active, state: () => jsonStore.readJson(statePath) };
+  return { service, launches, kills, active, probes, state: () => jsonStore.readJson(statePath) };
 }
+
+test('Tunnel uses actual control-plane health instead of an unrelated short HEAD probe', async (t) => {
+  const f = fixture(t);
+  const status = { control_plane_tunnel_id: 'fixture-tunnel', channels: [{ name: 'main', probe_status: 'ok' }] };
+  let health = { schema_version: 1, live: true, ready: true, components: { 'control-plane': { status: 'ok', details: { last_success: new Date().toISOString(), consecutive_failures: 0 } } } };
+  const server = http.createServer((req, res) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(req.url === '/api/status' ? status : health)); });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const settings = { tunnelId: 'fixture-tunnel', healthPort: server.address().port, mcpPort: 18765 };
+  const service = f.service();
+  await service.start(settings, 'fixture-key', 'fixture-token', () => {});
+  f.probes.direct = false;
+  assert.equal((await service.connectionStatus(settings, { cacheMs: 0 })).upstreamReachable, true, 'successful real polling must survive a failed root HEAD');
+  health.components['control-plane'] = { status: 'degraded', details: { consecutive_failures: 3 } };
+  f.probes.direct = true;
+  assert.equal((await service.connectionStatus(settings, { cacheMs: 0 })).upstreamReachable, false, 'successful HEAD must not hide real polling failures');
+  health = {};
+  assert.equal((await service.connectionStatus(settings, { cacheMs: 0 })).upstreamReachable, true, 'older clients retain route-probe fallback');
+});
+
+test('legacy route health tolerates two transient misses and confirms the third', async (t) => {
+  const f = fixture(t); const service = f.service();
+  const state = { tunnelPid: 123, tunnelProxyUrl: '' };
+  assert.equal(await service.routeHealthy(state, { cacheMs: 0 }), true);
+  f.probes.direct = false;
+  assert.equal(await service.routeHealthy(state, { cacheMs: 0 }), true);
+  assert.equal(await service.routeHealthy(state, { cacheMs: 0 }), true);
+  assert.equal(await service.routeHealthy(state, { cacheMs: 0 }), false);
+  f.probes.direct = true;
+  assert.equal(await service.routeHealthy(state, { cacheMs: 0 }), true);
+});
 
 for (const platform of ['win32', 'darwin']) for (const scenario of [
   { name: 'effective proxy overrides configured proxy', settings: { effectiveProxyUrl: 'http://127.0.0.1:7897', proxyUrl: 'http://127.0.0.1:9999' }, proxy: 'http://127.0.0.1:7897' },

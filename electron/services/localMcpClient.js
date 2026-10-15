@@ -100,6 +100,7 @@ class LocalMcpClient {
         let payloadBytes = 0;
         const maxBytes = Number(options.maxBytes || 8 * 1024 * 1024);
         response.setEncoding('utf8');
+        response.on('error', reject);
         response.on('data', (chunk) => {
           if (payloadBytes < maxBytes) payload += chunk;
           payloadBytes += Buffer.byteLength(chunk);
@@ -159,6 +160,7 @@ class LocalMcpClient {
       }, (response) => {
         let payload = '';
         response.setEncoding('utf8');
+        response.on('error', reject);
         response.on('data', (chunk) => { if (payload.length < 65536) payload += chunk; });
         response.on('end', () => {
           if ((response.statusCode || 500) >= 400) {
@@ -194,6 +196,7 @@ class LocalMcpClient {
       }, (response) => {
         let text = '';
         response.setEncoding('utf8');
+        response.on('error', reject);
         response.on('data', (chunk) => { if (Buffer.byteLength(text) < 1024 * 1024) text += chunk; });
         response.on('end', () => {
           let parsed = {};

@@ -11,14 +11,16 @@
 
 | 组件 | 版本 |
 | --- | --- |
-| 超级智囊团 Desktop | **v0.9.20** |
-| Coding Tools MCP Runtime | **v0.9.20** |
+| 超级智囊团 Desktop | **v0.9.21** |
+| Coding Tools MCP Runtime | **v0.9.21** |
 | MCP Tool Schema | **v15 / 11 tools** |
 | Schema Hash | `5eb2e81a0c92a40c55777208625b47e91cc62f45e486ff9e86360b39ad623bcb` |
 | Electron | **43.2.0** |
 | 平台 | **Windows** |
 
 ## 能做什么
+
+0.9.21 使用 Tunnel 的真实控制面健康状态，减少快速网络探测造成的误报；诊断修复按故障层处理，健康的 Runtime 不再随通道一起重启；修复 HTTP 响应中途断开后请求与心跳一直悬挂的问题。
 
 0.9.20 修复 Python 搜索后备路径漏掉根目录与直接子目录文件的问题，完善 GitHub 更新网络错误提示，并分别验证正常透明度和减少透明度下的浮层，修复 Mac 发布阻断。
 

@@ -66,6 +66,9 @@ class HealthService {
     const expectedSchema = readSchemaContract();
     const runtimeSchema = await this.inspectMcpIdentity(current, owned.runtimeOwned);
     const schemaOk = !owned.runtimeOwned || runtimeSchema?.skipped === true || schemaMatches(expectedSchema, runtimeSchema);
+    const connection = typeof this.orchestrator.tunnel.connectionStatus === 'function'
+      ? await this.orchestrator.tunnel.connectionStatus(current).catch(() => ({ upstreamReachable: false }))
+      : null;
     const secretState = this.secrets.status();
     const mcpConflict = env.ports.mcpListening && !owned.runtimeOwned;
     const tunnelConflict = env.ports.tunnelListening && !owned.tunnelOwned;
@@ -93,7 +96,8 @@ class HealthService {
               : `运行中的 MCP 与当前安装包不一致，需要重新部署。当前 Schema v${runtimeSchema?.schemaVersion || 0}，期望 v${expectedSchema?.schema_version || 0}`
       },
       { id: 'tunnel-port', label: '连接通道控制端口', ok: !tunnelConflict, repair: 'port', detail: tunnelConflict ? `${current.healthPort} 被非本助手进程占用` : `${current.healthPort} 可用或由本助手管理` },
-      { id: 'tunnel', label: '连接通道（OpenAI Tunnel）', ok: owned.tunnelOwned, repair: 'restart', detail: owned.tunnelOwned ? '助手实例运行正常' : '尚未启动' }
+      { id: 'tunnel', label: '连接通道（OpenAI Tunnel）', ok: owned.tunnelOwned, repair: 'restart', detail: owned.tunnelOwned ? '助手实例运行正常' : '尚未启动' },
+      { id: 'upstream', label: '上游连接', ok: !owned.tunnelOwned || !connection || connection.upstreamReachable === true, repair: 'tunnel', detail: !owned.tunnelOwned ? '通道启动后检查' : !connection ? '当前环境未检查' : connection.upstreamReachable ? '控制面与本地工具通道可用' : '上游尚未就绪；本地工具独立运行' }
     ];
     return {
       healthy: checks.every((item) => item.ok),
@@ -131,8 +135,15 @@ class HealthService {
     if (!before.environment.tunnelClient.installed) unresolved.push('重新安装助手以恢复 Tunnel 客户端');
     if (!before.environment.python.installed) unresolved.push('修复便携 Python');
     if (!unresolved.length) {
-      await this.orchestrator.restart();
-      actions.push('已重新启动 MCP 与 Tunnel');
+      if (!before.ownership.runtimeOwned || before.schemaIdentity.matched === false || patch.mcpPort || !before.checks.find(item => item.id === 'runtime-key')?.ok) {
+        await this.orchestrator.restart();
+        actions.push('本地 Runtime 需要恢复，已重新启动 MCP 与 Tunnel');
+      } else if (!before.ownership.tunnelOwned || patch.healthPort || before.checks.find(item => item.id === 'upstream')?.ok === false) {
+        await this.orchestrator.restartTunnel();
+        actions.push('已仅恢复 Tunnel，本地 MCP Runtime 与任务保持运行');
+      } else {
+        actions.push('已检查的服务均正常，无需重启');
+      }
     }
     const after = await this.inspect();
     return { ...after, actions, unresolved };

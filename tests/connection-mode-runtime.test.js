@@ -43,6 +43,24 @@ test('health always checks the official MCP and Tunnel chain', async () => {
   assert.ok(!ids.includes('bridge'));
 });
 
+test('health repair leaves healthy services running', async () => {
+  const service = makeHealth(); let restarts = 0;
+  service.orchestrator.restart = async () => { restarts += 1; };
+  await service.repair();
+  assert.equal(restarts, 0);
+});
+
+test('health repair reconnects only the Tunnel when local MCP is healthy', async () => {
+  const service = makeHealth(); let restarts = 0; let tunnelRestarts = 0; let connected = false;
+  service.orchestrator.restart = async () => { restarts += 1; };
+  service.orchestrator.tunnel.connectionStatus = async () => ({ localReady: true, upstreamReachable: connected });
+  service.orchestrator.restartTunnel = async () => { tunnelRestarts += 1; connected = true; };
+  const result = await service.repair();
+  assert.equal(restarts, 0);
+  assert.equal(tunnelRestarts, 1);
+  assert.equal(result.healthy, true);
+});
+
 test('runtime orchestrator has no DOM Bridge channel', () => {
   const source = fs.readFileSync(path.resolve(__dirname, '..', 'electron/services/runtimeOrchestrator.js'), 'utf8');
   assert.match(source, /this\.tunnel\.start/);
