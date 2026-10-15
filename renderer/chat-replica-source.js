@@ -45,7 +45,7 @@
     }
     const composer=state.composer(),running=composer.running,sourceId=state.id;
     if(state.url!==url){state.pendingSignature=state.lastSignature;state.url=url;}
-    if (revision === state.revision && state.pendingSignature===null) return { supported:true,unchanged:true,url,sourceId,revision:state.revision,running,composer };
+    if (state.lastSignature!==null && revision === state.revision && state.pendingSignature===null) return { supported:true,unchanged:true,url,sourceId,revision:state.revision,running,composer };
     const nodes = [...main.querySelectorAll('[data-message-author-role="user"],[data-message-author-role="assistant"]')].filter(node=>!node.closest('[hidden],[aria-hidden="true"]')&&node.getClientRects().length);
     let budget = 240000, truncated = nodes.length > 100;
     const ids = new Set();

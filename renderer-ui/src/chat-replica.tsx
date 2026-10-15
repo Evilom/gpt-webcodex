@@ -180,7 +180,7 @@ function IndependentChat() {
     document.addEventListener('independent-chat-state',listener);
     return ()=>document.removeEventListener('independent-chat-state',listener);
   },[]);
-  return state.snapshot?<ReplicaBoundary key={state.snapshot.url}><Conversation state={state}/></ReplicaBoundary>:null;
+  return state.snapshot?<ReplicaBoundary key={state.snapshot.url+':'+state.snapshot.sourceId}><Conversation state={state}/></ReplicaBoundary>:null;
 }
 const root=document.getElementById('independentChatRoot');
 if(root)createRoot(root).render(<IndependentChat/>);

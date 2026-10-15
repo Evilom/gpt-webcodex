@@ -208,6 +208,12 @@ app.whenReady().then(async()=>{
   await native.webContents.executeJavaScript(`document.querySelector('[data-message-author-role=user]').textContent='网页内部切换后的新会话';true;`);
   await until(()=>controller.replica.state.active&&controller.replica.state.snapshot?.url.endsWith('/spa'));
   assert.equal(await read(`document.querySelector('.replica-transcript').textContent.includes('网页内部切换后的新会话')`),true);
+  stage='same-url-remount';
+  const beforeRemount=controller.replica.state.snapshot.sourceId;
+  await native.webContents.executeJavaScript(`(()=>{const main=document.querySelector('main'),next=main.cloneNode(true);next.querySelector('[data-message-author-role=user]').textContent='同一 URL 重新挂载的新正文';next.querySelector('#prompt-textarea').textContent='重新挂载后的网页草稿';main.replaceWith(next);return true;})()`);
+  await until(()=>controller.replica.state.snapshot?.sourceId!==beforeRemount&&controller.replica.state.active);
+  assert.equal(await read(`document.querySelector('.replica-transcript').textContent.includes('同一 URL 重新挂载的新正文')`),true);
+  assert.equal(await read(`document.querySelector('.replica-composer textarea').value`),'重新挂载后的网页草稿');
   stage='unsupported';
   await native.webContents.executeJavaScript(`document.getElementById('prompt-textarea').remove();true;`);
   await until(()=>controller.replica.state.status==='unavailable');assert.equal(native.getVisible(),true);

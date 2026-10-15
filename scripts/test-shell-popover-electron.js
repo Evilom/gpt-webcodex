@@ -18,11 +18,12 @@ app.on('window-all-closed',()=>{});
 const delay = ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const errors=[],results=[];
 let server,stage='start';
+let diagnostic=()=>({});
 process.on('exit',()=>server?.kill());
 async function until(check) {
   const end=Date.now()+7000;
   while (Date.now()<end) { if (await check()) return; await delay(30); }
-  throw new Error('Timeout: '+stage);
+  throw new Error('Timeout: '+stage+' '+JSON.stringify(diagnostic()));
 }
 function startPreview() {
   return new Promise((resolve,reject)=>{
@@ -51,6 +52,9 @@ app.whenReady().then(async()=>{
   const url=await startPreview();
   const host=new BrowserWindow({show:false,frame:false,thickFrame:false,useContentSize:true,x:-10000,y:-10000,width:1440,height:900,webPreferences:{preload:path.join(__dirname,'fixtures/shell-popover-preload.cjs'),sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
   host.showInactive();
+  // A non-activating offscreen fixture has no OS focus. Model the owning host
+  // as focused, while explicit native-focus/outside/layout events remain real.
+  host.isFocused=()=>true;
   host.webContents.on('console-message',details=>{if(details.level==='error')errors.push(details.message);});
   const controller=new ChatViewController({window:host,toolbarHeight:56});
   const native=new WebContentsView({webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
@@ -61,6 +65,9 @@ app.whenReady().then(async()=>{
   const nativeData=()=>native.webContents.executeJavaScript(`({draft:document.getElementById('prompt-textarea').textContent,tools:document.getElementById('toolActivity').open,message:document.querySelector('[data-message-id]').outerHTML,same:window.originalMessage===document.querySelector('[data-message-id]')})`);
   const original=await nativeData();
   const popover=new ShellPopover(host);
+  const closed=[],close=popover.close.bind(popover);
+  popover.close=reason=>{closed.push(reason);return close(reason);};
+  diagnostic=()=>({hostVisible:host.isVisible(),current:popover.current?.key,popupVisible:popover.window?.isVisible(),popupUrl:popover.window?.webContents.getURL(),closed:closed.slice(-8)});
   native.webContents.on('focus',()=>popover.close('outside'));
   ipcMain.handle('test:popover-update',(event,payload)=>{
     assert.equal(event.sender,host.webContents);assert.equal(event.senderFrame,event.sender.mainFrame);
