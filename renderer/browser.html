@@ -12,24 +12,8 @@
 </head>
 <body>
   <script src="theme-bootstrap.js"></script>
-  <aside id="studioSidebar" class="studio-sidebar" aria-label="工作空间导航">
-    <div id="studioSidebarResize" class="studio-sidebar-resize" role="separator" aria-label="调整导航宽度" aria-orientation="vertical" aria-valuemin="200" aria-valuemax="420" aria-valuenow="288" tabindex="0"></div>
-    <div class="studio-brand"><img src="brand-icon.png" alt=""><b>超级智囊团</b><button id="collapseSidebar" class="shell-button" type="button" aria-label="收起导航"><img class="shell-icon" src="icons/rectangle-group.svg" alt=""></button></div>
-    <nav class="studio-navigation" aria-label="工作空间操作">
-      <button id="studioNewChat" class="studio-nav-item" type="button"><img class="shell-icon" src="icons/plus.svg" alt=""><span>新建对话</span></button>
-      <button id="studioWorkspaceHub" class="studio-nav-item" type="button"><img class="shell-icon" src="icons/folder.svg" alt=""><span>工作区</span></button>
-      <button id="studioAdvisors" class="studio-nav-item" type="button"><img class="shell-icon" src="icons/squares-plus.svg" alt=""><span>智囊扩展</span></button>
-    </nav>
-    <div class="studio-sidebar-scroll">
-      <section><h2>工作区</h2><div id="studioWorkspaceList"></div></section>
-      <section><h2 id="studioTaskGroup">当前任务</h2><button id="studioCurrentTask" class="studio-nav-item studio-task" type="button"><img class="shell-icon" src="icons/chat-bubble-left.svg" alt=""><span id="studioTaskTitle">当前没有本地任务</span></button><p id="studioTaskState" class="studio-meta">等待任务记录</p></section>
-      <section><div class="studio-section-title"><h2>最近任务</h2><button id="studioRefreshHistory" class="shell-button" type="button" aria-label="刷新最近任务"><img class="shell-icon" src="icons/arrow-path.svg" alt=""></button></div><div id="studioRecentTasks"><p class="studio-meta">正在读取任务记录…</p></div><button id="studioAllHistory" class="studio-nav-item studio-history-link" type="button">查看全部历史</button></section>
-    </div>
-    <div class="studio-sidebar-footer"><button id="studioSettings" class="studio-nav-item" type="button"><img class="shell-icon" src="icons/cog-6-tooth.svg" alt=""><span>设置与连接</span></button><small>超级智囊团 <span id="studioVersion"></span></small></div>
-  </aside>
   <header class="browser-toolbar">
     <div class="toolbar-main">
-      <button id="expandSidebar" type="button" class="shell-button" aria-label="展开导航" aria-controls="studioSidebar" aria-expanded="true"><img class="shell-icon" src="icons/rectangle-group.svg" alt=""></button>
       <nav class="nav-actions" aria-label="网页导航">
         <button id="backButton" type="button" class="shell-button" aria-label="后退" title="后退" disabled><img class="shell-icon" src="icons/arrow-left.svg" alt=""><span></span></button>
         <button id="forwardButton" type="button" class="shell-button" aria-label="前进" title="前进" disabled><img class="shell-icon" src="icons/arrow-right.svg" alt=""><span></span></button>
@@ -46,8 +30,6 @@
         <div id="moreMenu" class="shell-menu" role="dialog" aria-label="更多操作" hidden>
           <label class="chat-appearance-switch"><span>Claude 对话外观 <small>实验</small></span><input id="chatAppearanceToggle" type="checkbox" aria-label="Claude 对话外观（实验）"></label>
           <p id="chatAppearanceStatus" class="shell-muted">默认关闭；关闭后恢复原生外观和导航。</p>
-          <label class="chat-appearance-switch"><span>独立对话渲染 <small>实验</small></span><input id="independentChatToggle" type="checkbox" aria-label="独立对话渲染（实验）"></label>
-          <p id="independentChatStatus" class="shell-muted">默认关闭；基于 assistant-ui，只读显示。</p>
           <button id="nativeLoginButton" type="button" class="shell-button" ><img class="shell-icon" src="icons/user-circle.svg" alt=""><span>账号与登录帮助</span></button>
           <button id="addWorkspace" type="button" class="shell-button" ><img class="shell-icon" src="icons/folder-plus.svg" alt=""><span>添加工作区</span></button>
           <button id="addAuthorizedRootQuick" type="button" class="shell-button" ><img class="shell-icon" src="icons/lock-open.svg" alt=""><span>授权额外目录</span></button>
@@ -236,7 +218,5 @@
   <script src="browser.js"></script>
   <script src="advisory.js"></script>
   <script src="update-ui.js"></script>
-  <div id="independentChatRoot" hidden></div>
-  <script src="chat-replica-host.js"></script>
 </body>
 </html>

@@ -94,6 +94,27 @@ app.whenReady().then(async () => {
       win.webContents.send('theme:changed','system'); await delay(80);
       verify(await win.webContents.executeJavaScript(appearance),theme,`${view.name}-system`);
     }
+    for(const theme of ['light','dark','black']) {
+      await win.loadFile(path.join(root,'renderer',`${view.name}.html`),{query:{theme,skin:'glass'}});
+      win.webContents.debugger.attach('1.3');
+      await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-transparency',value:'no-preference'}]});
+      if(view.name==='activity-detail')win.webContents.send('activity-detail:payload',fixture);
+      await delay(180);
+      const state=await win.webContents.executeJavaScript(`(()=>{const s=getComputedStyle(document.body),panel=document.querySelector('.activity-shell,.window-bar,header');return {skin:document.body.dataset.skin,theme:document.body.dataset.theme,mode:document.body.dataset.themeMode,canvas:s.backgroundImage,bg:s.getPropertyValue('--ui-bg').trim(),muted:s.getPropertyValue('--ui-muted').trim(),backdrop:getComputedStyle(panel).backdropFilter,overflow:document.documentElement.scrollWidth>innerWidth}})()`);
+      assert.equal(state.skin,'glass');assert.equal(state.theme,theme==='light'?'light':'dark');
+      assert.notEqual(state.canvas,'none',JSON.stringify({view:view.name,theme,state}));assert.equal(state.overflow,false);
+      const a=luminance(state.muted),b=luminance(state.bg);assert.ok((Math.max(a,b)+.05)/(Math.min(a,b)+.05)>=4.5);
+      if(view.name!=='approval')assert.match(state.backdrop,/blur/);
+      fs.writeFileSync(path.join(output,`${view.name}-glass-${theme}.png`),(await capture(win)).toPNG());
+      await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-transparency',value:'reduce'}]});
+      assert.equal(await win.webContents.executeJavaScript('getComputedStyle(document.body).backgroundImage'),'none');
+      await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[]});win.webContents.debugger.detach();
+      const content=await win.webContents.executeJavaScript('document.body.textContent');
+      win.webContents.send('theme:changed',theme,'classic');await delay(80);
+      assert.equal(await win.webContents.executeJavaScript('document.body.dataset.skin'),'classic');
+      assert.equal(await win.webContents.executeJavaScript('document.body.textContent'),content);
+      results.push({view:view.name,theme,skin:'glass',state,transparencyFallback:true,liveSwitch:true,payloadRetained:true});
+    }
     win.destroy();
   }
   assert.deepEqual(errors,[]);

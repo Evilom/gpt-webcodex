@@ -34,11 +34,12 @@ test('all installations use official mode and old Bridge users migrate safely', 
 });
 
 test('unknown legacy settings are removed from normalized settings', () => {
-  const result = normalize({ unknownThing: true, guideProgress: { a: true }, firstRunCompleted: true, taskNotificationMinSeconds: 60 });
+  const result = normalize({ unknownThing: true, guideProgress: { a: true }, firstRunCompleted: true, taskNotificationMinSeconds: 60, experimentalIndependentChat: true });
   assert.equal(Object.hasOwn(result, 'unknownThing'), false);
   assert.equal(Object.hasOwn(result, 'guideProgress'), false);
   assert.equal(Object.hasOwn(result, 'firstRunCompleted'), false);
   assert.equal(Object.hasOwn(result, 'taskNotificationMinSeconds'), false);
+  assert.equal(Object.hasOwn(result, 'experimentalIndependentChat'), false);
 });
 
 test('trusted ordinary settings are preserved', () => {

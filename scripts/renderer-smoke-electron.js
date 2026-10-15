@@ -97,7 +97,6 @@ function installHandlers() {
     'app:lightweight-snapshot': () => ok({ workspace: demoWorkspace, mcpRunning: true, tunnelRunning: true, connectionRunning: true, fullyReady: true }),
     'advisory:status': () => ok({ configured: false, models: [], selected: [], job: null }),
     'chat:status': () => ok({ url: 'https://chatgpt.com/', loading: false }),
-    'chat:replica-state': () => ok({enabled:false,active:false,status:'off',snapshot:null,token:''}),
     'shell-popover:update': () => ok(false),
     'approval:list': () => ok({ items: [] }),
     'context:usage': () => ok({ totalTokens: 0, totalBytes: 0, percent: 0, level: 'safe', topTools: [] }),

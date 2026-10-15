@@ -2,7 +2,6 @@
    The ChatGPT WebContents stays native; these rules style app-owned surfaces. */
 :root {
   --studio-left:0px;
-  --studio-nav:288px;
   --studio-bg:var(--ui-bg);
   --studio-sidebar:var(--ui-sidebar);
   --studio-panel:var(--ui-surface);
@@ -19,43 +18,11 @@ body[data-theme="dark"] {
   --studio-accent:#d97757;
 }
 body { --toolbar-bg:var(--studio-bg); --toolbar-border:var(--studio-line); --popover-bg:var(--studio-panel); --popover-border:var(--studio-line); --icon-hover:var(--studio-hover); --btn-bg:var(--studio-hover); --btn-border:var(--studio-line); }
-.studio-sidebar-open { --studio-left:var(--studio-nav); }
-.studio-sidebar { position:fixed;z-index:60;inset:0 auto 0 0;width:0;display:flex;flex-direction:column;background:var(--studio-sidebar);border-right:1px solid var(--studio-line);overflow:hidden;visibility:hidden;transition:width 200ms var(--studio-ease),visibility 200ms; }
-.studio-sidebar-open .studio-sidebar { width:var(--studio-nav);visibility:visible; }
-.studio-brand { flex:0 0 56px;display:flex;align-items:center;gap:9px;width:var(--studio-nav);padding:0 13px; }
-.studio-brand>img { width:25px;height:25px; }
-.studio-brand b { font-size:15px;line-height:1.4;font-weight:600;white-space:nowrap; }
-.studio-brand .shell-button { margin-left:auto;width:28px;min-height:30px;padding:0; }
-.studio-sidebar .shell-icon { width:18px;height:18px;flex-basis:18px;opacity:.8; }
-.studio-navigation { padding:4px 10px 10px;width:var(--studio-nav); }
-.studio-nav-item { display:flex;align-items:center;gap:9px;width:100%;min-width:0;min-height:34px;padding:6px 10px;border:0;border-radius:6px;text-align:left;background:transparent;color:var(--ui-text);font:500 14px/1.45 var(--ui-font);cursor:pointer;transition:background 100ms ease,color 100ms ease; }
-.studio-nav-item:hover { background:var(--studio-hover); }
-.studio-nav-item:active { background:var(--studio-selected); }
-.studio-nav-item span { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.studio-nav-item[aria-current="location"] { background:var(--studio-selected); }
-.studio-sidebar-scroll { flex:1;min-height:0;width:var(--studio-nav);padding:0 10px 16px;overflow:auto;overscroll-behavior:contain; }
-.studio-sidebar section { margin:12px 0 22px;min-width:0; }
-.studio-sidebar h2 { margin:0 10px 7px;font-size:12px;line-height:1.5;font-weight:500;color:var(--studio-muted); }
-.studio-section-title { display:flex;align-items:center;justify-content:space-between;height:25px; }
-.studio-section-title .shell-button { min-height:24px;width:24px;padding:0;opacity:.65; }
-.studio-section-title h2 { margin-bottom:0; }
-.studio-section-title .shell-icon { width:14px;height:14px;flex-basis:14px; }
-.studio-meta { margin:6px 10px;color:var(--studio-muted);font-size:12px;line-height:1.6;overflow-wrap:anywhere; }
-.studio-task { align-items:flex-start; }
-.studio-task>span { display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;white-space:normal; }
-.studio-task .shell-icon { margin-top:1px; }
-.studio-task[data-state="working"] .shell-icon { animation:studio-working 1.8s linear infinite; }
-.studio-task[data-state="attention"] { color:var(--ui-warning); }
-.studio-recent-task { display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:400; }
-.studio-history-link { font-size:12px;color:var(--studio-muted);min-height:30px;margin-top:5px; }
-.studio-sidebar-footer { flex:0 0 auto;width:var(--studio-nav);padding:10px;border-top:1px solid var(--studio-line); }
-.studio-sidebar-footer>small { display:block;margin:6px 10px 0;font-size:12px;color:var(--studio-muted); }
 .browser-toolbar { position:fixed;top:0;left:var(--studio-left);right:0;width:auto;transition:left 200ms var(--studio-ease); }
 .toolbar-main { height:56px;padding:0 12px;gap:6px; }
 .shell-brand { gap:7px;padding:0 10px 0 3px;border:0; }
 .shell-brand b { font-size:14px;font-weight:500; }
 .shell-brand img { width:17px;height:17px; }
-.studio-sidebar-open #expandSidebar { display:none; }
 .shell-workspace { min-width:90px;max-width:235px;padding:0 9px;border:0;background:transparent; }
 .shell-workspace:hover { background:var(--studio-hover); }
 .shell-workspace strong { font-size:13px;color:var(--studio-muted); }
@@ -68,7 +35,6 @@ body { --toolbar-bg:var(--studio-bg); --toolbar-border:var(--studio-line); --pop
 #connectionButton { font-size:12px;color:var(--studio-muted); }
 #connectionButton[data-tone="ready"] { color:var(--studio-muted); }
 #workbenchToggle[aria-expanded="true"] { background:var(--studio-selected);border-color:transparent;color:var(--ui-text); }
-#managerButton { display:none; }
 .shell-menu { background:var(--studio-panel);border-radius:9px;padding:5px;max-height:calc(100vh - 96px);overflow:auto;overscroll-behavior:contain;animation:studio-menu-in 120ms var(--studio-ease); }
 .shell-menu[popover],.task-history-popover[popover] { position:fixed;inset:auto;margin:0;max-height:calc(100vh - 96px);box-sizing:border-box; }
 .native-popover-source { visibility:hidden;pointer-events:none;animation:none; }
@@ -116,8 +82,8 @@ body { --toolbar-bg:var(--studio-bg); --toolbar-border:var(--studio-line); --pop
 .studio-task-recap>span { font-size:13px;color:var(--studio-muted); }
 .studio-task-recap .shell-muted { margin:6px 0 0;color:var(--ui-text);overflow-wrap:anywhere; }
 .studio-task-recap>small { display:block;margin-top:8px;font-size:13px;line-height:1.6;color:var(--studio-muted);overflow-wrap:anywhere; }
-.shell-button,.studio-nav-item { transition:background 100ms ease,color 100ms ease,transform 60ms ease-out; }
-.shell-button:active:not(:disabled),.studio-nav-item:active { transform:scale(.98); }
+.shell-button { transition:background 100ms ease,color 100ms ease,transform 60ms ease-out; }
+.shell-button:active:not(:disabled) { transform:scale(.98); }
 .health-row>div,.workbench .task-strip b { font-size:14px; }
 .health-row small { color:var(--studio-muted); }
 .advisory-actions .shell-button { padding:0 9px;font-size:12px; }
@@ -130,10 +96,8 @@ body { --toolbar-bg:var(--studio-bg); --toolbar-border:var(--studio-line); --pop
 .advisory-answers p { font-size:16px;line-height:1.75; }
 .studio-panel-resize { position:absolute;z-index:3;top:0;left:-4px;bottom:0;width:8px;cursor:col-resize;touch-action:none; }
 .studio-panel-resize:hover,.studio-panel-resize:focus-visible { background:color-mix(in srgb,var(--studio-accent) 30%,transparent); }
-.studio-sidebar-resize { position:absolute;right:0;top:56px;bottom:0;width:6px;cursor:col-resize;touch-action:none; }
-.studio-sidebar-resize:hover,.studio-sidebar-resize:focus-visible { background:color-mix(in srgb,var(--studio-accent) 30%,transparent); }
 .studio-resizing,.studio-resizing * { cursor:col-resize!important;user-select:none!important; }
-.studio-resizing .studio-sidebar,.studio-resizing .browser-toolbar,.studio-resizing .shell-footer { transition:none; }
+.studio-resizing .browser-toolbar,.studio-resizing .shell-footer { transition:none; }
 .shell-footer { left:var(--studio-left);height:32px;background:var(--studio-bg);transition:left 200ms var(--studio-ease);--shell-footer:32px; }
 body { --shell-footer:32px; }
 .shell-footer .progress-band,.shell-footer .progress-band.compact { height:31px;min-height:31px;padding:0 12px; }
@@ -149,7 +113,7 @@ body { --shell-footer:32px; }
 @keyframes studio-working { to { transform:rotate(360deg); } }
 @keyframes studio-status-flash { from { background:var(--studio-hover); } to { background:transparent; } }
 /* Narrow windows swap the side panes immediately so the native chat never overlaps them mid-transition. */
-@media(max-width:1180px) { .toolbar-main{gap:3px} .shell-workspace{max-width:180px} .studio-sidebar,.browser-toolbar,.shell-footer{transition:none} }
+@media(max-width:1180px) { .toolbar-main{gap:3px} .shell-workspace{max-width:180px} .browser-toolbar,.shell-footer{transition:none} }
 @media(max-width:850px) { .shell-brand{display:none} #connectionButton span{display:none} .shell-workspace{max-width:150px} #moreButton span{display:none} }
 @media(max-width:650px) { .toolbar-main{padding:0 7px;gap:2px} .nav-actions #backButton{display:none} .shell-workspace{min-width:70px;max-width:none} #connectionButton{padding:0 4px} #workbenchToggle span{display:none} .workbench{max-width:calc(100vw - 240px)} .connection-incident{min-height:54px;padding:8px 10px} .connection-incident #incidentDetailsButton{display:none} .incident-copy small{display:none} }
 @media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none!important;transition:none!important;scroll-behavior:auto!important; } }

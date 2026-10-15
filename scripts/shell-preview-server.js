@@ -7,7 +7,7 @@ const port = Number(process.env.SHELL_PREVIEW_PORT || 48173);
 const mockChat = fs.readFileSync(path.join(__dirname, 'fixtures/studio-chat.html'), 'utf8');
 function previewHtml(search = new URLSearchParams()) {
   const chatQuery = new URLSearchParams({ theme: search.get('theme') || 'dark', conversation: search.get('conversation') || 'active' });
-  if (search.get('scenario') === 'chat-skin' || search.get('independentChat') === '1') chatQuery.set('native','1');
+  if (search.get('scenario') === 'chat-skin') chatQuery.set('native','1');
   return fs.readFileSync(path.join(root, 'renderer/browser.html'), 'utf8')
     .replace("style-src 'self'", "style-src 'self' 'unsafe-inline'")
     .replace('</head>', '<link rel="stylesheet" href="/studio-preview-controls.css"></head>')

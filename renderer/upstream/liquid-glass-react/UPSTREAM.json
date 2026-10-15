@@ -1,0 +1,8 @@
+{
+  "project": "rdev/liquid-glass-react",
+  "source": "https://github.com/rdev/liquid-glass-react",
+  "commit": "ac48eab18d1f7f444ae30002d240cae29c863a21",
+  "file": "src/index.tsx",
+  "license": "MIT",
+  "adaptation": "GlassContainer blur/saturation and bevel/specular style layers adapted into material.css tokens for the existing vanilla DOM shell. Shader maps, pointer tracking and the React component runtime are not included."
+}

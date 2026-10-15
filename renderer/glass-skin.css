@@ -1,0 +1,53 @@
+@import url("upstream/liquid-glass-react/material.css");
+
+/* A material choice, independent of the existing colour theme. The backdrop
+   belongs to this renderer; native ChatGPT remains a separate Electron view. */
+body[data-skin="glass"] {
+  --ui-bg:#eff3fa; --ui-sidebar:#ffffff80; --ui-surface:#ffffffb8; --ui-raised:#ffffffd9;
+  --ui-hover:#d4dfef80; --ui-border:#526b8a29; --ui-border-strong:#526b8a52;
+  --ui-text:#182334; --ui-muted:#4c5970;
+  --ui-primary:#233752; --ui-primary-hover:#344b6a; --ui-on-primary:#fff;
+  --ui-shadow:0 16px 44px #22334d24;
+  --studio-selected:#ffffffa3; --studio-accent:#536bb3;
+  --glass-fill:#ffffff70; --glass-popup:#f5f7fce8;
+  --glass-canvas:radial-gradient(ellipse at 4% 18%,#aebcf080,transparent 46%),radial-gradient(ellipse at 98% 80%,#b8d8ed99,transparent 48%),radial-gradient(ellipse at 58% 0%,#eed1cf99,transparent 48%),linear-gradient(135deg,#edf2fc,#edf3f7);
+}
+body[data-skin="glass"][data-theme="dark"] {
+  --ui-bg:#141b29; --ui-sidebar:#18233580; --ui-surface:#243147b8; --ui-raised:#2c3a50e6;
+  --ui-hover:#8296c02b; --ui-border:#c6d6ff26; --ui-border-strong:#c6d6ff4d;
+  --ui-text:#f1f4fc; --ui-muted:#bdc9df;
+  --ui-primary:#e0e8fc; --ui-primary-hover:#f0f4ff; --ui-on-primary:#182234;
+  --ui-shadow:0 18px 50px #00000052;
+  --studio-selected:#c6d6ff24; --studio-accent:#b9c9fa;
+  --glass-fill:#17223699; --glass-popup:#1c293eeF;
+  --glass-bevel:inset 0 0 0 .5px #ffffff26,inset 0 1px 3px #ffffff14,0 1px 4px #00000040;
+  --glass-shine:linear-gradient(135deg,#ffffff0d,#ffffff03 33%,#ffffff17 66%,#ffffff00);
+  --glass-canvas:radial-gradient(ellipse at 0% 10%,#46578770,transparent 48%),radial-gradient(ellipse at 96% 94%,#22536f80,transparent 50%),radial-gradient(ellipse at 65% 0%,#66445f52,transparent 44%),linear-gradient(135deg,#121a29,#131e2b);
+}
+body[data-skin="glass"][data-theme-mode="black"] {
+  --ui-bg:#000; --ui-sidebar:#11131880; --ui-surface:#12151bd4; --ui-raised:#191d25eb;
+  --ui-hover:#ffffff12; --ui-border:#ffffff24;
+  --glass-fill:#0a0c10ab; --glass-popup:#11151bf5;
+  --glass-canvas:radial-gradient(ellipse at 0% 0%,#29354b70,transparent 48%),radial-gradient(ellipse at 95% 100%,#1a394052,transparent 48%),linear-gradient(#000,#000);
+}
+body[data-skin="glass"][data-theme] { background-image:var(--glass-canvas)!important;background-attachment:fixed!important; }
+body[data-skin="glass"] :is(.content-viewport,.main-content,.workbench-content,.studio-sidebar-footer) { background:transparent; }
+body[data-skin="glass"][data-theme] .topbar { background:var(--glass-shine),var(--glass-fill)!important; }
+body[data-skin="glass"] :is(.studio-nav-item,.shell-button,.nav-item) { border-radius:10px; }
+body[data-skin="glass"] :is(.shell-menu,.task-history-popover) { border-radius:16px;border-color:var(--ui-border-strong); }
+body[data-skin="glass"] :is(.card,.panel,.setting-section,.extension-row,.studio-task-recap,.approval-item) { background:var(--ui-surface);border-color:var(--ui-border);border-radius:14px; }
+body[data-skin="glass"] :is(input:not([type="checkbox"]):not([type="radio"]),select,textarea) { border-radius:10px; }
+body[data-skin="glass"] .studio-panel-tabs { gap:4px;padding:0 12px 8px;border:0; }
+body[data-skin="glass"] .studio-panel-tabs button { flex:1;min-width:0;padding:7px 8px;border-radius:9px; }
+body[data-skin="glass"] .studio-panel-tabs button[aria-selected="true"] { background:var(--ui-raised);box-shadow:var(--glass-bevel); }
+body[data-skin="glass"] .studio-panel-tabs button[aria-selected="true"]::after { display:none; }
+/* A native popup cannot sample another BrowserWindow's pixels. Its more opaque
+   material retains the same tint and bevel without depending on the desktop. */
+body[data-skin="glass"] #popoverRoot>.shell-menu,body[data-skin="glass"] #popoverRoot>.task-history-popover { background:var(--glass-shine),var(--glass-popup); }
+@media (prefers-reduced-transparency:reduce),(forced-colors:active) {
+  body[data-skin="glass"] { --glass-backdrop:none;--glass-fill:var(--ui-bg);--glass-popup:var(--ui-bg);--glass-shine:none;--ui-surface:var(--ui-bg);--ui-sidebar:var(--ui-bg);--ui-raised:var(--ui-bg); }
+  body[data-skin="glass"][data-theme] { background-image:none!important; }
+}
+@supports not (backdrop-filter:blur(1px)) {
+  body[data-skin="glass"] { --glass-fill:var(--ui-bg);--glass-popup:var(--ui-bg); }
+}

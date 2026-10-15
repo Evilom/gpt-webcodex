@@ -78,7 +78,7 @@ class ShellPopover {
     const x = Math.round(Math.max(left, Math.min(right - width, host.x + (Number(rect.x) || 0))));
     const y = Math.round(Math.max(top, Math.min(bottom - height, host.y + (Number(rect.y) || 0))));
     this.window.setBounds({ x, y, width, height }, false);
-    this.window.webContents.send('shell-popover:render', { token: payload.token, html: payload.html, theme: payload.theme });
+    this.window.webContents.send('shell-popover:render', { token: payload.token, html: payload.html, theme: payload.theme, skin: payload.skin });
   }
 
   close(reason = 'outside') {
@@ -96,7 +96,7 @@ class ShellPopover {
     this.current = null;
     ipcMain.removeListener('shell-popover:event', this.onEvent);
     for (const event of ['move', 'resize', 'hide', 'minimize']) this.parent.removeListener(event, this.onLayout);
-    for (const event of ['did-start-navigation', 'render-process-gone']) this.parent.webContents.removeListener(event, this.onLayout);
+    if (!this.parent.isDestroyed()) for (const event of ['did-start-navigation', 'render-process-gone']) this.parent.webContents.removeListener(event, this.onLayout);
     if (this.window && !this.window.isDestroyed()) this.window.destroy();
   }
 }

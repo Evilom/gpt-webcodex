@@ -34,6 +34,9 @@
     if (frame.contentDocument?.documentElement) frame.contentDocument.documentElement.dataset.nativeTheme = mode;
     previewAppearance();
   }
+  function skinPreview(skin) {
+    for(const node of [document.documentElement,document.body])node.dataset.skin=skin;
+  }
   const task = { task_id: 'offline-design', objective: '完善长任务中断与恢复方案', status: 'waiting', lifecycle_state:'waiting_model', updated_at: new Date().toISOString(), current_step: '核对连接与执行边界', next_step:'由主 AI 复核并汇总方案', current_command: null,
     steps:[{id:'inspect',title:'核对网页与本地执行状态',state:'completed'},{id:'recover',title:'验证连接恢复与任务续接',state:'completed'},{id:'review',title:'整理辅助意见与检查结果',state:'completed'},{id:'deliver',title:'由主 AI 复核并汇总方案',state:'pending'}] };
   function demoPhase(phase) {
@@ -56,20 +59,6 @@
   }
   const chat = { url: 'https://chatgpt.com/c/design-preview', canGoBack: false, canGoForward: false, loading: false, streamState: { status: query.get('scenario') === 'interrupted' ? 'interrupted' : 'completed', updatedAt: Date.now() }, login: { status: 'idle', prompt: false }, nativeLogin: { status: 'idle' } };
   chat.appearance = { enabled:query.get('claudeChat')==='1',active:false,message:'使用原生 ChatGPT 外观' };
-  let replica={enabled:false,active:false,status:'off',message:'默认关闭；基于 assistant-ui，只读显示',snapshot:null,token:''};
-  let replicaTimer=null,replicaSequence=0,replicaRevision=-1;
-  function publishReplica(state) {
-    replica=state;
-    const {snapshot,...summary}=state;chat.replica=summary;
-    listeners.onChatState?.(chat);listeners.onIndependentChat?.(state);
-  }
-  function sampleReplica() {
-    if(!replica.enabled)return;
-    const frame=document.getElementById('previewChat');
-    const result=frame.contentWindow.thinkTankReadConversation?.({url:frame.contentWindow.location.href,revision:replicaRevision});
-    if(result?.supported){replicaRevision=result.revision;publishReplica({...replica,snapshot:{...result,messages:result.unchanged?replica.snapshot.messages:result.messages},token:String(++replicaSequence),status:'ready'});}
-  }
-  window.independentChatPreview?.onReplica(publishReplica);
   function previewAppearance() {
     const frame=document.getElementById('previewChat');
     const apply=frame?.contentWindow?.thinkTankChatAppearance;
@@ -85,29 +74,7 @@
   window.browserAssistant = new Proxy({
     chatStatus: () => ok(chat),
     setChatAppearance: (enabled) => { chat.appearance.enabled=enabled;return previewAppearance(); },
-    independentChatState: () => window.independentChatPreview ? window.independentChatPreview.state() : ok(replica),
-    independentChatAction: async request => {
-      if(window.independentChatPreview)return ok(await window.independentChatPreview.action(request));
-      const frame=document.getElementById('previewChat');
-      const result=frame.contentWindow.thinkTankConversationAction(request);
-      if(result.ok&&request.kind==='upload')frame.contentWindow.__thinkTankConversationReplica.uploadTarget.click();
-      sampleReplica();return ok(result);
-    },
-    onDownload:listener=>window.independentChatPreview?.onDownload(listener) || (()=>{}),
-    onIndependentChat: listener => {listeners.onIndependentChat=listener;return ()=>{delete listeners.onIndependentChat;};},
-    setIndependentChat: async enabled => {
-      if(window.independentChatPreview){await window.independentChatPreview.set(enabled);return ok(chat);}
-      clearInterval(replicaTimer);replicaRevision=-1;
-      publishReplica({enabled,active:false,status:enabled?'loading':'off',message:enabled?'独立渲染实验 · 共用网页会话、草稿和附件':'已返回原网页',snapshot:null,token:''});
-      const frame=document.getElementById('previewChat');frame.style.visibility='visible';
-      if(enabled){sampleReplica();replicaTimer=setInterval(sampleReplica,1000);}else frame.contentWindow.thinkTankReadConversation?.({url:frame.contentWindow.location.href,dispose:true});
-      return ok(chat);
-    },
-    acknowledgeIndependentChat: token => {
-      if(window.independentChatPreview)return window.independentChatPreview.ack(token);
-      if(replica.enabled&&replica.token===token){document.getElementById('previewChat').style.visibility='hidden';if(!replica.active)publishReplica({...replica,active:true});}
-      return ok(true);
-    },
+    onDownload:listener=>{listeners.onDownload=listener;return ()=>{delete listeners.onDownload;};},
     lightweightStatus: () => ok(runtime),
     workspaceHub: () => ok({ activeWorkspace, workspaces }),
     switchWorkspace: (path) => { activeWorkspace = path; return ok({ activeWorkspace, workspaces }); },
@@ -119,7 +86,7 @@
       return ok(true);
     },
     openWorkspaceWindow: () => dialog('工作区', '这是隔离预览。切换只改变示例工作区，不会操作磁盘或重启服务。', workspaces.map(item => [item.path, () => document.dispatchEvent(new CustomEvent('studio-workspace-select', { detail: item.path }))])),
-    openManager: () => dialog('设置与连接', '正式桌面版会打开完整管理中心。这里可以切换预览主题；本机配置保持原样。', [['浅色', () => themePreview('light')], ['深灰', () => themePreview('dark')], ['纯黑', () => themePreview('black')]]),
+    openManager: () => dialog('设置与连接', '正式桌面版会打开完整管理中心。这里可以切换预览主题；本机配置保持原样。', [['浅色', () => themePreview('light')], ['深灰', () => themePreview('dark')], ['纯黑', () => themePreview('black')],['经典皮肤',()=>skinPreview('classic')],['液态玻璃',()=>skinPreview('glass')]]),
     activityDetailShow: () => dialog('活动详情 · 离线演示', '可切换下列示例状态，观察侧栏、执行计划和摘要的变化。所有记录均为模拟内容，不会启动命令或调用模型。', [['模拟执行',()=>demoPhase('running')],['等待网页',()=>demoPhase('waiting')],['需要处理',()=>demoPhase('attention')],['模拟完成',()=>demoPhase('completed')]]),
     stopTask: () => { demoPhase('stopped'); return ok(true); },
     openLastDownload: () => dialog('附件已保存', '这是预览中的示例附件。正式桌面版会打开已保存的真实文件。'),
@@ -129,8 +96,8 @@
     approvalList: () => ok({ pending: [] }),
     getCheckpointStatus: () => ok({ hasCapsule: false, canRollback: false }),
     contextUsage: () => ok({ totalTokens: 238600, totalBytes: 954400, callCount: 32 }),
-    updateStatus: () => ok({ stage: 'current', current: '0.9.18' }),
-    checkUpdate: () => ok({ stage: 'current', current: '0.9.18' }),
+    updateStatus: () => ok({ stage: 'current', current: '0.9.19' }),
+    checkUpdate: () => ok({ stage: 'current', current: '0.9.19' }),
     readTaskConsole: () => ok({ lines: [], output: '[设计预览] 没有连接正在运行的本地任务。' }),
     advisoryStatus: () => ok(advisory),
     advisoryImport: () => ok(advisory),
@@ -142,7 +109,6 @@
     onShellPopover: listener => window.nativePopoverPreview?.onEvent(listener),
     setContentInsets: (insets) => {
       void window.nativePopoverPreview?.insets(insets);
-      void window.independentChatPreview?.insets(insets);
       const frame = document.getElementById('previewChat');
       if (frame) {
         frame.style.top = `${insets.toolbarHeight + insets.top}px`;
@@ -158,7 +124,6 @@
   addEventListener('load', () => {
     document.getElementById('previewChat').addEventListener('load',previewAppearance);
     previewAppearance();
-    if(query.get('independentChat')==='1')void window.browserAssistant.setIndependentChat(true);
     if (query.get('workbench') === '1') document.getElementById('workbenchToggle').click();
     if (query.get('panel')) window.studioShell.showTab(query.get('panel'));
     listeners.onDownload?.({ status: 'completed', path: 'E:\\projects\\研究方案初稿.docx', totalBytes: 28672 });

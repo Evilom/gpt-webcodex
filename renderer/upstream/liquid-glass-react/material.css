@@ -1,0 +1,21 @@
+/* Adapted from rdev/liquid-glass-react (MIT), ac48eab18d1f7f444ae30002d240cae29c863a21.
+   GlassContainer backdrop and the two bevel/specular layers are expressed as
+   CSS material tokens for the existing DOM shell. See LICENSE and UPSTREAM.json.
+   No shader maps, mouse tracking, page capture, or React runtime are required. */
+body[data-skin="glass"] {
+  --glass-backdrop:blur(24px) saturate(145%);
+  --glass-bevel:inset 0 0 0 .5px #ffffff80,inset 0 1px 3px #ffffff40,0 1px 4px #0000001f;
+  --glass-shine:linear-gradient(135deg,#ffffff30 0%,#ffffff08 33%,#ffffff66 66%,#ffffff00 100%);
+}
+body[data-skin="glass"] :is(.studio-sidebar,.browser-toolbar,.workbench,.shell-footer,.sidebar,.topbar,.manager-window-bar,.activity-shell,.window-bar) {
+  background:var(--glass-shine),var(--glass-fill);
+  -webkit-backdrop-filter:var(--glass-backdrop);
+  backdrop-filter:var(--glass-backdrop);
+  box-shadow:var(--glass-bevel);
+}
+body[data-skin="glass"] :is(.shell-menu,.task-history-popover,dialog,.modal-card) {
+  background:var(--glass-shine),var(--glass-popup);
+  -webkit-backdrop-filter:var(--glass-backdrop);
+  backdrop-filter:var(--glass-backdrop);
+  box-shadow:var(--glass-bevel),var(--ui-shadow);
+}

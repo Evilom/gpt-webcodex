@@ -96,3 +96,12 @@ test('invalid panels and hosts outside the display never open a stranded popup',
   assert.equal(f.panel.current,null);assert.equal(f.panel.window.isVisible(),false);
   f.panel.dispose();
 });
+
+test('disposing after the parent closes never accesses destroyed web contents',async()=>{
+  const f=fixture();await f.panel.update(f.payload);
+  f.host.destroy();
+  Object.defineProperty(f.host,'webContents',{get(){throw new TypeError('Object has been destroyed');}});
+  assert.doesNotThrow(()=>f.panel.dispose());
+  assert.equal(f.panel.window,null);
+  assert.equal(f.ipcMain.listenerCount('shell-popover:event'),0);
+});

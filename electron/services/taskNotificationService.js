@@ -175,7 +175,7 @@ class TaskNotificationService {
   }
 
   startStream() {
-    if (!this.subscribeTaskEvents || this.unsubscribeStream) return;
+    if (!this.subscribeTaskEvents || this.unsubscribeStream || this.lastRuntimeStatus?.manuallyStopped) return;
     const workspace = String(this.getWorkspace() || '');
     const checkpoint = this.activateCheckpoint(workspace);
     try {
@@ -438,6 +438,12 @@ class TaskNotificationService {
   acceptRuntimeStatus(status) {
     if (!status || typeof status !== 'object') return;
     this.lastRuntimeStatus = { ...status };
+    if (status.manuallyStopped) {
+      this.unsubscribeStream?.();
+      this.unsubscribeStream = null;
+    } else if (status.mcpRunning && this.timer) {
+      this.startStream();
+    }
     const currentRun = runKey(this.lastState);
 
     if (status.fullyReady) {

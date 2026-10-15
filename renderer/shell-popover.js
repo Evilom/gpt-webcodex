@@ -11,6 +11,7 @@
     for (const node of [document.documentElement,document.body]) {
       node.dataset.theme = mode === 'black' ? 'dark' : mode;
       node.dataset.themeMode = mode;
+      node.dataset.skin = payload.skin === 'glass' ? 'glass' : 'classic';
     }
     root.innerHTML = payload.html;
     root.classList.toggle('popover-enter',first);

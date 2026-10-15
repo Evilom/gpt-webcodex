@@ -95,21 +95,20 @@ app.whenReady().then(async () => {
     const geometry = await window.webContents.executeJavaScript(`(() => {
       const rect = (id) => { const r = document.querySelector(id).getBoundingClientRect(); return { x:r.x,y:r.y,width:r.width,height:r.height,right:r.right,bottom:r.bottom }; };
       const ids = Array.from(document.querySelectorAll('[id]'), el => el.id);
-      return { toolbar:rect('.browser-toolbar'), sidebar:rect('#studioSidebar'), sidebarOpen:!document.getElementById('studioSidebar').inert, panel:rect('#workbench'), frame:rect('#previewChat'), footer:rect('#shellFooter'), duplicates:ids.filter((id,index) => ids.indexOf(id)!==index), buttons:Array.from(document.querySelectorAll('.toolbar-main button'), el=>({id:el.id,width:el.getBoundingClientRect().width,height:el.getBoundingClientRect().height,visible:!!el.getBoundingClientRect().width,right:el.getBoundingClientRect().right})), overflow:document.documentElement.scrollWidth > innerWidth, incident:!document.querySelector('#connectionIncident').hidden, localTask:document.getElementById('taskStatusLabel').textContent };
+      return { toolbar:rect('.browser-toolbar'), panel:rect('#workbench'), frame:rect('#previewChat'), footer:rect('#shellFooter'), duplicates:ids.filter((id,index) => ids.indexOf(id)!==index), buttons:Array.from(document.querySelectorAll('.toolbar-main button'), el=>({id:el.id,width:el.getBoundingClientRect().width,height:el.getBoundingClientRect().height,visible:!!el.getBoundingClientRect().width,right:el.getBoundingClientRect().right})), overflow:document.documentElement.scrollWidth > innerWidth, incident:!document.querySelector('#connectionIncident').hidden, localTask:document.getElementById('taskStatusLabel').textContent };
     })()`);
     assert.deepEqual(geometry.duplicates, []);
     assert.equal(geometry.overflow, false, item.name);
     assert.equal(geometry.incident, item.scenario === 'interrupted');
     assert.equal(geometry.localTask, '空闲', 'page interruption must not mark a local task failed');
     if (item.theme === 'black') {
-      const colors = await window.webContents.executeJavaScript(`['body','.browser-toolbar','.studio-sidebar','.workbench'].map(selector=>getComputedStyle(document.querySelector(selector)).backgroundColor)`);
-      assert.deepEqual(colors,['rgb(0, 0, 0)','rgb(0, 0, 0)','rgb(0, 0, 0)','rgb(0, 0, 0)']);
+      const colors = await window.webContents.executeJavaScript(`['body','.browser-toolbar','.workbench'].map(selector=>getComputedStyle(document.querySelector(selector)).backgroundColor)`);
+      assert.deepEqual(colors,['rgb(0, 0, 0)','rgb(0, 0, 0)','rgb(0, 0, 0)']);
     }
     assert.ok(geometry.buttons.every((button) => !button.visible || button.height <= 40 && button.right <= item.width + 1), `toolbar controls clipped: ${item.name}: ${JSON.stringify(geometry)}`);
     assert.ok(Math.abs(geometry.frame.y - geometry.toolbar.height) <= 1);
     assert.ok(Math.abs(geometry.frame.x - geometry.toolbar.x) <= 1, `native chat must leave navigation space: ${JSON.stringify(geometry)}`);
-    assert.equal(geometry.sidebarOpen, item.width >= 1180, `${item.name}: responsive navigation`);
-    if (geometry.sidebarOpen) assert.ok(Math.abs(geometry.frame.x - geometry.sidebar.right) <= 1);
+    assert.equal(geometry.frame.x,0, 'native GPT keeps the full left edge');
     assert.ok(Math.abs(geometry.frame.bottom - geometry.footer.y) <= 1);
     if (item.open) assert.ok(Math.abs(geometry.frame.right - geometry.panel.x) <= 1, `${item.name}: ${JSON.stringify(geometry)}`);
     fs.writeFileSync(path.join(output, `${item.name}.png`), (await captureFixture(window)).toPNG());
@@ -157,14 +156,14 @@ app.whenReady().then(async () => {
   stage = 'task-feedback';
   const taskFeedback = [];
   for (const theme of ['dark','light','black']) for (const width of [1440,640]) for (const [phase,group,checked] of [
-    ['running','进行中',1],['waiting','等待网页',3],['attention','需要处理',3],['completed','本次已完成',4]
+    ['running','当前进展',1],['waiting','本地步骤已保存',3],['attention','待处理事项',3],['completed','本次摘要',4]
   ]) {
     window.setContentSize(width,720);
     await window.loadURL(`${previewUrl}/?theme=${theme}&scenario=design&phase=${phase}&workbench=1&panel=activity`); await settleLayout(window);
     const state = await window.webContents.executeJavaScript(`(async()=>{
       const first=document.querySelector('#studioPlanSteps li'); await refreshTask();
       const plan=document.getElementById('studioTaskPlan');
-      return {group:document.getElementById('studioTaskGroup').textContent,label:document.getElementById('studioTaskState').textContent,checked:document.querySelectorAll('#studioPlanSteps input:checked').length,steps:document.querySelectorAll('#studioPlanSteps li').length,plan:!plan.hidden,recap:!document.getElementById('studioTaskRecap').hidden,retained:first===document.querySelector('#studioPlanSteps li'),nextHidden:document.getElementById('studioTaskNext').hidden,layout:(${probeLayout.toString()})('.studio-task-plan>summary,.studio-task-plan li')};
+      return {group:document.getElementById('studioRecapLabel').textContent,label:document.getElementById('taskStatusLabel').textContent,checked:document.querySelectorAll('#studioPlanSteps input:checked').length,steps:document.querySelectorAll('#studioPlanSteps li').length,plan:!plan.hidden,recap:!document.getElementById('studioTaskRecap').hidden,retained:first===document.querySelector('#studioPlanSteps li'),nextHidden:document.getElementById('studioTaskNext').hidden,layout:(${probeLayout.toString()})('.studio-task-plan>summary,.studio-task-plan li')};
     })()`);
     assert.equal(state.group,group,phase); assert.equal(state.checked,checked,phase); assert.equal(state.steps,4);
     if (phase==='attention') assert.equal(state.label,'等待处理');
@@ -177,10 +176,10 @@ app.whenReady().then(async () => {
     document.getElementById('studioTaskPlan').open=false;
     document.getElementById('workbenchActivity').click();
     document.querySelector('#previewDemoDialog button').click(); await refreshTask();
-    const running=document.getElementById('studioTaskGroup').textContent==='进行中';
+    const running=document.getElementById('studioRecapLabel').textContent==='当前进展';
     document.getElementById('workbenchActivity').click();
     Array.from(document.querySelectorAll('#previewDemoDialog button')).find(el=>el.textContent==='等待网页').click(); await refreshTask();
-    const waiting=document.getElementById('studioTaskGroup').textContent==='等待网页';
+    const waiting=document.getElementById('studioRecapLabel').textContent==='本地步骤已保存';
     const collapsed=!document.getElementById('studioTaskPlan').open;
     const changed=document.querySelectorAll('#studioPlanSteps .studio-step-changed').length;
     await refreshTask();
@@ -225,16 +224,6 @@ app.whenReady().then(async () => {
     const key = (id, value) => document.getElementById(id).dispatchEvent(new KeyboardEvent('keydown', {key:value,bubbles:true}));
     click('workbenchToggle'); await wait();
     const opened = !document.getElementById('workbench').hidden;
-    const sidebarHandle = document.getElementById('studioSidebarResize');
-    const initialSidebarWidth = document.getElementById('studioSidebar').getBoundingClientRect().width;
-    key('studioSidebarResize','ArrowRight'); await wait();
-    const sidebarResizeStep = Math.abs(document.getElementById('studioSidebar').getBoundingClientRect().width - initialSidebarWidth - 20) <= 1;
-    key('studioSidebarResize','Home'); key('studioSidebarResize','ArrowLeft'); await wait();
-    const sidebarResizeMin = Math.abs(document.getElementById('studioSidebar').getBoundingClientRect().width - Number(sidebarHandle.getAttribute('aria-valuemin'))) <= 1;
-    key('studioSidebarResize','End'); await wait();
-    const sidebarResizeMax = Math.abs(document.getElementById('studioSidebar').getBoundingClientRect().width - Number(sidebarHandle.getAttribute('aria-valuemax'))) <= 1;
-    const resizedFrame = document.getElementById('previewChat').getBoundingClientRect();
-    const sidebarResizeReserved = Math.abs(resizedFrame.left - document.getElementById('studioSidebar').getBoundingClientRect().right) <= 1 && resizedFrame.width >= 240;
     const activeTab = name => {
       const tabs = Array.from(document.querySelectorAll('[data-studio-tab]'));
       return tabs.filter(el => el.getAttribute('aria-selected') === 'true').length === 1 && tabs.filter(el => el.tabIndex === 0).length === 1 && tabs.find(el => el.tabIndex === 0).dataset.studioTab === name && Array.from(document.querySelectorAll('[data-studio-panel]')).every(el => el.hidden === (el.dataset.studioPanel !== name));
@@ -265,7 +254,7 @@ app.whenReady().then(async () => {
     const more = !document.getElementById('moreMenu').hidden;
     document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape'})); await wait();
     const escaped = document.getElementById('moreMenu').hidden;
-    click('studioAdvisors'); click('advisoryRefresh'); await wait();
+    window.studioShell.showTab('advisors'); click('advisoryRefresh'); await wait();
     const check = document.querySelector('#extensionProviders input'); check.click(); await wait();
     const consulted = !document.getElementById('advisoryQuestion') && !document.getElementById('advisorySubmit') && document.getElementById('advisoryStatus').textContent.includes('AI 辅助已启用');
     const providers=document.getElementById('extensionProviders');
@@ -308,13 +297,10 @@ app.whenReady().then(async () => {
     window.browserAssistant.openWorkspaceWindow = () => { actions.push('workspaces'); return Promise.resolve({ok:true,data:{}}); };
     window.browserAssistant.openManager = () => { actions.push('settings'); return Promise.resolve({ok:true,data:{}}); };
     window.browserAssistant.switchWorkspace = path => { actions.push('workspace:'+path); return Promise.resolve({ok:true,data:{}}); };
-    click('studioNewChat'); click('studioWorkspaceHub'); click('studioSettings');
-    const workspaceButton = document.querySelectorAll('#studioWorkspaceList button')[1], workspaceTarget = workspaceButton.title;
-    workspaceButton.click(); await wait();
-    const navigationMapped = actions.includes('navigate:home') && actions.includes('workspaces') && actions.includes('settings') && actions.includes('workspace:'+workspaceTarget);
-    document.getElementById('studioNewChat').focus(); click('collapseSidebar'); await wait();
-    const sidebarCollapseFocus = document.getElementById('studioSidebar').inert && document.activeElement.id === 'expandSidebar';
-    return {opened,closed,sidebarResizeStep,sidebarResizeMin,sidebarResizeMax,sidebarResizeReserved,tabsExclusive,keyboardNext,keyboardEnd,keyboardWrap,resizeStep,resizeMax,resizeMin,closeFocus,panelStateRetained,more,escaped,consulted,argonPromoted,answersCollapsed,modelListStatePreserved,selectedModelVisible,answersScrollable,answerStatePreserved,answerTabStatePreserved,nextAnswersCollapsed,consoleOpen,consoleClosed,historyOverlay,navigationMapped,sidebarCollapseFocus};
+    click('homeButton'); click('workspacePickerButton'); click('managerButton');
+    await wait();
+    const navigationMapped = actions.includes('navigate:home') && actions.includes('workspaces') && actions.includes('settings');
+    return {opened,closed,tabsExclusive,keyboardNext,keyboardEnd,keyboardWrap,resizeStep,resizeMax,resizeMin,closeFocus,panelStateRetained,more,escaped,consulted,argonPromoted,answersCollapsed,modelListStatePreserved,selectedModelVisible,answersScrollable,answerStatePreserved,answerTabStatePreserved,nextAnswersCollapsed,consoleOpen,consoleClosed,historyOverlay,navigationMapped};
   })()`);
   for (const [name, value] of Object.entries(interactions)) assert.equal(value, true, name);
   await window.webContents.executeJavaScript(`toggleWorkbench(true)`); await settleLayout(window);
@@ -334,44 +320,15 @@ app.whenReady().then(async () => {
   assert.equal(await window.webContents.executeJavaScript(`document.getElementById('workbench').hidden`),false);
   await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[]});
   window.webContents.debugger.detach();
-  stage = 'navigation-persistence';
-  await window.loadURL(`${previewUrl}/?theme=dark`); await settleLayout(window);
-  assert.equal(await window.webContents.executeJavaScript(`document.getElementById('studioSidebar').inert`), true, 'explicit collapse survives reload');
-  await window.webContents.executeJavaScript(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'b',ctrlKey:true,bubbles:true}))`); await settleLayout(window);
-  await window.loadURL(`${previewUrl}/?theme=dark`); await settleLayout(window);
-  assert.equal(await window.webContents.executeJavaScript(`document.getElementById('studioSidebar').inert`), false, 'explicit expansion survives reload');
-  assert.equal(await window.webContents.executeJavaScript(`Number(document.getElementById('studioSidebarResize').getAttribute('aria-valuenow')) === Number(document.getElementById('studioSidebarResize').getAttribute('aria-valuemax')) && Math.abs(document.getElementById('previewChat').getBoundingClientRect().left-document.getElementById('studioSidebar').getBoundingClientRect().right)<=1`), true, 'navigation width survives reload and reserves native chat space');
-  stage = 'narrow-mutual-exclusion';
-  window.setContentSize(960, 640); await settleLayout(window);
-  const narrow = await window.webContents.executeJavaScript(`(async () => {
-    const wait = ${settleRenderer.toString()};
-    document.getElementById('workbenchToggle').click();
-    await wait();
-    const workbenchOnly = !document.getElementById('workbench').hidden && document.getElementById('studioSidebar').inert;
-    document.dispatchEvent(new KeyboardEvent('keydown',{key:'b',ctrlKey:true,bubbles:true}));
-    await wait();
-    const sidebarOnly = document.getElementById('workbench').hidden && !document.getElementById('studioSidebar').inert;
-    document.getElementById('workbenchToggle').click();
-    await wait();
-    return {workbenchOnly,sidebarOnly,workbenchRestored:!document.getElementById('workbench').hidden&&document.getElementById('studioSidebar').inert};
-  })()`);
-  for (const [name,value] of Object.entries(narrow)) assert.equal(value,true,name);
-  await settleLayout(window);
-  const narrowFrame = await window.webContents.executeJavaScript(`({left:document.getElementById('previewChat').getBoundingClientRect().left,width:document.getElementById('previewChat').getBoundingClientRect().width})`);
-  assert.equal(narrowFrame.left,0); assert.ok(narrowFrame.width>=240,'narrow panes retain usable chat width');
-  stage = 'compact-navigation';
-  window.setContentSize(640,600); await settleLayout(window);
-  await window.webContents.executeJavaScript(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'b',ctrlKey:true,bubbles:true}))`); await settleLayout(window);
-  const compactNavigation = await window.webContents.executeJavaScript(`(() => {
-    const sidebar=document.getElementById('studioSidebar'),frame=document.getElementById('previewChat').getBoundingClientRect();
-    return {sidebarOpen:!sidebar.inert,workbenchClosed:document.getElementById('workbench').hidden,sidebarWidth:sidebar.getBoundingClientRect().width,chatLeft:frame.left,chatWidth:frame.width};
-  })()`);
-  assert.ok(compactNavigation.sidebarOpen&&compactNavigation.workbenchClosed);
-  assert.ok(compactNavigation.chatWidth>=240&&Math.abs(compactNavigation.chatLeft-compactNavigation.sidebarWidth)<=1, `compact navigation must leave 240px chat space: ${JSON.stringify(compactNavigation)}`);
-  window.setContentSize(1440,900); await settleLayout(window);
-  const restoredNavigation = await window.webContents.executeJavaScript(`({width:document.getElementById('studioSidebar').getBoundingClientRect().width,left:document.getElementById('previewChat').getBoundingClientRect().left,preferred:Number(localStorage.getItem('studio-sidebar-width'))})`);
-  assert.equal(restoredNavigation.width,420,'returning to a wide viewport restores the chosen navigation width');
-  assert.equal(restoredNavigation.left,420); assert.equal(restoredNavigation.preferred,420);
+  stage = 'native-width';
+  const nativeWidth = [];
+  for (const width of [640,960,1440]) {
+    window.setContentSize(width,720); await settleLayout(window);
+    await window.webContents.executeJavaScript('toggleWorkbench(true)'); await settleLayout(window);
+    const state = await window.webContents.executeJavaScript(`({left:document.getElementById('previewChat').getBoundingClientRect().left,width:document.getElementById('previewChat').getBoundingClientRect().width,duplicateSidebar:!!document.getElementById('studioSidebar')})`);
+    assert.equal(state.left,0); assert.equal(state.duplicateSidebar,false); assert.ok(state.width>=240);
+    nativeWidth.push({width,...state});
+  }
   stage = 'reduced-motion';
   let reducedMotion;
   window.webContents.debugger.attach('1.3');
@@ -406,7 +363,7 @@ app.whenReady().then(async () => {
   assert.deepEqual(authView.getBounds(), { x:0,y:56,width:640,height:512 });
   controller.dispose();
   assert.deepEqual(errors, []);
-  fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify({ ok: true, scale, defaultReducedMotion, results, expandedSidebars, taskFeedback, stateChange, chatAppearanceUi, rapidReopen, interactions, narrow, compactNavigation, restoredNavigation, reducedMotion, nativeBounds: bounds, authBounds, errors }, null, 2));
+  fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify({ ok: true, scale, defaultReducedMotion, results, expandedSidebars, taskFeedback, stateChange, chatAppearanceUi, rapidReopen, interactions, nativeWidth, reducedMotion, nativeBounds: bounds, authBounds, errors }, null, 2));
   window.destroy();
   app.exit(0);
 }).catch((error) => { fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify({ ok: false, stage, error: error.stack, errors }, null, 2)); app.exit(1); });

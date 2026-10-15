@@ -10,7 +10,6 @@ const CHAT_HOME = 'https://chatgpt.com/';
 const CHAT_SCROLLBARS = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'scrollbars.css'), 'utf8');
 const CHAT_CLAUDE_CSS = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'chat-claude.css'), 'utf8');
 const { applyChatAppearanceDocument } = require('../renderer/chat-appearance');
-const { ChatReplica } = require('./chatReplica');
 const CHAT_PARTITION = 'persist:chatgpt-session';
 const NAVIGATION_HOSTS = new Set([
   'chatgpt.com', 'www.chatgpt.com', 'openai.com', 'www.openai.com',
@@ -149,7 +148,7 @@ function bindChatNetworkDiagnostics(chatSession, log) {
 }
 
 class ChatViewController {
-  constructor({ window, log, settings, nativeLoginRoot, createWebContentsView = (options) => new WebContentsView(options), toolbarHeight = 64, onState = () => {}, onDownload = () => {}, onConversationTurn = () => {}, onNativeFocus = () => {}, onReplica = () => {} }) {
+  constructor({ window, log, settings, nativeLoginRoot, createWebContentsView = (options) => new WebContentsView(options), toolbarHeight = 64, onState = () => {}, onDownload = () => {}, onConversationTurn = () => {}, onNativeFocus = () => {} }) {
     this.window = window;
     this.log = log;
     this.toolbarHeight = toolbarHeight;
@@ -189,12 +188,6 @@ class ChatViewController {
     this.chatAppearanceDocument = 0;
     this.chatAppearanceAbort = new AbortController();
     this.boundResize = () => this.resize();
-    this.replica = new ChatReplica({
-      chooseFiles: multiple => require('electron').dialog.showOpenDialog(this.window,{title:'添加对话附件',properties:multiple?['openFile','multiSelections']:['openFile']}),
-      contents:()=>this.view?.webContents,
-      eligible:url=>isChatGptNavigation(url)&&!authUrl(url)&&!this.login.prompt&&!this.liveAuthViews().length,
-      onChange:state=>{ this.syncLoginVisibility(); this.emitState(); onReplica(state); }
-    });
   }
 
   applyChatAppearance() {
@@ -474,7 +467,6 @@ class ChatViewController {
     });
     listen('did-start-loading', () => {
       if (this.disposed) return;
-      this.replica.reset();
       const reason = this.pendingPageLoadReason || 'page-or-browser-navigation';
       this.pendingPageLoadReason = '';
       this.log.info('ChatGPT 页面开始加载', { host: parseUrl(contents.getURL())?.hostname || '', reason });
@@ -494,7 +486,6 @@ class ChatViewController {
       this.emitState();
     });
     listen('dom-ready', () => {
-      this.replica.reset();
       this.chatAppearanceDocument++;
       this.chatAppearanceCss = null; // Navigation discards styles inserted into the old document.
       if (isChatGptNavigation(contents.getURL()) && !authUrl(contents.getURL())) {
@@ -516,8 +507,6 @@ class ChatViewController {
       this.emitState();
     });
     listen('did-navigate-in-page', () => {
-      this.replica.reset();
-      this.replica.configure(this.settings?.load?.().experimentalIndependentChat === true);
       this.emitState();
       this.suspendChatUiEnhancements();
       clearTimeout(this.enhancementTimer);
@@ -684,7 +673,7 @@ class ChatViewController {
     // Keep ChatGPT visible underneath them so a transient/blank/destroyed OAuth child can
     // never expose the shell's startup placeholder. Only the shell DOM login prompt needs
     // the primary native view hidden so that the dialog can render above it.
-    if (this.view && !this.view.webContents.isDestroyed()) this.view.setVisible(!this.login.prompt && !(this.replica.state.active && !authViews.length));
+    if (this.view && !this.view.webContents.isDestroyed()) this.view.setVisible(!this.login.prompt);
     for (const view of authViews) view.setVisible(!this.login.prompt && !this.login.returning && view === authViews.at(-1));
   }
 
@@ -867,7 +856,6 @@ class ChatViewController {
     const contents = this.view?.webContents;
     if (this.disposed || !contents || contents.isDestroyed()) return;
     void this.applyChatAppearance();
-    this.replica.configure(this.settings?.load?.().experimentalIndependentChat === true);
     this.scheduleMemoryObserver();
     this.scheduleStreamObserver();
     this.scheduleContinuousMcpMode();
@@ -913,6 +901,7 @@ class ChatViewController {
       const report=(status,event,extra={})=>{try{console.info(PREFIX+JSON.stringify({status,event,...extra}));}catch{}};
       const scan=()=>{
         window.__mcpStreamTimer=0;
+        window.__mcpStreamNextScanAt=0;
         const recentTurns=Array.from(document.querySelectorAll('[data-testid^="conversation-turn-"]')).slice(-2);
         const notices=Array.from(document.querySelectorAll('main [role="alert"],main [role="status"],main [data-testid*="error" i]')).filter(visible);
         const text=[...recentTurns,...notices].map(node=>node.textContent||'').join(' ');
@@ -922,9 +911,9 @@ class ChatViewController {
           if(changed)report('render_error','page-message-render-error',{activity_at:window.__mcpStreamLastActivityAt||0,quiet_seconds:0,stalled:false});
           return;
         }
-        const stopSelector='button[data-testid="stop-button"],button[data-testid*="stop" i],button[aria-label="Stop"],button[aria-label*="Stop generating" i],button[aria-label*="停止生成"]';
+        const stopSelector='button[data-testid="stop-button"],button[data-testid*="stop" i],button[aria-label="Stop"],button[aria-label*="Stop generating" i],button[aria-label="停止"],button[aria-label*="停止生成"]';
         const stopControls=Array.from(document.querySelectorAll(stopSelector));
-        const isGenerationControl=(node)=>{const value=normalize((node.getAttribute('aria-label')||'')+' '+(node.getAttribute('data-testid')||'')).toLowerCase();return value.includes('stop-button')||value.includes('stop generating')||value.includes('停止生成')||(value.includes('stop')&&!/(share|record|audio|speaking)/i.test(value));};
+        const isGenerationControl=(node)=>{const value=normalize((node.getAttribute('aria-label')||'')+' '+(node.getAttribute('data-testid')||'')).toLowerCase();return value==='停止'||value.includes('stop-button')||value.includes('stop generating')||value.includes('停止生成')||(value.includes('stop')&&!/(share|record|audio|speaking)/i.test(value));};
         const generating=stopControls.some((node)=>visible(node)&&!node.disabled&&node.getAttribute('aria-disabled')!=='true'&&isGenerationControl(node));
         const recoveryTimeout=recoveryTimedOut(text);
         const now=Date.now();
@@ -966,7 +955,13 @@ class ChatViewController {
         else if(previous==='generating')report(next,'page-response-finished',{...extra,settled_ms:Math.max(0,now-(window.__mcpStreamStableIdleSince||now))});
         if(generating)schedule(1000);
       };
-      const schedule=(delay=500)=>{if(window.__mcpStreamTimer)clearTimeout(window.__mcpStreamTimer);window.__mcpStreamTimer=setTimeout(scan,delay);};
+      const schedule=(delay=500)=>{
+        const dueAt=Date.now()+delay;
+        if(window.__mcpStreamTimer&&dueAt>=window.__mcpStreamNextScanAt)return;
+        if(window.__mcpStreamTimer)clearTimeout(window.__mcpStreamTimer);
+        window.__mcpStreamNextScanAt=dueAt;
+        window.__mcpStreamTimer=setTimeout(scan,delay);
+      };
       const target=document.querySelector('main')||document.body;
       if(!window.__mcpStreamLastActivityAt)window.__mcpStreamLastActivityAt=Date.now();
       if(!window.__mcpStreamObserver){window.__mcpStreamObserver=new MutationObserver(()=>{window.__mcpStreamLastActivityAt=Date.now();schedule(350);});if(target)window.__mcpStreamObserver.observe(target,{childList:true,subtree:true,characterData:true});}
@@ -1275,7 +1270,6 @@ class ChatViewController {
       mcpAttachment: { ...this.mcpAttachment },
       browserNetwork: { ...this.browserNetwork },
       appearance: { ...this.chatAppearance },
-      replica: this.replica.summary(),
       streamState: { ...this.streamState },
       nativeLogin: this.nativeLogin?.getState() || { status: 'idle', message: '', browser: '' },
       login: { ...this.login }
@@ -1394,7 +1388,7 @@ class ChatViewController {
       const selectors = [
         'button[data-testid="stop-button"]', 'button[data-testid*="stop" i]',
         'button[aria-label="Stop"]', 'button[aria-label*="Stop generating" i]',
-        'button[aria-label*="停止生成"]'
+        'button[aria-label="停止"]', 'button[aria-label*="停止生成"]'
       ];
       const visible = (node) => {
         if (!node || node.disabled || node.getAttribute('aria-disabled') === 'true') return false;
@@ -1403,13 +1397,13 @@ class ChatViewController {
       };
       const button = selectors.flatMap((selector) => Array.from(document.querySelectorAll(selector))).find((node) => {
         const value = String(node.getAttribute('aria-label') || '') + ' ' + String(node.getAttribute('data-testid') || '');
-        return /(stop-button|stop generating|停止生成)/i.test(value) || (value.includes('stop') && !/(share|record|audio|speaking)/i.test(value)) ? visible(node) : false;
+        return value.trim() === '停止' || /(stop-button|stop generating|停止生成)/i.test(value) || (value.includes('stop') && !/(share|record|audio|speaking)/i.test(value)) ? visible(node) : false;
       });
       if (!button) return false;
       button.click();
       return true;
     })()`, true);
-    if (clicked) this.updateStreamState({ status: 'healthy', event: 'generation-stopped' });
+    if (clicked) this.scheduleStreamObserver();
     return Boolean(clicked);
   }
 
@@ -1430,7 +1424,6 @@ class ChatViewController {
     if (this.disposed) return;
     this.disposed = true;
     this.chatAppearanceAbort.abort();
-    this.replica.dispose();
     this.loginRevision++;
     clearTimeout(this.loadTimer);
     clearTimeout(this.enhancementTimer);

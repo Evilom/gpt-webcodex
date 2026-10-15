@@ -53,3 +53,18 @@ test('pure black retains dark controls and its own palette across live and syste
   assert.equal(page.body.dataset.theme, 'light');
   assert.equal(page.html.dataset.themeMode, 'system');
 });
+
+test('glass skin persists independently of colour and survives live/system theme changes', () => {
+  const {normalize,DEFAULTS}=require('../electron/services/config');
+  assert.equal(DEFAULTS.appearanceSkin,'classic');
+  for(const skin of [undefined,'unknown',true])assert.equal(normalize({appearanceSkin:skin}).appearanceSkin,'classic');
+  for(const theme of ['light','dark','black','system']){
+    const saved=normalize({...DEFAULTS,theme,appearanceSkin:'glass'});
+    assert.equal(normalize(JSON.parse(JSON.stringify(saved))).appearanceSkin,'glass');
+    const page=bootstrap('?theme='+theme+'&skin=glass');
+    assert.equal(page.body.dataset.skin,'glass');assert.equal(page.html.dataset.skin,'glass');
+    page.switch('black','glass');page.system(true);assert.equal(page.body.dataset.skin,'glass');
+    page.switch('system');page.system(false);assert.equal(page.body.dataset.skin,'glass');
+    page.switch('dark','classic');assert.equal(page.html.dataset.skin,'classic');
+  }
+});

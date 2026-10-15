@@ -52,7 +52,6 @@ function toggleWorkbench(force) {
   const open = typeof force === 'boolean' ? force : panel.hidden || panel.inert;
   workbenchExit?.cancel();
   workbenchExit = null;
-  if (open) window.studioShell?.beforeWorkbenchOpen();
   $('#workbenchToggle').setAttribute('aria-expanded', String(open));
   if (!open && panel.contains(document.activeElement)) $('#workbenchToggle').focus();
   panel.inert = !open;
@@ -348,8 +347,6 @@ function renderChatState(state) {
   lastChatState = state;
   $('#chatAppearanceToggle').checked = Boolean(state.appearance?.enabled);
   $('#chatAppearanceStatus').textContent = state.appearance?.message || '默认关闭；直接使用原网页数据，关闭后恢复原生外观和导航。';
-  $('#independentChatToggle').checked = Boolean(state.replica?.enabled);
-  $('#independentChatStatus').textContent = state.replica?.message || '默认关闭；基于 assistant-ui，只读显示。';
   const nextConversationKey = chatConversationKey(state.url);
   if (nextConversationKey !== currentConversationKey) {
     const previousIdentity = currentChatSchemaIdentity;
@@ -551,7 +548,6 @@ function renderWorkspace(hub) {
     : (hub.recentWorkspaces || []).filter(Boolean).map((workspace) => ({ path: workspace, name: baseName(workspace), active: workspace === activeWorkspace, status: 'ready' }));
   $('#workspacePickerButton').title = `当前：${activeWorkspace || '未选择'}；打开工作区中心（${workspaces.length} 个）`;
   $('#workbenchWorkspace').textContent = activeWorkspace || '未选择工作区';
-  window.studioShell?.renderWorkspaces(hub);
 }
 
 async function refreshWorkspace() {
@@ -760,7 +756,10 @@ refreshTask();
 refreshApprovals();
 setInterval(refreshWorkspace, 60000);
 setInterval(refreshTask, 30000);
-setInterval(renderProgress, 1000);
+setInterval(() => {
+  if (document.hidden) return;
+  if (progressInput.task || progressInput.operation || activityDetailVisible || lastStreamState.status === 'generating') renderProgress();
+}, 1000);
 setInterval(refreshApprovals, 10000);
 
 // Local console, Git, checkpoint and handoff tools retained during upstream integration.
@@ -818,7 +817,7 @@ function syncShellPopover() {
   for (const attr of ['style','popover','inert','aria-hidden']) clone.removeAttribute(attr);
   clone.classList.remove('native-popover-source');
   for (const input of node.querySelectorAll('input[type=checkbox]')) clone.querySelector(`#${input.id}`)?.toggleAttribute('checked',input.checked);
-  const payload = { key,token:activeShellPopover.token,html:clone.outerHTML,theme:document.body.dataset.themeMode === 'black' ? 'black' : document.body.dataset.theme,
+  const payload = { key,token:activeShellPopover.token,html:clone.outerHTML,theme:document.body.dataset.themeMode === 'black' ? 'black' : document.body.dataset.theme,skin:document.body.dataset.skin,
     bounds:{x:Math.round(x)-8,y:Math.round(y)-8,width:Math.ceil(size.width)+16,height:Math.ceil(size.height)+16} };
   const signature = JSON.stringify(payload);
   if (signature === shellPopoverKey) return;
@@ -898,8 +897,6 @@ function syncChatContentInsets() {
   const right = workbench && !workbench.hidden ? Math.ceil(workbench.getBoundingClientRect().width) : 0;
   const left = Math.round(toolbar?.getBoundingClientRect().left || 0);
   const insets = { top:0, bottom, left, right, toolbarHeight };
-  const replicaRoot=$('#independentChatRoot');
-  if (replicaRoot) Object.assign(replicaRoot.style,{left:`${left}px`,right:`${right}px`,top:`${toolbarHeight}px`,bottom:`${bottom}px`});
   const key = JSON.stringify(insets);
   if (syncChatContentInsets.lastKey === key) return;
   syncChatContentInsets.lastKey = key;
@@ -1668,12 +1665,6 @@ $('#chatAppearanceToggle').onchange = async (event) => {
     $('#chatAppearanceStatus').textContent = error.message;
   } finally { toggle.disabled = false; }
 };
-$('#independentChatToggle').onchange = async event => {
-  const toggle=event.currentTarget;toggle.disabled=true;
-  try { renderChatState(unwrap(await api.setIndependentChat(toggle.checked))); }
-  catch(error) { toggle.checked=Boolean(lastChatState.replica?.enabled);$('#independentChatStatus').textContent=error.message; }
-  finally { toggle.disabled=false; }
-};
 $('#workbenchConsole').onclick = () => toggleTaskConsole();
 $('#workbenchHistory').onclick = (event) => { event.stopPropagation(); toggleTaskHistory(); };
 $('#workbenchActivity').onclick = () => openActivityPanel($('#workbenchActivity'), { pin: true });
@@ -1689,12 +1680,11 @@ document.addEventListener('keydown', (event) => {
 });
 const popoverObserver = new MutationObserver(() => syncShellPopover());
 for (const selector of hangOverlaySelectors()) popoverObserver.observe($(selector),{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['hidden','disabled','checked']});
-new MutationObserver(() => syncShellPopover()).observe(document.body,{attributes:true,attributeFilter:['data-theme','data-theme-mode']});
+new MutationObserver(() => syncShellPopover()).observe(document.body,{attributes:true,attributeFilter:['data-theme','data-theme-mode','data-skin']});
 window.addEventListener('resize',() => closeHangOverlays());
 window.addEventListener('blur',() => { if (!api.nativeShellPopover) closeHangOverlays(); });
 document.addEventListener('studio-layout',() => closeHangOverlays());
 const shellResizeObserver = new ResizeObserver(() => requestAnimationFrame(syncChatContentInsets));
 for (const selector of ['.browser-toolbar', '#workbench', '#shellFooter', '#taskConsoleDrawer', '#taskHistoryPopover', '#moreMenu']) shellResizeObserver.observe($(selector));
 document.addEventListener('studio-layout', () => requestAnimationFrame(syncChatContentInsets));
-document.addEventListener('studio-workspace-select', event => switchWorkspace(event.detail));
 requestAnimationFrame(syncChatContentInsets);

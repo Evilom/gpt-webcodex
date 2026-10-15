@@ -22,15 +22,6 @@ contextBridge.exposeInMainWorld('browserAssistant', {
   openLastDownload: () => ipcRenderer.invoke('chat:open-last-download'),
   chatStatus: () => ipcRenderer.invoke('chat:status'),
   setChatAppearance: (enabled) => ipcRenderer.invoke('chat:appearance', enabled),
-  setIndependentChat: enabled => ipcRenderer.invoke('chat:replica-enable',enabled),
-  independentChatState: () => ipcRenderer.invoke('chat:replica-state'),
-  independentChatAction: request => ipcRenderer.invoke('chat:replica-action',request),
-  acknowledgeIndependentChat: token => ipcRenderer.invoke('chat:replica-ack',token),
-  onIndependentChat: listener => {
-    const wrapped=(_event,payload)=>listener(payload);
-    ipcRenderer.on('chat:replica-state',wrapped);
-    return ()=>ipcRenderer.removeListener('chat:replica-state',wrapped);
-  },
   openLogin: () => ipcRenderer.invoke('chat:login-open'),
   embeddedLogin: () => ipcRenderer.invoke('chat:login-embedded'),
   dismissLogin: () => ipcRenderer.invoke('chat:login-dismiss'),
@@ -73,7 +64,7 @@ contextBridge.exposeInMainWorld('browserAssistant', {
     return () => ipcRenderer.removeListener('chat:download', wrapped);
   },
   onThemeChanged: (listener) => {
-    const wrapped = (_event, payload) => listener(payload);
+    const wrapped = (_event, payload, skin) => listener(payload, skin);
     ipcRenderer.on('theme:changed', wrapped);
     return () => ipcRenderer.removeListener('theme:changed', wrapped);
   },

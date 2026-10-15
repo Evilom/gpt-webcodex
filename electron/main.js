@@ -91,7 +91,7 @@ function broadcastTheme(mode) {
   void chatController?.applyChatAppearance();
   for (const window of [chatWindow, managerWindow, workspaceWindow, activityDetailWindow, approvalWindow]) {
     if (!window || window.isDestroyed()) continue;
-    window.webContents.send('theme:changed', mode);
+    window.webContents.send('theme:changed', mode, settings.load().appearanceSkin);
     window.setBackgroundColor(themeBackground(mode));
   }
 }
@@ -341,7 +341,7 @@ function createChatWindow() {
     }
   });
   chatWindow.removeMenu();
-  chatWindow.loadFile(path.join(__dirname, '..', 'renderer', 'browser.html'), { query: { theme: initialTheme } });
+  chatWindow.loadFile(path.join(__dirname, '..', 'renderer', 'browser.html'), { query: { theme: initialTheme, skin: settings.load().appearanceSkin } });
 
   chatController = new ChatViewController({
     window: chatWindow,
@@ -358,11 +358,18 @@ function createChatWindow() {
       sendWindow(chatWindow, 'chat:download', payload);
     },
     onConversationTurn: (turn) => autoMemoryService?.ingestTurn(turn),
-    onNativeFocus: () => shellPopover?.close('outside'),
-    onReplica: state => sendWindow(chatWindow,'chat:replica-state',state)
+    onNativeFocus: () => shellPopover?.close('outside')
   });
   chatController.mount();
   shellPopover = new ShellPopover(chatWindow);
+
+  chatWindow.webContents.on('unresponsive', () => {
+    log.warn('工作空间界面暂时无响应', { version:app.getVersion() });
+  });
+  chatWindow.webContents.on('responsive', () => log.info('工作空间界面已恢复响应'));
+  chatWindow.webContents.on('render-process-gone', (_event, details) => {
+    log.error('工作空间渲染进程已退出', { reason:details.reason,exitCode:details.exitCode,version:app.getVersion() });
+  });
 
   chatWindow.once('ready-to-show', () => chatWindow.show());
   chatWindow.on('move', () => {
@@ -435,7 +442,7 @@ function openWorkspaceWindow() {
   });
   workspaceWindow.removeMenu();
   const initialTheme = ['light', 'dark', 'black', 'system'].includes(settings.load().theme) ? settings.load().theme : 'light';
-  workspaceWindow.loadFile(path.join(__dirname, '..', 'renderer', 'workspace.html'), { query: { theme: initialTheme } });
+  workspaceWindow.loadFile(path.join(__dirname, '..', 'renderer', 'workspace.html'), { query: { theme: initialTheme, skin: settings.load().appearanceSkin } });
   workspaceWindow.once('ready-to-show', () => workspaceWindow.show());
   workspaceWindow.on('close', (event) => {
     if (forceQuit) return;
@@ -489,7 +496,7 @@ function ensureActivityDetailWindow() {
     }
   });
   activityDetailWindow.removeMenu();
-  activityDetailWindow.loadFile(path.join(__dirname, '..', 'renderer', 'activity-detail.html'), { query: { theme: settings.load().theme } });
+  activityDetailWindow.loadFile(path.join(__dirname, '..', 'renderer', 'activity-detail.html'), { query: { theme: settings.load().theme, skin: settings.load().appearanceSkin } });
   activityDetailWindow.webContents.on('did-finish-load', () => {
     if (activityDetailPayload) activityDetailWindow.webContents.send('activity-detail:payload', activityDetailPayload);
     sendActivityDetailState();
@@ -595,7 +602,7 @@ function openApprovalWindow() {
     }
   });
   approvalWindow.removeMenu();
-  approvalWindow.loadFile(path.join(__dirname, '..', 'renderer', 'approval.html'), { query: { theme: settings.load().theme } });
+  approvalWindow.loadFile(path.join(__dirname, '..', 'renderer', 'approval.html'), { query: { theme: settings.load().theme, skin: settings.load().appearanceSkin } });
   approvalWindow.once('ready-to-show', () => approvalWindow.show());
   approvalWindow.on('close', (event) => {
     if (forceQuit) return;
@@ -651,7 +658,7 @@ function openManagerWindow() {
   });
   managerWindow.removeMenu();
   const initialTheme = ['light', 'dark', 'black', 'system'].includes(settings.load().theme) ? settings.load().theme : 'light';
-  managerWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'), { query: { theme: initialTheme } });
+  managerWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'), { query: { theme: initialTheme, skin: settings.load().appearanceSkin } });
   managerWindow.once('ready-to-show', () => managerWindow.show());
   managerWindow.on('close', (event) => {
     if (forceQuit) return;
@@ -1324,24 +1331,6 @@ function registerIpc() {
     return chatController.getState();
   }));
   secureHandle('chat:inject-prompt', (_event, text, autoSend) => invokeSafely(async () => chatController?.injectPrompt(text, autoSend)));
-  secureHandle('chat:replica-enable', (event, enabled) => invokeSafely(async () => {
-    if (event.sender !== chatWindow?.webContents || event.senderFrame !== event.sender.mainFrame || typeof enabled !== 'boolean') throw new Error('无效的实验渲染请求。');
-    settings.save({experimentalIndependentChat:enabled});
-    chatController?.replica.configure(enabled);
-    return chatController?.getState();
-  }));
-  secureHandle('chat:replica-ack', (event, token) => invokeSafely(async () => {
-    if (event.sender !== chatWindow?.webContents || event.senderFrame !== event.sender.mainFrame) return false;
-    return chatController?.replica.acknowledge(String(token));
-  }));
-  secureHandle('chat:replica-state', event => invokeSafely(async () => {
-    if(event.sender!==chatWindow?.webContents||event.senderFrame!==event.sender.mainFrame) return null;
-    return chatController?.replica.state;
-  }));
-  secureHandle('chat:replica-action', (event,request) => invokeSafely(async () => {
-    if(event.sender!==chatWindow?.webContents||event.senderFrame!==event.sender.mainFrame)throw new Error('无效的对话操作来源。');
-    return chatController?.replica.action(request);
-  }));
   secureHandle('chat:set-content-insets', (_event, insets = {}) => invokeSafely(async () => {
     chatController?.setContentInsets({
       top: Number(insets.top) || 0,
@@ -1668,7 +1657,7 @@ function registerIpc() {
     return result.canceled ? '' : result.filePaths[0];
   }));
   secureHandle('settings:save', (_event, patch) => invokeSafely(async () => {
-    const allowed = ['mcpPort', 'healthPort', 'proxyMode', 'proxyUrl', 'tunnelId', 'tunnelProfile', 'startWithWindows', 'autoStartServices', 'keepRunningOnClose', 'taskNotifications', 'taskNotificationSound', 'theme'];
+    const allowed = ['mcpPort', 'healthPort', 'proxyMode', 'proxyUrl', 'tunnelId', 'tunnelProfile', 'startWithWindows', 'autoStartServices', 'keepRunningOnClose', 'taskNotifications', 'taskNotificationSound', 'theme', 'appearanceSkin'];
     const clean = Object.fromEntries(Object.entries(patch || {}).filter(([key]) => allowed.includes(key)));
     const previous = settings.load();
     const proxyChanged = (Object.hasOwn(clean, 'proxyMode') && String(clean.proxyMode || '') !== String(previous.proxyMode || 'auto'))
@@ -1682,7 +1671,7 @@ function registerIpc() {
       });
     }
     if (Object.hasOwn(clean, 'mcpPort')) taskNotificationService?.restartStream();
-    if (Object.hasOwn(clean, 'theme')) broadcastTheme(saved.theme);
+    if (Object.hasOwn(clean, 'theme') || Object.hasOwn(clean, 'appearanceSkin')) broadcastTheme(saved.theme);
     clearProxyCache();
     if (proxyChanged && chatController) await chatController.applyBrowserProxyPolicy({ closeConnections: true, forceProbe: true });
     return saved;
@@ -1819,7 +1808,7 @@ if (!hasSingleInstanceLock) {
     log.on('entry', (payload) => sendManager('logs:entry', payload));
     registerIpc();
     const startupSettings = settings.load();
-    createChatWindow();
+    showChatWindow();
     updateService.start();
     taskNotificationService = new TaskNotificationService({
       getSettings: () => settings.load(),
@@ -1847,6 +1836,7 @@ if (!hasSingleInstanceLock) {
       icon: appIconPath(),
       log
     });
+    taskNotificationService.acceptRuntimeStatus({ manuallyStopped: orchestrator.isManuallyStopped() });
     taskNotificationService.start();
     contextUsageTracker.on('change', (snapshot) => {
       if (chatWindow && !chatWindow.isDestroyed()) {

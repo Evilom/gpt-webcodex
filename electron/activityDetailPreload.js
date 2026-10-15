@@ -2,7 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('activityDetail', {
   onThemeChanged: (listener) => {
-    const wrapped = (_event, mode) => listener(mode);
+    const wrapped = (_event, mode, skin) => listener(mode, skin);
     ipcRenderer.on('theme:changed', wrapped);
     return () => ipcRenderer.removeListener('theme:changed', wrapped);
   },

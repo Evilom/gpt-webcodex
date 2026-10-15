@@ -82,15 +82,25 @@ app.whenReady().then(async()=>{
     await host.webContents.insertCSS('#previewChat{visibility:hidden!important}');
     await settle();
     const before=native.getBounds();
-    const panels=await host.webContents.executeJavaScript(`JSON.stringify(['studioSidebar','workbench','shellFooter'].map(id=>document.getElementById(id).getBoundingClientRect().toJSON()))`);
+    const panels=await host.webContents.executeJavaScript(`JSON.stringify(['workbench','shellFooter'].map(id=>document.getElementById(id).getBoundingClientRect().toJSON()))`);
     await click('moreButton');await waitOpen('more');
     await delay(150);
     assert.deepEqual(native.getBounds(),before,'More must not resize native ChatGPT');
-    assert.equal(await host.webContents.executeJavaScript(`JSON.stringify(['studioSidebar','workbench','shellFooter'].map(id=>document.getElementById(id).getBoundingClientRect().toJSON()))`),panels);
+    assert.equal(await host.webContents.executeJavaScript(`JSON.stringify(['workbench','shellFooter'].map(id=>document.getElementById(id).getBoundingClientRect().toJSON()))`),panels);
     assert.equal(popover.window.getParentWindow(),host);
     const styles=await popover.window.webContents.executeJavaScript(`(()=>{const el=document.getElementById('moreMenu'),r=el.getBoundingClientRect();return {width:r.width,height:r.height,within:r.left>=0&&r.top>=0&&r.right<=innerWidth&&r.bottom<=innerHeight,bg:getComputedStyle(el).backgroundColor,hidden:el.hidden,inert:el.inert};})()`);
     assert.ok(styles.within&&!styles.hidden&&!styles.inert);
     assert.equal(styles.bg,theme==='black'?'rgb(0, 0, 0)':theme==='dark'?'rgb(26, 26, 25)':'rgb(255, 255, 255)');
+    if(width===1440&&theme==='dark'&&workbench) {
+      await host.webContents.executeJavaScript(`document.body.dataset.skin='glass';document.documentElement.dataset.skin='glass';true;`);
+      await until(()=>popover.window.webContents.executeJavaScript(`document.body.dataset.skin==='glass'`));
+      const material=await popover.window.webContents.executeJavaScript(`(()=>{const s=getComputedStyle(document.getElementById('moreMenu')),body=getComputedStyle(document.body);return {bg:s.backgroundColor,backdrop:s.backdropFilter,canvas:body.backgroundImage,outside:body.backgroundColor}})()`);
+      assert.notEqual(material.bg,styles.bg);assert.match(material.backdrop,/blur/);
+      assert.equal(material.canvas,'none');assert.equal(material.outside,'rgba(0, 0, 0, 0)');
+      assert.deepEqual(native.getBounds(),before,'skin changes must retain native ChatGPT geometry');
+      await host.webContents.executeJavaScript(`document.body.dataset.skin='classic';document.documentElement.dataset.skin='classic';true;`);
+      await until(()=>popover.window.webContents.executeJavaScript(`document.body.dataset.skin==='classic'`));
+    }
     if(width===1440&&theme==='black'&&!workbench) {
       const image=await popover.window.capturePage();
       assert.equal(image.isEmpty(),false);
@@ -131,7 +141,7 @@ app.whenReady().then(async()=>{
   assert.notEqual(stream,started);
   host.setContentSize(700,720);await until(()=>!popover.current);
   await settle();await click('moreButton');await waitOpen('more');
-  await host.webContents.executeJavaScript(`document.getElementById('studioTaskGroup').click()`);
+  await host.webContents.executeJavaScript(`document.querySelector('.browser-toolbar').click()`);
   await until(()=>!popover.current);
   stage='long-content';
   await host.webContents.executeJavaScript(`window.browserAssistant.taskHistory=()=>Promise.resolve({ok:true,data:{items:Array.from({length:50},(_,i)=>({task_id:'history-'+i,status:'failed',objective:'历史任务 '+i+'：'+ '连续长标题'.repeat(30),failure:'E:/'+ 'long-path/'.repeat(80)}))}});true;`);

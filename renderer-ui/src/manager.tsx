@@ -7,7 +7,7 @@ type AssistantUserState = 'idle' | 'planning' | 'local_running' | 'testing' | 'b
 type CanonicalAssistantState = { userState: AssistantUserState; label: string; tone: Tone; message: string; detail: string; canStop: boolean; heartbeatAgeSeconds: number; taskId: string; runId: string; };
 type CanonicalServiceState = { key: string; tone: Tone; label: string; title: string; message: string; showStartup: boolean; fullyReady: boolean; };
 type RuntimeStatus = { runtimeRunning?: boolean; tunnelRunning?: boolean; connectionRunning?: boolean; };
-type AppSettings = { workspace?: string; theme?: 'light' | 'dark' | string; autoStartServices?: boolean; keepRunningOnClose?: boolean; };
+type AppSettings = { workspace?: string; theme?: 'light' | 'dark' | string; appearanceSkin?: string; autoStartServices?: boolean; keepRunningOnClose?: boolean; };
 type Snapshot = { appVersion?: string; status?: RuntimeStatus; settings?: AppSettings; };
 type WorkspaceHub = { activeWorkspace?: string; authorizedRoots?: string[]; workspaces?: unknown[]; };
 type MemoryCapture = { processed?: number; discovered?: number; };
@@ -71,7 +71,7 @@ function MemoryStrip({ state }: { state: ManagerState }) {
 function SettingsStrip({ state }: { state: ManagerState }) {
   const settings = state.snapshot?.settings || {};
   const themeLabel = settings.theme === 'system' ? '跟随系统' : settings.theme === 'light' ? '浅色' : settings.theme === 'black' ? '纯黑' : '深灰';
-  return <div className="react-insight-strip"><div><b>管理中心</b><span>React + TypeScript + Vite 渐进迁移层</span></div><div className="react-chip-row"><Chip label="主题" value={themeLabel} /><Chip label="自动启动" value={settings.autoStartServices ? '开启' : '关闭'} /><Chip label="后台运行" value={settings.keepRunningOnClose === false ? '关闭' : '开启'} /></div></div>;
+  return <div className="react-insight-strip"><div><b>管理中心</b><span>React + TypeScript + Vite 渐进迁移层</span></div><div className="react-chip-row"><Chip label="主题" value={themeLabel} /><Chip label="皮肤" value={settings.appearanceSkin==='glass'?'液态玻璃':'经典'} /><Chip label="自动启动" value={settings.autoStartServices ? '开启' : '关闭'} /><Chip label="后台运行" value={settings.keepRunningOnClose === false ? '关闭' : '开启'} /></div></div>;
 }
 
 function Portal({ selector, children }: { selector: string; children: React.ReactNode }) { const target = document.querySelector(selector); return target ? createPortal(children, target) : null; }

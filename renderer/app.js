@@ -227,6 +227,13 @@ function applyTheme(theme) {
   if ($('#themeSelect')) $('#themeSelect').value = mode;
 }
 
+function applySkin(skin) {
+  const value=skin==='glass'?'glass':'classic';
+  document.documentElement.dataset.skin=value;
+  document.body.dataset.skin=value;
+  if ($('#skinSelect')) $('#skinSelect').value=value;
+}
+
 function navigate(page) {
   if (!pageMeta[page]) return;
   state.currentPage = page;
@@ -267,6 +274,7 @@ function populateForms(snapshot, force = false) {
   $('#healthPortInput').value = Number(settings.healthPort || 18081);
   $('#manualProxyField').hidden = $('#proxyModeSelect').value !== 'manual';
   applyTheme(settings.theme);
+  applySkin(settings.appearanceSkin);
   state.formsReady = true;
 }
 
@@ -889,6 +897,7 @@ function renderIssueFromLogs() {
 async function saveCommonSettings() {
   const saved = unwrap(await api.saveSettings({
     theme: ['light', 'dark', 'black', 'system'].includes($('#themeSelect').value) ? $('#themeSelect').value : 'light',
+    appearanceSkin: $('#skinSelect').value === 'glass' ? 'glass' : 'classic',
     startWithWindows: $('#startWithWindowsToggle').checked,
     autoStartServices: $('#autoStartToggle').checked,
     keepRunningOnClose: $('#keepRunningToggle').checked,
@@ -1392,6 +1401,10 @@ function bindEvents() {
 
   $('#themeSelect').onchange = async () => {
     applyTheme($('#themeSelect').value);
+    try { await saveCommonSettings(); } catch (error) { toast('设置保存失败', error.message, 'error'); }
+  };
+  $('#skinSelect').onchange = async () => {
+    applySkin($('#skinSelect').value);
     try { await saveCommonSettings(); } catch (error) { toast('设置保存失败', error.message, 'error'); }
   };
   ['#startWithWindowsToggle', '#autoStartToggle', '#keepRunningToggle', '#taskNotificationsToggle', '#taskNotificationSoundToggle'].forEach((selector) => {

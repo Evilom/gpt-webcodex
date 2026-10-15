@@ -30,8 +30,8 @@ const DEFAULTS = Object.freeze({
   taskNotifications: true,
   taskNotificationSound: true,
   theme: 'light',
+  appearanceSkin: 'classic',
   experimentalClaudeChat: false,
-  experimentalIndependentChat: false,
   recentWorkspaces: [],
   workspaceMetadata: {},
   authorizedRoots: [],
@@ -110,8 +110,8 @@ function normalize(input = {}) {
   merged.tunnelId = String(merged.tunnelId || '').trim();
   if (sourceVersion < 5 && merged.theme === 'dark') merged.theme = 'light';
   merged.theme = ['light', 'dark', 'black', 'system'].includes(merged.theme) ? merged.theme : 'light';
+  merged.appearanceSkin = merged.appearanceSkin === 'glass' ? 'glass' : 'classic';
   merged.experimentalClaudeChat = merged.experimentalClaudeChat === true;
-  merged.experimentalIndependentChat = merged.experimentalIndependentChat === true;
 
   // These are product defaults now, not user-facing knobs.
   merged.progressReportSeconds = 30;

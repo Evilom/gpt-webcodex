@@ -1,4 +1,5 @@
 @import url("scrollbars.css");
+@import url("glass-skin.css");
 /* Shared surfaces for every assistant-owned view, based on the desktop Code reference. */
 :root {
   --ui-bg:#fcfcfb; --ui-sidebar:#f9f9f7; --ui-surface:#fff; --ui-raised:#fff;

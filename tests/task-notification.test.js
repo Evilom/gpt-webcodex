@@ -349,3 +349,33 @@ test('0.9.1 stalled heartbeat transition notifies once even when task state obje
   await ctx.service.poll();
   assert.equal(FakeNotification.instances.length, 1);
 });
+
+test('manual runtime stop suspends event reconnects and resumes from the same cursor', () => {
+  const streams = [];
+  const ctx = makeService({
+    loadNotificationCheckpoint: () => ({ initialized: true, lastEventId: 224 }),
+    subscribeTaskEvents: (_listener, _onError, options) => {
+      const stream = { options, stopped: false };
+      streams.push(stream);
+      return () => { stream.stopped = true; };
+    }
+  });
+  ctx.service.acceptRuntimeStatus({ manuallyStopped: true });
+  ctx.service.start();
+  assert.equal(streams.length, 0);
+  ctx.service.restartStream();
+  assert.equal(streams.length, 0);
+  ctx.service.acceptRuntimeStatus({ manuallyStopped: false, mcpRunning: true });
+  assert.equal(streams.length, 1);
+  assert.equal(streams[0].options.lastEventId, 224);
+  ctx.service.acceptRuntimeStatus({ manuallyStopped: false, mcpRunning: true });
+  assert.equal(streams.length, 1);
+  ctx.service.acceptRuntimeStatus({ manuallyStopped: true });
+  assert.equal(streams[0].stopped, true);
+  ctx.service.acceptRuntimeStatus({ manuallyStopped: false, mcpRunning: true });
+  assert.equal(streams.length, 2);
+  assert.equal(streams[1].options.lastEventId, 224);
+  ctx.service.stop();
+  ctx.service.acceptRuntimeStatus({ mcpRunning: true });
+  assert.equal(streams.length, 2);
+});
