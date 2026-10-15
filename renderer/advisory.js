@@ -24,6 +24,7 @@
     for (const model of models) {
       const label = document.createElement('label');
       label.className = 'extension-row';
+      label.title = model.id;
       const input = document.createElement('input');
       input.type = 'checkbox';
       input.value = model.id;
@@ -31,7 +32,7 @@
       input.disabled = busy || !state.configured || !state.models.length;
       label.append(input, document.createTextNode(model.name));
       const detail = document.createElement('small');
-      detail.textContent = state.models.length ? model.id : '读取服务目录后可启用';
+      detail.textContent = state.models.length ? '由主 AI 按需调用' : '读取服务目录后可启用';
       label.append(detail);
       input.onchange = async () => {
         const selected = Array.from($('extensionProviders').querySelectorAll('input:checked'), (item) => item.value);
@@ -44,7 +45,8 @@
       const input = Array.from($('extensionProviders').querySelectorAll('input')).find((item) => item.value === focusedModel);
       if (input) { if (!preferred.has(focusedModel)) others.open = true; input.focus(); }
     }
-    $('advisoryStatus').textContent = state.job ? `${statusLabels[state.job.status] || state.job.status} · ${state.job.id}${state.job.error ? ' · ' + state.job.error : ''}` : state.configured ? state.selected.length ? 'AI 辅助已启用；主 AI 按需发起咨询。' : '已配置；勾选模型以允许主 AI 使用辅助。' : '未配置；请导入现有服务的客户端 JSON。';
+    $('advisoryStatus').title = state.job?.id || '';
+    $('advisoryStatus').textContent = state.job ? `${statusLabels[state.job.status] || state.job.status}${state.job.error ? ' · ' + state.job.error : ''}` : state.configured ? state.selected.length ? 'AI 辅助已启用；主 AI 按需发起咨询。' : '已配置；勾选模型以允许主 AI 使用辅助。' : '未配置；请导入现有服务的客户端 JSON。';
   }
   async function perform(action, result = false) {
     if (busy) return;

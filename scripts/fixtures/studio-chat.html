@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="/scrollbars.css"><link rel="stylesheet" href="/studio-preview.css">
+  <title>超级智囊团 · 离线设计预览</title>
+</head>
+<body>
+  <main id="conversation" class="preview-conversation">
+    <div class="preview-question">梳理一下长任务中断与恢复的链路，把需要修复的地方整理成一份可以执行的方案。</div>
+    <article>
+      <p>我会沿着网页回复、本地执行和远端辅助三条链路核对，先确认任务停在哪一层。</p>
+      <details class="preview-tools"><summary><img src="/icons/chevron-down.svg" alt="">读取了 4 个文件，检查了 2 项状态<span>展开</span></summary><div><p><code>Read</code> electron/chatViewController.js</p><p><code>Read</code> renderer/assistantState.js</p><p><code>Read</code> electron/services/advisoryService.js</p><p><code>Check</code> 本地任务与网页回复状态</p></div></details>
+      <p>需要把“等待网页回复”和“本地命令还在执行”清楚地区分开。页面连接恢复时，已经完成的工作也应保留。</p>
+      <h2>先做好三件事</h2>
+      <ol><li><b>独立显示连接状态。</b> 网页、本地工具与 Tunnel 各自报告结果，异常提示给出对应的恢复入口。</li><li><b>让长任务可以继续。</b> 保存执行进度、产物路径和辅助请求编号，恢复时先查询现有结果。</li><li><b>让工作台保持安静。</b> 工具调用和辅助意见默认收起，需要时再展开阅读。</li></ol>
+      <details class="preview-plan" open><summary><img src="/icons/list-bullet.svg" alt="">修复计划<span>2 / 3</span></summary><label><input type="checkbox" checked> 梳理连接与任务状态</label><label><input type="checkbox" checked> 检查恢复后的任务记录</label><label><input type="checkbox"> 验证中断恢复与附件下载</label></details>
+      <p>我们可以先把这些状态和边界做稳，再继续接入更多辅助模型。</p>
+      <div class="preview-turn-meta"><img src="/brand-icon.png" alt="">已完成 <span>·</span> 本地设计示例</div>
+    </article>
+  </main>
+  <div class="preview-empty" hidden><img src="/brand-icon.png" alt=""><h1>一起把想法做出来</h1><p>在一个工作空间里思考、执行与复核。</p></div>
+  <form class="preview-composer">
+    <div class="preview-context"><img src="/icons/folder.svg" alt=""><span>本地</span><span class="preview-divider">/</span><span>projects</span><span class="preview-context-note">离线预览</span></div>
+    <div class="preview-input"><textarea aria-label="输入消息" placeholder="和智囊团一起思考…" rows="2"></textarea><button type="submit" aria-label="发送预览消息"><img src="/icons/arrow-up.svg" alt=""></button></div>
+    <div class="preview-composer-options"><button type="button" id="previewAttach"><img src="/icons/plus.svg" alt="">添加材料</button><span id="previewAttachment"></span><span class="preview-option-spacer"></span><button type="button" id="previewModel" aria-haspopup="menu" aria-expanded="false">ChatGPT Pro<img src="/icons/chevron-down.svg" alt=""></button><div id="previewModels" role="menu" hidden><b>主对话</b><p>ChatGPT Pro · 网页</p><small>Opus 与 Gemini 由主 AI 按需咨询，可在“智囊”中勾选。</small></div></div>
+    <p id="previewNotice" role="status">设计预览中的对话为模拟内容，不会发送给模型。</p>
+  </form>
+  <script src="/studio-preview.js"></script>
+</body>
+</html>

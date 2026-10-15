@@ -21,6 +21,16 @@ contextBridge.exposeInMainWorld('browserAssistant', {
   stopGeneration: () => ipcRenderer.invoke('chat:stop-generation'),
   openLastDownload: () => ipcRenderer.invoke('chat:open-last-download'),
   chatStatus: () => ipcRenderer.invoke('chat:status'),
+  setChatAppearance: (enabled) => ipcRenderer.invoke('chat:appearance', enabled),
+  setIndependentChat: enabled => ipcRenderer.invoke('chat:replica-enable',enabled),
+  independentChatState: () => ipcRenderer.invoke('chat:replica-state'),
+  independentChatAction: request => ipcRenderer.invoke('chat:replica-action',request),
+  acknowledgeIndependentChat: token => ipcRenderer.invoke('chat:replica-ack',token),
+  onIndependentChat: listener => {
+    const wrapped=(_event,payload)=>listener(payload);
+    ipcRenderer.on('chat:replica-state',wrapped);
+    return ()=>ipcRenderer.removeListener('chat:replica-state',wrapped);
+  },
   openLogin: () => ipcRenderer.invoke('chat:login-open'),
   embeddedLogin: () => ipcRenderer.invoke('chat:login-embedded'),
   dismissLogin: () => ipcRenderer.invoke('chat:login-dismiss'),
@@ -95,6 +105,13 @@ contextBridge.exposeInMainWorld('browserAssistant', {
   generateTaskSnapshot: () => ipcRenderer.invoke('task:generate-snapshot'),
   injectPrompt: (text, autoSend) => ipcRenderer.invoke('chat:inject-prompt', text, autoSend),
   setContentInsets: (insets) => ipcRenderer.invoke('chat:set-content-insets', insets),
+  nativeShellPopover: true,
+  setShellPopover: (payload) => ipcRenderer.invoke('shell-popover:update', payload),
+  onShellPopover: (listener) => {
+    const wrapped = (_event, payload) => listener(payload);
+    ipcRenderer.on('shell-popover:event', wrapped);
+    return () => ipcRenderer.removeListener('shell-popover:event', wrapped);
+  },
   createCheckpoint: (options) => ipcRenderer.invoke('checkpoint:create', options),
   getCheckpointStatus: () => ipcRenderer.invoke('checkpoint:status'),
   rollbackCheckpoint: (options) => ipcRenderer.invoke('checkpoint:rollback', options),

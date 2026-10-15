@@ -10,10 +10,10 @@ const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
 if (report.ok !== true) throw new Error(`Renderer smoke report failed: ${report.error || 'unknown error'}`);
 
 const themes = new Set((report.results || []).map((item) => item.theme));
-for (const theme of ['light', 'dark']) {
+for (const theme of ['light', 'dark', 'black']) {
   if (!themes.has(theme)) throw new Error(`Renderer smoke missing ${theme} result`);
   const png = path.join(outDir, `${theme}.png`);
   if (!fs.existsSync(png) || fs.statSync(png).size < 1024) throw new Error(`Renderer smoke missing valid ${theme}.png`);
 }
 
-console.log('Renderer smoke assertion PASS: light + dark');
+console.log('Renderer smoke assertion PASS: light + dark + black');

@@ -41,6 +41,8 @@ jobs:
         run: |
           npm run dist
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          node scripts/check-chat-package.js
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           npm run test:chat-lifecycle
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           npm run test:chat-downloads
@@ -51,6 +53,7 @@ jobs:
           test "$(uname -m)" = arm64
           npm run resources:mac
           npm run dist:mac
+          node scripts/check-chat-package.js
           npm run test:chat-downloads
           node scripts/smoke-macos-package.js
           hdiutil verify dist/*-mac-arm64.dmg

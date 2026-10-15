@@ -2,8 +2,8 @@
   const requested = new URLSearchParams(location.search).get('theme');
   const systemTheme = window.matchMedia?.('(prefers-color-scheme: dark)');
   function apply(mode) {
-    mode = ['light', 'dark', 'system'].includes(mode) ? mode : 'light';
-    const theme = mode === 'system' ? (systemTheme?.matches ? 'dark' : 'light') : mode;
+    mode = ['light', 'dark', 'black', 'system'].includes(mode) ? mode : 'light';
+    const theme = mode === 'system' ? (systemTheme?.matches ? 'dark' : 'light') : mode === 'black' ? 'dark' : mode;
     for (const node of [document.documentElement, document.body]) {
       node.dataset.theme = theme;
       node.dataset.themeMode = mode;

@@ -216,13 +216,14 @@ function attachmentHealth(attachment = {}, upstreamReady = false) {
 }
 
 function applyTheme(theme) {
-  const mode = ['light', 'dark', 'system'].includes(theme) ? theme : 'light';
+  const mode = ['light', 'dark', 'black', 'system'].includes(theme) ? theme : 'light';
   const value = mode === 'system'
     ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-    : mode;
+    : mode === 'black' ? 'dark' : mode;
   document.body.dataset.theme = value;
   document.body.dataset.themeMode = mode;
   document.documentElement.dataset.theme = value;
+  document.documentElement.dataset.themeMode = mode;
   if ($('#themeSelect')) $('#themeSelect').value = mode;
 }
 
@@ -247,7 +248,7 @@ function navigate(page) {
 function populateForms(snapshot, force = false) {
   if (!snapshot || (state.formsReady && !force)) return;
   const settings = snapshot.settings || {};
-  $('#themeSelect').value = ['light', 'dark', 'system'].includes(settings.theme) ? settings.theme : 'light';
+  $('#themeSelect').value = ['light', 'dark', 'black', 'system'].includes(settings.theme) ? settings.theme : 'light';
   $('#startWithWindowsToggle').checked = Boolean(settings.startWithWindows);
   $('#autoStartToggle').checked = Boolean(settings.autoStartServices);
   $('#keepRunningToggle').checked = settings.keepRunningOnClose !== false;
@@ -887,7 +888,7 @@ function renderIssueFromLogs() {
 
 async function saveCommonSettings() {
   const saved = unwrap(await api.saveSettings({
-    theme: ['light', 'dark', 'system'].includes($('#themeSelect').value) ? $('#themeSelect').value : 'light',
+    theme: ['light', 'dark', 'black', 'system'].includes($('#themeSelect').value) ? $('#themeSelect').value : 'light',
     startWithWindows: $('#startWithWindowsToggle').checked,
     autoStartServices: $('#autoStartToggle').checked,
     keepRunningOnClose: $('#keepRunningToggle').checked,

@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, WebContentsView } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
@@ -16,10 +16,50 @@ app.on('window-all-closed', () => {});
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const errors = [];
 const probeLayout = require('./ui-layout-probe');
+let stage = 'start';
+async function settleRenderer() {
+  const deadline = performance.now() + 3000;
+  let previous = '', stable = 0;
+  while (performance.now() < deadline) {
+    // Assert final geometry deterministically even when Windows occludes the fixture.
+    for (const animation of document.getAnimations()) {
+      if (animation.playState === 'running' && Number.isFinite(animation.effect.getComputedTiming().endTime)) animation.finish();
+    }
+    // Exercise the production layout calculation without relying on occluded rAF.
+    if (typeof syncChatContentInsets === 'function') syncChatContentInsets();
+    const current = JSON.stringify(Array.from(document.querySelectorAll('.browser-toolbar,#workbench,#previewChat,#studioSidebar,#shellFooter'), el => {
+      const rect = el.getBoundingClientRect(); return [rect.x,rect.y,rect.width,rect.height];
+    }));
+    stable = current === previous ? stable + 1 : 0; previous = current;
+    if (stable >= 3) return;
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  throw new Error('isolated renderer layout did not settle');
+}
+async function settleLayout(win) {
+  await win.webContents.executeJavaScript(`(${settleRenderer.toString()})()`);
+}
+async function captureBounded(promise) {
+  let timer;
+  try { return await Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('capture timed out')), 5000); })]); }
+  finally { clearTimeout(timer); }
+}
 async function captureFixture(win) {
-  const bounds=win.getBounds();win.setBounds({...bounds,x:-10000,y:-10000});win.showInactive();
-  await delay(180);
-  try{return await win.webContents.capturePage();}finally{win.hide();win.setBounds(bounds);}
+  try {
+    const image = await captureBounded(win.capturePage(undefined, { stayHidden: true, stayAwake: true }));
+    if (!image.isEmpty()) return image;
+  } catch (error) { if (!/UnknownVizError|surface|capture timed out/i.test(error.message)) throw error; }
+  const bounds = win.getBounds(), wasVisible = win.isVisible(); win.setBounds({ ...bounds, x: -10000, y: -10000 }, false); win.showInactive();
+  try {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await delay(200);
+      try {
+        const image = await captureBounded(win.capturePage());
+        if (image.isEmpty()) throw new Error('Empty capture');
+        return image;
+      } catch (error) { if (attempt === 2 || !/UnknownVizError|surface|Empty capture|capture timed out/i.test(error.message)) throw error; }
+    }
+  } finally { if (!wasVisible) win.hide(); win.setBounds(bounds, false); }
 }
 let previewProcess;
 function startPreview() {
@@ -34,7 +74,8 @@ function startPreview() {
 process.on('exit', () => previewProcess?.kill());
 app.whenReady().then(async () => {
   const previewUrl = await startPreview();
-  const window = new BrowserWindow({ show: false, width: 1440, height: 1024, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
+  const window = new BrowserWindow({ show: false, frame:false, thickFrame:false, useContentSize:true, x:-10000, y:-10000, width: 1440, height: 1024, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
+  window.showInactive();
   window.webContents.on('console-message', (_event, details) => { if (details.level === 'error') errors.push(details.message); });
   const results = [];
   for (const item of [
@@ -42,71 +83,188 @@ app.whenReady().then(async () => {
     { name: 'dark-workbench', width: 1440, height: 1024, theme: 'dark', scenario: 'ready', open: true },
     { name: 'dark-interrupted', width: 1440, height: 1024, theme: 'dark', scenario: 'interrupted', open: true },
     { name: 'light-workbench', width: 1440, height: 1024, theme: 'light', scenario: 'ready', open: true },
+    { name: 'black-workbench', width: 1440, height: 1024, theme: 'black', scenario: 'ready', open: true },
     { name: 'narrow-960', width: 960, height: 640, theme: 'dark', scenario: 'interrupted', open: true },
     { name: 'narrow-640', width: 640, height: 600, theme: 'dark', scenario: 'interrupted', open: true }
   ]) {
+    stage = item.name;
     window.setContentSize(item.width, item.height);
     await window.loadURL(`${previewUrl}/?theme=${item.theme}&scenario=${item.scenario}&workbench=${item.open ? '1' : '0'}`);
-    await delay(300);
+    await settleLayout(window);
     const geometry = await window.webContents.executeJavaScript(`(() => {
       const rect = (id) => { const r = document.querySelector(id).getBoundingClientRect(); return { x:r.x,y:r.y,width:r.width,height:r.height,right:r.right,bottom:r.bottom }; };
       const ids = Array.from(document.querySelectorAll('[id]'), el => el.id);
-      return { toolbar:rect('.browser-toolbar'), panel:rect('#workbench'), frame:rect('#previewChat'), footer:rect('#shellFooter'), duplicates:ids.filter((id,index) => ids.indexOf(id)!==index), buttons:Array.from(document.querySelectorAll('.toolbar-main button'), el=>({id:el.id,width:el.getBoundingClientRect().width,height:el.getBoundingClientRect().height,visible:!!el.getBoundingClientRect().width,right:el.getBoundingClientRect().right})), overflow:document.documentElement.scrollWidth > innerWidth, incident:!document.querySelector('#connectionIncident').hidden, localTask:document.getElementById('taskStatusLabel').textContent };
+      return { toolbar:rect('.browser-toolbar'), sidebar:rect('#studioSidebar'), sidebarOpen:!document.getElementById('studioSidebar').inert, panel:rect('#workbench'), frame:rect('#previewChat'), footer:rect('#shellFooter'), duplicates:ids.filter((id,index) => ids.indexOf(id)!==index), buttons:Array.from(document.querySelectorAll('.toolbar-main button'), el=>({id:el.id,width:el.getBoundingClientRect().width,height:el.getBoundingClientRect().height,visible:!!el.getBoundingClientRect().width,right:el.getBoundingClientRect().right})), overflow:document.documentElement.scrollWidth > innerWidth, incident:!document.querySelector('#connectionIncident').hidden, localTask:document.getElementById('taskStatusLabel').textContent };
     })()`);
     assert.deepEqual(geometry.duplicates, []);
     assert.equal(geometry.overflow, false, item.name);
     assert.equal(geometry.incident, item.scenario === 'interrupted');
     assert.equal(geometry.localTask, '空闲', 'page interruption must not mark a local task failed');
-    assert.ok(geometry.buttons.every((button) => !button.visible || button.height <= 40 && button.right <= item.width + 1), `toolbar controls clipped: ${item.name}`);
+    if (item.theme === 'black') {
+      const colors = await window.webContents.executeJavaScript(`['body','.browser-toolbar','.studio-sidebar','.workbench'].map(selector=>getComputedStyle(document.querySelector(selector)).backgroundColor)`);
+      assert.deepEqual(colors,['rgb(0, 0, 0)','rgb(0, 0, 0)','rgb(0, 0, 0)','rgb(0, 0, 0)']);
+    }
+    assert.ok(geometry.buttons.every((button) => !button.visible || button.height <= 40 && button.right <= item.width + 1), `toolbar controls clipped: ${item.name}: ${JSON.stringify(geometry)}`);
     assert.ok(Math.abs(geometry.frame.y - geometry.toolbar.height) <= 1);
+    assert.ok(Math.abs(geometry.frame.x - geometry.toolbar.x) <= 1, `native chat must leave navigation space: ${JSON.stringify(geometry)}`);
+    assert.equal(geometry.sidebarOpen, item.width >= 1180, `${item.name}: responsive navigation`);
+    if (geometry.sidebarOpen) assert.ok(Math.abs(geometry.frame.x - geometry.sidebar.right) <= 1);
     assert.ok(Math.abs(geometry.frame.bottom - geometry.footer.y) <= 1);
     if (item.open) assert.ok(Math.abs(geometry.frame.right - geometry.panel.x) <= 1, `${item.name}: ${JSON.stringify(geometry)}`);
     fs.writeFileSync(path.join(output, `${item.name}.png`), (await captureFixture(window)).toPNG());
     results.push({ ...item, geometry });
   }
   const expandedSidebars=[];
-  for (const theme of ['dark','light']) for (const width of [1440,960]) {
+  for (const theme of ['dark','light','black']) for (const width of [1440,960]) {
+    stage = `expanded-${theme}-${width}`;
     window.setContentSize(width,width===960?640:720);
-    await window.loadURL(`${previewUrl}/?theme=${theme}&workbench=1`); await delay(180);
+    await window.loadURL(`${previewUrl}/?theme=${theme}&workbench=1`); await settleLayout(window);
+    await window.webContents.executeJavaScript(`(() => {
+      document.getElementById('studioConnectionsTab').click();
+      document.getElementById('workspaceHealthButton').click(); document.getElementById('contextUsageButton').click();
+    })()`);
+    await settleLayout(window);
+    const connections = await window.webContents.executeJavaScript(`(${probeLayout.toString()})('.workbench .popover-header,.workbench .popover-actions,.workbench .workspace-quick-tools,.workbench .popover-grid,.workbench .health-row>div')`);
+    assert.deepEqual(connections.issues, [], `${theme}/${width} expanded connections`);
+    assert.equal(connections.bodyOverflow, false);
+    fs.writeFileSync(path.join(output, `connections-${theme}-${width}.png`), (await captureFixture(window)).toPNG());
     await window.webContents.executeJavaScript(`(async()=>{
+      document.getElementById('studioAdvisorsTab').click();
       const job={id:'expanded_layout_fixture',status:'completed',responses:[{model:'anthropic::claude-opus-5-5',status:'answered',answer:'这是一段较长的设计审查意见，需要独立滚动阅读。\\n'.repeat(80)},{model:'google::gemini-3.8-flash-high',status:'answered',answer:'这是另一段较长的辅助分析意见。\\n'.repeat(60)}]};
       window.browserAssistant.advisoryResult=()=>Promise.resolve({ok:true,data:job});
       window.browserAssistant.advisoryStatus=()=>Promise.resolve({ok:true,data:{configured:true,models:[],selected:[],job}});
       document.getElementById('advisoryResult').click(); await new Promise(resolve=>setTimeout(resolve,80));
-      document.getElementById('workspaceHealthButton').click();document.getElementById('contextUsageButton').click();
-      document.querySelectorAll('#workbench details').forEach(el=>el.open=true);
+      document.querySelectorAll('#studioAdvisorsPanel details').forEach(el=>el.open=true);
     })()`);
-    await delay(120);
-    const layout=await window.webContents.executeJavaScript(`(${probeLayout.toString()})('.workbench .advisory-actions,.workbench .popover-header,.workbench .popover-actions,.workbench .workspace-quick-tools,.workbench .popover-grid,.workbench .health-row>div')`);
+    await settleLayout(window);
+    const layout=await window.webContents.executeJavaScript(`(${probeLayout.toString()})('.workbench .advisory-actions')`);
     assert.deepEqual(layout.issues,[],`${theme}/${width} expanded workbench`); assert.equal(layout.bodyOverflow,false);
     assert.ok(layout.scrollbars.length&&layout.scrollbars.every(s=>s.width==='6px'&&s.track==='rgba(0, 0, 0, 0)'&&s.buttons==='none'&&s.nativeWidth==='auto'),'shared workbench scrollbars');
     const reading=await window.webContents.executeJavaScript(`(() => {
       const panel=document.querySelector('.workbench-content'),answers=Array.from(document.querySelectorAll('.advisory-answers p'));
       const before=answers.map(el=>el.textContent); panel.scrollTop=panel.scrollHeight;
       const bounds=document.querySelector('#workbench').getBoundingClientRect();
-      return {panelBounds:[bounds.left,bounds.right],scrolls:panel.scrollHeight>panel.clientHeight,contentHeight:panel.clientHeight,bodyBounded:answers.length===2&&answers.every(el=>el.clientHeight<=240&&el.scrollHeight>el.clientHeight),font:answers.map(el=>getComputedStyle(el).fontSize),retained:answers.every((el,i)=>el.textContent===before[i]),endReachable:document.querySelector('.workbench-actions').getBoundingClientRect().bottom<=panel.getBoundingClientRect().bottom+2};
+      return {panelBounds:[bounds.left,bounds.right],scrolls:panel.scrollHeight>panel.clientHeight,contentHeight:panel.clientHeight,bodyBounded:answers.length===2&&answers.every(el=>el.clientHeight<=240&&el.scrollHeight>el.clientHeight),font:answers.map(el=>getComputedStyle(el).fontSize),retained:answers.every((el,i)=>el.textContent===before[i]),endReachable:document.getElementById('studioAdvisorsPanel').getBoundingClientRect().bottom<=panel.getBoundingClientRect().bottom+2};
     })()`);
     assert.ok(reading.scrolls&&reading.contentHeight>150&&reading.bodyBounded&&reading.retained&&reading.endReachable);
     assert.deepEqual(reading.font,['16px','16px']);
     assert.ok(reading.panelBounds[0]>=0&&Math.abs(reading.panelBounds[1]-width)<=1);
     await window.webContents.executeJavaScript(`const panel=document.querySelector('.workbench-content');panel.scrollTop=document.querySelector('.advisory-answers').offsetTop-panel.offsetTop`); await delay(80);
     fs.writeFileSync(path.join(output,`expanded-workbench-${theme}-${width}.png`),(await captureFixture(window)).toPNG());
-    expandedSidebars.push({theme,width,layout,reading});
+    expandedSidebars.push({theme,width,connections,layout,reading});
   }
+  stage = 'task-feedback';
+  const taskFeedback = [];
+  for (const theme of ['dark','light','black']) for (const width of [1440,640]) for (const [phase,group,checked] of [
+    ['running','进行中',1],['waiting','等待网页',3],['attention','需要处理',3],['completed','本次已完成',4]
+  ]) {
+    window.setContentSize(width,720);
+    await window.loadURL(`${previewUrl}/?theme=${theme}&scenario=design&phase=${phase}&workbench=1&panel=activity`); await settleLayout(window);
+    const state = await window.webContents.executeJavaScript(`(async()=>{
+      const first=document.querySelector('#studioPlanSteps li'); await refreshTask();
+      const plan=document.getElementById('studioTaskPlan');
+      return {group:document.getElementById('studioTaskGroup').textContent,label:document.getElementById('studioTaskState').textContent,checked:document.querySelectorAll('#studioPlanSteps input:checked').length,steps:document.querySelectorAll('#studioPlanSteps li').length,plan:!plan.hidden,recap:!document.getElementById('studioTaskRecap').hidden,retained:first===document.querySelector('#studioPlanSteps li'),nextHidden:document.getElementById('studioTaskNext').hidden,layout:(${probeLayout.toString()})('.studio-task-plan>summary,.studio-task-plan li')};
+    })()`);
+    assert.equal(state.group,group,phase); assert.equal(state.checked,checked,phase); assert.equal(state.steps,4);
+    if (phase==='attention') assert.equal(state.label,'等待处理');
+    assert.ok(state.plan&&state.recap&&state.retained); assert.equal(state.nextHidden,phase==='completed');
+    assert.deepEqual(state.layout.issues,[],`${theme}/${width}/${phase}`); assert.equal(state.layout.bodyOverflow,false);
+    if (theme==='black' && ['waiting','attention'].includes(phase)) fs.writeFileSync(path.join(output,`task-${phase}-${theme}-${width}.png`),(await captureFixture(window)).toPNG());
+    taskFeedback.push({theme,width,phase,state});
+  }
+  const stateChange = await window.webContents.executeJavaScript(`(async()=>{
+    document.getElementById('studioTaskPlan').open=false;
+    document.getElementById('workbenchActivity').click();
+    document.querySelector('#previewDemoDialog button').click(); await refreshTask();
+    const running=document.getElementById('studioTaskGroup').textContent==='进行中';
+    document.getElementById('workbenchActivity').click();
+    Array.from(document.querySelectorAll('#previewDemoDialog button')).find(el=>el.textContent==='等待网页').click(); await refreshTask();
+    const waiting=document.getElementById('studioTaskGroup').textContent==='等待网页';
+    const collapsed=!document.getElementById('studioTaskPlan').open;
+    const changed=document.querySelectorAll('#studioPlanSteps .studio-step-changed').length;
+    await refreshTask();
+    return {running,waiting,collapsed,changed,planCount:document.getElementById('studioPlanCount').textContent};
+  })()`);
+  assert.ok(stateChange.running&&stateChange.waiting&&stateChange.collapsed&&stateChange.changed);
+  assert.equal(stateChange.planCount,'3 / 4');
+  stage = 'chat-appearance-toggle';
+  const chatAppearanceUi = [];
+  for (const width of [1440,640]) {
+    window.setContentSize(width,720);
+    await window.loadURL(previewUrl+'/?theme=black&scenario=chat-skin');await settleLayout(window);
+    const checks = await window.webContents.executeJavaScript(`(async()=>{
+      const frame=document.getElementById('previewChat'),doc=frame.contentDocument;
+      const editor=doc.getElementById('prompt-textarea');editor.textContent='保留中的网页草稿';
+      const original=doc.querySelector('[data-message-author-role=assistant]');
+      doc.getElementById('toolActivity').open=true;
+      const text=original.innerHTML;
+      const off=!document.getElementById('chatAppearanceToggle').checked;
+      const before=JSON.stringify(frame.getBoundingClientRect().toJSON());
+      document.getElementById('moreButton').click();await (${settleRenderer.toString()})();
+      const menu=document.getElementById('moreMenu').getBoundingClientRect();
+      const overlay=before===JSON.stringify(frame.getBoundingClientRect().toJSON())&&document.getElementById('moreMenu').matches(':popover-open')&&menu.top>=0&&menu.bottom<=innerHeight&&menu.right<=innerWidth;
+      document.getElementById('chatAppearanceToggle').click();await new Promise(resolve=>setTimeout(resolve,80));
+      const on=document.getElementById('chatAppearanceToggle').checked&&doc.documentElement.getAttribute('data-thinktank-chat')==='claude'&&getComputedStyle(doc.getElementById('stage-sidebar')).display==='none';
+      const same=original===doc.querySelector('[data-message-author-role=assistant]')&&text===original.innerHTML&&editor.textContent==='保留中的网页草稿'&&doc.getElementById('toolActivity').open;
+      document.getElementById('chatAppearanceToggle').click();await new Promise(resolve=>setTimeout(resolve,80));
+      const restored=!doc.documentElement.hasAttribute('data-thinktank-chat')&&getComputedStyle(doc.getElementById('stage-sidebar')).display!=='none';
+      document.getElementById('moreButton').click();await (${settleRenderer.toString()})();
+      return {off,on,same,restored,overlay};
+    })()`);
+    for(const [name,value] of Object.entries(checks)) assert.equal(value,true,'chat appearance UI '+width+'/'+name);
+    chatAppearanceUi.push({width,checks});
+  }
+  stage = 'interactions';
+  window.setContentSize(1440, 900);
   await window.loadURL(`${previewUrl}/?theme=dark`);
-  await delay(100);
+  await settleLayout(window);
   const interactions = await window.webContents.executeJavaScript(`(async () => {
     const click = id => document.getElementById(id).click();
-    const wait = () => new Promise(resolve => setTimeout(resolve,50));
+    const wait = ${settleRenderer.toString()};
+    const key = (id, value) => document.getElementById(id).dispatchEvent(new KeyboardEvent('keydown', {key:value,bubbles:true}));
     click('workbenchToggle'); await wait();
     const opened = !document.getElementById('workbench').hidden;
+    const sidebarHandle = document.getElementById('studioSidebarResize');
+    const initialSidebarWidth = document.getElementById('studioSidebar').getBoundingClientRect().width;
+    key('studioSidebarResize','ArrowRight'); await wait();
+    const sidebarResizeStep = Math.abs(document.getElementById('studioSidebar').getBoundingClientRect().width - initialSidebarWidth - 20) <= 1;
+    key('studioSidebarResize','Home'); key('studioSidebarResize','ArrowLeft'); await wait();
+    const sidebarResizeMin = Math.abs(document.getElementById('studioSidebar').getBoundingClientRect().width - Number(sidebarHandle.getAttribute('aria-valuemin'))) <= 1;
+    key('studioSidebarResize','End'); await wait();
+    const sidebarResizeMax = Math.abs(document.getElementById('studioSidebar').getBoundingClientRect().width - Number(sidebarHandle.getAttribute('aria-valuemax'))) <= 1;
+    const resizedFrame = document.getElementById('previewChat').getBoundingClientRect();
+    const sidebarResizeReserved = Math.abs(resizedFrame.left - document.getElementById('studioSidebar').getBoundingClientRect().right) <= 1 && resizedFrame.width >= 240;
+    const activeTab = name => {
+      const tabs = Array.from(document.querySelectorAll('[data-studio-tab]'));
+      return tabs.filter(el => el.getAttribute('aria-selected') === 'true').length === 1 && tabs.filter(el => el.tabIndex === 0).length === 1 && tabs.find(el => el.tabIndex === 0).dataset.studioTab === name && Array.from(document.querySelectorAll('[data-studio-panel]')).every(el => el.hidden === (el.dataset.studioPanel !== name));
+    };
+    const tabsExclusive = activeTab('activity');
+    document.getElementById('studioActivityTab').focus(); key('studioActivityTab','ArrowRight'); await wait();
+    const keyboardNext = activeTab('advisors') && document.activeElement.id === 'studioAdvisorsTab';
+    key('studioAdvisorsTab','End'); await wait();
+    const keyboardEnd = activeTab('connections') && document.activeElement.id === 'studioConnectionsTab';
+    key('studioConnectionsTab','Home'); await wait();
+    key('studioActivityTab','ArrowLeft'); await wait();
+    const keyboardWrap = activeTab('connections') && document.activeElement.id === 'studioConnectionsTab';
+    const handle = document.getElementById('workbenchResize');
+    const initialWidth = document.getElementById('workbench').getBoundingClientRect().width;
+    key('workbenchResize','ArrowLeft'); await wait();
+    const resizeStep = Math.abs(document.getElementById('workbench').getBoundingClientRect().width - initialWidth - 20) <= 1;
+    key('workbenchResize','End'); await wait();
+    const resizeMax = Math.abs(document.getElementById('workbench').getBoundingClientRect().width - Number(handle.getAttribute('aria-valuemax'))) <= 1;
+    key('workbenchResize','Home'); key('workbenchResize','ArrowRight'); await wait();
+    const resizeMin = Math.abs(document.getElementById('workbench').getBoundingClientRect().width - 280) <= 1;
     click('closeWorkbench'); await wait();
     const closed = document.getElementById('workbench').hidden;
+    const closeFocus = document.activeElement.id === 'workbenchToggle';
+    click('workbenchToggle'); await wait();
+    const panelStateRetained = activeTab('connections') && Math.abs(document.getElementById('workbench').getBoundingClientRect().width - 280) <= 1;
+    click('closeWorkbench'); await wait();
     click('moreButton'); await wait();
     const more = !document.getElementById('moreMenu').hidden;
     document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape'})); await wait();
     const escaped = document.getElementById('moreMenu').hidden;
-    click('workbenchToggle'); click('advisoryRefresh'); await wait();
+    click('studioAdvisors'); click('advisoryRefresh'); await wait();
     const check = document.querySelector('#extensionProviders input'); check.click(); await wait();
     const consulted = !document.getElementById('advisoryQuestion') && !document.getElementById('advisorySubmit') && document.getElementById('advisoryStatus').textContent.includes('AI 辅助已启用');
     const providers=document.getElementById('extensionProviders');
@@ -129,6 +287,9 @@ app.whenReady().then(async () => {
     click('advisoryResult'); await wait();
     const refreshed = document.querySelector('#advisoryAnswers details');
     const answerStatePreserved = refreshed.open && refreshed.querySelector('p').scrollTop === 100;
+    click('studioActivityTab'); await wait();
+    click('studioAdvisorsTab'); await wait();
+    const answerTabStatePreserved = document.querySelector('#advisoryAnswers details').open && document.querySelector('#advisoryAnswers p').scrollTop === 100;
     advisoryFixture.id='collapse_fixture_456';
     click('advisoryResult'); await wait();
     const nextAnswersCollapsed = Array.from(document.querySelectorAll('#advisoryAnswers details')).every(card=>!card.open);
@@ -136,13 +297,87 @@ app.whenReady().then(async () => {
     const consoleOpen = !document.getElementById('taskConsoleDrawer').hidden;
     click('closeConsoleBtn'); await wait();
     const consoleClosed = document.getElementById('taskConsoleDrawer').hidden;
+    const historyBefore = JSON.stringify(document.getElementById('previewChat').getBoundingClientRect().toJSON());
     click('openTaskHistoryButton'); await wait();
     const history = document.getElementById('taskHistoryPopover').getBoundingClientRect();
     const frame = document.getElementById('previewChat').getBoundingClientRect();
-    const historyReserved = !document.getElementById('taskHistoryPopover').hidden && frame.bottom <= history.top + 1;
-    return {opened,closed,more,escaped,consulted,argonPromoted,modelListStatePreserved,selectedModelVisible,answersCollapsed,answersScrollable,answerStatePreserved,nextAnswersCollapsed,consoleOpen,consoleClosed,historyReserved};
+    const historyOverlay = !document.getElementById('taskHistoryPopover').hidden && document.getElementById('taskHistoryPopover').matches(':popover-open') && historyBefore===JSON.stringify(frame.toJSON()) && history.top>=0&&history.bottom<=innerHeight;
+    const actions=[];
+    window.browserAssistant.navigate = action => { actions.push('navigate:'+action); return Promise.resolve({ok:true,data:{}}); };
+    window.browserAssistant.openWorkspaceWindow = () => { actions.push('workspaces'); return Promise.resolve({ok:true,data:{}}); };
+    window.browserAssistant.openManager = () => { actions.push('settings'); return Promise.resolve({ok:true,data:{}}); };
+    window.browserAssistant.switchWorkspace = path => { actions.push('workspace:'+path); return Promise.resolve({ok:true,data:{}}); };
+    click('studioNewChat'); click('studioWorkspaceHub'); click('studioSettings');
+    const workspaceButton = document.querySelectorAll('#studioWorkspaceList button')[1], workspaceTarget = workspaceButton.title;
+    workspaceButton.click(); await wait();
+    const navigationMapped = actions.includes('navigate:home') && actions.includes('workspaces') && actions.includes('settings') && actions.includes('workspace:'+workspaceTarget);
+    document.getElementById('studioNewChat').focus(); click('collapseSidebar'); await wait();
+    const sidebarCollapseFocus = document.getElementById('studioSidebar').inert && document.activeElement.id === 'expandSidebar';
+    return {opened,closed,sidebarResizeStep,sidebarResizeMin,sidebarResizeMax,sidebarResizeReserved,tabsExclusive,keyboardNext,keyboardEnd,keyboardWrap,resizeStep,resizeMax,resizeMin,closeFocus,panelStateRetained,more,escaped,consulted,argonPromoted,answersCollapsed,modelListStatePreserved,selectedModelVisible,answersScrollable,answerStatePreserved,answerTabStatePreserved,nextAnswersCollapsed,consoleOpen,consoleClosed,historyOverlay,navigationMapped,sidebarCollapseFocus};
   })()`);
   for (const [name, value] of Object.entries(interactions)) assert.equal(value, true, name);
+  await window.webContents.executeJavaScript(`toggleWorkbench(true)`); await settleLayout(window);
+  const rapidReopen = await window.webContents.executeJavaScript(`(() => {
+    toggleWorkbench(false);
+    const exiting=document.getElementById('workbench').inert&&!document.getElementById('workbench').hidden;
+    toggleWorkbench(true);
+    return exiting&&!document.getElementById('workbench').inert&&!document.getElementById('workbench').hidden;
+  })()`);
+  await settleLayout(window);
+  assert.equal(rapidReopen,true,'reopening cancels the exit without hiding the active pane');
+  assert.equal(await window.webContents.executeJavaScript(`document.getElementById('workbench').hidden`),false);
+  stage = 'navigation-persistence';
+  await window.loadURL(`${previewUrl}/?theme=dark`); await settleLayout(window);
+  assert.equal(await window.webContents.executeJavaScript(`document.getElementById('studioSidebar').inert`), true, 'explicit collapse survives reload');
+  await window.webContents.executeJavaScript(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'b',ctrlKey:true,bubbles:true}))`); await settleLayout(window);
+  await window.loadURL(`${previewUrl}/?theme=dark`); await settleLayout(window);
+  assert.equal(await window.webContents.executeJavaScript(`document.getElementById('studioSidebar').inert`), false, 'explicit expansion survives reload');
+  assert.equal(await window.webContents.executeJavaScript(`Number(document.getElementById('studioSidebarResize').getAttribute('aria-valuenow')) === Number(document.getElementById('studioSidebarResize').getAttribute('aria-valuemax')) && Math.abs(document.getElementById('previewChat').getBoundingClientRect().left-document.getElementById('studioSidebar').getBoundingClientRect().right)<=1`), true, 'navigation width survives reload and reserves native chat space');
+  stage = 'narrow-mutual-exclusion';
+  window.setContentSize(960, 640); await settleLayout(window);
+  const narrow = await window.webContents.executeJavaScript(`(async () => {
+    const wait = ${settleRenderer.toString()};
+    document.getElementById('workbenchToggle').click();
+    await wait();
+    const workbenchOnly = !document.getElementById('workbench').hidden && document.getElementById('studioSidebar').inert;
+    document.dispatchEvent(new KeyboardEvent('keydown',{key:'b',ctrlKey:true,bubbles:true}));
+    await wait();
+    const sidebarOnly = document.getElementById('workbench').hidden && !document.getElementById('studioSidebar').inert;
+    document.getElementById('workbenchToggle').click();
+    await wait();
+    return {workbenchOnly,sidebarOnly,workbenchRestored:!document.getElementById('workbench').hidden&&document.getElementById('studioSidebar').inert};
+  })()`);
+  for (const [name,value] of Object.entries(narrow)) assert.equal(value,true,name);
+  await settleLayout(window);
+  const narrowFrame = await window.webContents.executeJavaScript(`({left:document.getElementById('previewChat').getBoundingClientRect().left,width:document.getElementById('previewChat').getBoundingClientRect().width})`);
+  assert.equal(narrowFrame.left,0); assert.ok(narrowFrame.width>=240,'narrow panes retain usable chat width');
+  stage = 'compact-navigation';
+  window.setContentSize(640,600); await settleLayout(window);
+  await window.webContents.executeJavaScript(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'b',ctrlKey:true,bubbles:true}))`); await settleLayout(window);
+  const compactNavigation = await window.webContents.executeJavaScript(`(() => {
+    const sidebar=document.getElementById('studioSidebar'),frame=document.getElementById('previewChat').getBoundingClientRect();
+    return {sidebarOpen:!sidebar.inert,workbenchClosed:document.getElementById('workbench').hidden,sidebarWidth:sidebar.getBoundingClientRect().width,chatLeft:frame.left,chatWidth:frame.width};
+  })()`);
+  assert.ok(compactNavigation.sidebarOpen&&compactNavigation.workbenchClosed);
+  assert.ok(compactNavigation.chatWidth>=240&&Math.abs(compactNavigation.chatLeft-compactNavigation.sidebarWidth)<=1, `compact navigation must leave 240px chat space: ${JSON.stringify(compactNavigation)}`);
+  window.setContentSize(1440,900); await settleLayout(window);
+  const restoredNavigation = await window.webContents.executeJavaScript(`({width:document.getElementById('studioSidebar').getBoundingClientRect().width,left:document.getElementById('previewChat').getBoundingClientRect().left,preferred:Number(localStorage.getItem('studio-sidebar-width'))})`);
+  assert.equal(restoredNavigation.width,420,'returning to a wide viewport restores the chosen navigation width');
+  assert.equal(restoredNavigation.left,420); assert.equal(restoredNavigation.preferred,420);
+  stage = 'reduced-motion';
+  let reducedMotion;
+  window.webContents.debugger.attach('1.3');
+  try {
+    await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+    await window.webContents.executeJavaScript(`window.studioShell.showTab('advisors')`);
+    reducedMotion = await window.webContents.executeJavaScript(`({requested:matchMedia('(prefers-reduced-motion: reduce)').matches,styles:Array.from(document.querySelectorAll('.studio-sidebar,.browser-toolbar,.shell-footer,.workbench-header,.studio-panel-tabs,[data-studio-panel]'),el=>({animation:getComputedStyle(el).animationName,transition:getComputedStyle(el).transitionDuration}))})`);
+    assert.equal(reducedMotion.requested,true);
+    assert.ok(reducedMotion.styles.every(style=>style.animation==='none'&&style.transition==='0s'),'reduced motion disables pane and layout animation');
+    reducedMotion.immediateClose = await window.webContents.executeJavaScript(`(() => { toggleWorkbench(false); return document.getElementById('workbench').hidden&&document.getElementById('workbench').inert; })()`);
+    assert.equal(reducedMotion.immediateClose,true,'reduced motion also disables the JavaScript exit animation');
+    await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [] });
+  } finally { window.webContents.debugger.detach(); }
+  stage = 'native-geometry';
   const { ChatViewController } = require('../electron/chatViewController');
   window.setContentSize(640,600);
   const controller = new ChatViewController({ window, toolbarHeight: 56, settings: { load: () => ({}) }, log: { info(){},warn(){},error(){} } });
@@ -150,12 +385,20 @@ app.whenReady().then(async () => {
   controller.loadHome = async () => {};
   controller.mount();
   await controller.view.webContents.loadURL('data:text/html,<p>isolated native geometry fixture</p>');
-  controller.setContentInsets({ toolbarHeight: 108, right: 300, bottom: 36 });
+  const authView = new WebContentsView({ webPreferences: { sandbox:true,contextIsolation:true,nodeIntegration:false } });
+  window.contentView.addChildView(authView); controller.authViews.push(authView);
+  await authView.webContents.loadURL('data:text/html,<p>isolated authentication geometry fixture</p>');
+  controller.setContentInsets({ toolbarHeight: 108, top:24, left:240, right:300, bottom:36 });
   const bounds = controller.view.getBounds();
-  assert.deepEqual(bounds, { x: 0, y: 108, width: 340, height: 456 });
+  const authBounds = authView.getBounds();
+  assert.deepEqual(bounds, { x: 240, y: 132, width: 240, height: 432 });
+  assert.deepEqual(authBounds, { x: 240, y: 108, width: 240, height: 456 });
+  controller.setContentInsets({ toolbarHeight:56, bottom:32 });
+  assert.deepEqual(controller.view.getBounds(), { x:0,y:56,width:640,height:512 });
+  assert.deepEqual(authView.getBounds(), { x:0,y:56,width:640,height:512 });
   controller.dispose();
   assert.deepEqual(errors, []);
-  fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify({ ok: true, scale, results, expandedSidebars, interactions, nativeBounds: bounds, errors }, null, 2));
+  fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify({ ok: true, scale, results, expandedSidebars, taskFeedback, stateChange, chatAppearanceUi, rapidReopen, interactions, narrow, compactNavigation, restoredNavigation, reducedMotion, nativeBounds: bounds, authBounds, errors }, null, 2));
   window.destroy();
   app.exit(0);
-}).catch((error) => { fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify({ ok: false, error: error.stack, errors }, null, 2)); app.exit(1); });
+}).catch((error) => { fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify({ ok: false, stage, error: error.stack, errors }, null, 2)); app.exit(1); });

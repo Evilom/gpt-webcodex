@@ -22,24 +22,37 @@ test('missing status is unknown rather than a claim that a service stopped', () 
   assert.equal(view.tunnel.label, '等待确认');
   assert.equal(view.incident, null);
 });
-test('sidebar, alerts and console reserve native chat space and closing restores it', () => {
+test('navigation, workbench, alerts and console reserve native chat space and closing restores it', () => {
   const bounds = [];
   const controller = new ChatViewController({ window: { isDestroyed: () => false, getContentSize: () => [1440, 1024] }, toolbarHeight: 56 });
   controller.view = { webContents: { isDestroyed: () => false }, setBounds: (value) => bounds.push(value) };
-  controller.setContentInsets({ toolbarHeight: 108, right: 300, bottom: 36 });
-  assert.deepEqual(bounds.at(-1), { x: 0, y: 108, width: 1140, height: 880 });
-  controller.setContentInsets({ toolbarHeight: 108, right: 300, bottom: 336 });
+  controller.setContentInsets({ toolbarHeight: 108, left: 240, right: 340, bottom: 36 });
+  assert.deepEqual(bounds.at(-1), { x: 240, y: 108, width: 860, height: 880 });
+  controller.setContentInsets({ toolbarHeight: 108, left: 240, right: 340, bottom: 336 });
   assert.equal(bounds.at(-1).height, 580);
+  controller.setContentInsets({ toolbarHeight: 56, left: 420, right: 560, bottom: 32 });
+  assert.deepEqual(bounds.at(-1), { x: 420, y: 56, width: 460, height: 936 });
   controller.setContentInsets({ toolbarHeight: 56, right: 0, bottom: 36 });
   assert.deepEqual(bounds.at(-1), { x: 0, y: 56, width: 1440, height: 932 });
   const count = bounds.length;
   controller.setContentInsets({ toolbarHeight: 56, right: 0, bottom: 36 });
   assert.equal(bounds.length, count);
 });
+test('embedded authentication follows both sidebars while staying below the login toolbar', () => {
+  let chatBounds, authBounds;
+  const controller = new ChatViewController({ window: { isDestroyed: () => false, getContentSize: () => [1440, 1024] }, toolbarHeight: 56 });
+  controller.view = { webContents: { isDestroyed: () => false }, setBounds: (value) => { chatBounds = value; } };
+  controller.authViews = [{ webContents: { isDestroyed: () => false }, setBounds: (value) => { authBounds = value; } }];
+  controller.setContentInsets({ toolbarHeight: 56, top: 80, left: 240, right: 340, bottom: 32 });
+  assert.deepEqual(chatBounds, { x: 240, y: 136, width: 860, height: 856 });
+  assert.deepEqual(authBounds, { x: 240, y: 56, width: 860, height: 936 });
+  controller.setContentInsets({ toolbarHeight: 56, bottom: 32 });
+  assert.deepEqual(authBounds, { x: 0, y: 56, width: 1440, height: 936 });
+});
 test('native chat bounds stay nonnegative in a small viewport', () => {
   let bounds;
   const controller = new ChatViewController({ window: { isDestroyed: () => false, getContentSize: () => [400, 200] }, toolbarHeight: 56 });
   controller.view = { webContents: { isDestroyed: () => false }, setBounds: (value) => { bounds = value; } };
-  controller.setContentInsets({ toolbarHeight: 108, top: 1000, right: 300, bottom: 900 });
-  assert.deepEqual(bounds, { x: 0, y: 200, width: 240, height: 0 });
+  controller.setContentInsets({ toolbarHeight: 108, top: 1000, left: 240, right: 300, bottom: 900 });
+  assert.deepEqual(bounds, { x: 160, y: 200, width: 240, height: 0 });
 });

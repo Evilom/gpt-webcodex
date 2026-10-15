@@ -1,0 +1,8 @@
+{
+  "repository": "https://github.com/assistant-ui/assistant-ui",
+  "commit": "523d86ea12300d73f8bb0859c8228f88f8cd0f80",
+  "source": "apps/docs/components/pages/examples/claude.tsx",
+  "license": "MIT",
+  "packages": {"@assistant-ui/react":"0.15.28","@assistant-ui/react-markdown":"0.14.22"},
+  "reuse": "Runtime, Thread, Message, Markdown, Copy and scroll primitives; Claude ChatMessage composition adapted to existing theme. Native-page actions use our adapter; no cloud provider or copied vendor branding."
+}

@@ -33,3 +33,23 @@ test('system theme changes continue after switching mode through IPC', () => {
   page.switch('dark'); page.system(false);
   assert.equal(page.body.dataset.theme, 'dark');
 });
+
+test('pure black retains dark controls and its own palette across live and system changes', () => {
+  const { normalize, DEFAULTS } = require('../electron/services/config');
+  const settings = normalize({ ...DEFAULTS, theme: 'black' });
+  assert.equal(normalize(JSON.parse(JSON.stringify(settings))).theme, 'black');
+  const page = bootstrap('?theme=' + settings.theme);
+  for (const node of [page.body, page.html]) {
+    assert.equal(node.dataset.theme, 'dark');
+    assert.equal(node.dataset.themeMode, 'black');
+  }
+  page.system(false);
+  assert.equal(page.body.dataset.themeMode, 'black');
+  page.switch('light');
+  assert.equal(page.html.dataset.themeMode, 'light');
+  page.switch('black'); page.system(true);
+  assert.equal(page.body.dataset.themeMode, 'black');
+  page.switch('system'); page.system(false);
+  assert.equal(page.body.dataset.theme, 'light');
+  assert.equal(page.html.dataset.themeMode, 'system');
+});

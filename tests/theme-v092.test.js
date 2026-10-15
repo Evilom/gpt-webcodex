@@ -10,8 +10,8 @@ const css = fs.readFileSync('renderer/manager-v2.css', 'utf8');
 const bootstrap = fs.readFileSync('renderer/theme-bootstrap.js', 'utf8');
 
 test('0.9.2 supports light dark and system themes end to end', () => {
-  assert.match(config, /\['light', 'dark', 'system'\]/);
-  assert.match(main, /\['light', 'dark', 'system'\]\.includes\(settings\.load\(\)\.theme\)/);
+  assert.match(config, /\['light', 'dark', 'black', 'system'\]/);
+  assert.match(main, /\['light', 'dark', 'black', 'system'\]\.includes\(settings\.load\(\)\.theme\)/);
   assert.match(html, /value="system">跟随系统/);
   assert.match(app, /prefers-color-scheme: dark/);
   assert.match(bootstrap, /prefers-color-scheme: dark/);

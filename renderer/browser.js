@@ -21,6 +21,7 @@ let currentConversationKey = '';
 let currentChatSchemaIdentity = '';
 let dismissedSchemaMismatch = '';
 let lastChatState = {};
+let workbenchExit = null;
 
 function renderConnections() {
   const view = window.shellPresentation.describe(lastChatState, lastRuntimeState, lastStreamState);
@@ -48,19 +49,34 @@ function renderConnections() {
 
 function toggleWorkbench(force) {
   const panel = $('#workbench');
-  const open = typeof force === 'boolean' ? force : panel.hidden;
-  panel.hidden = !open;
+  const open = typeof force === 'boolean' ? force : panel.hidden || panel.inert;
+  workbenchExit?.cancel();
+  workbenchExit = null;
+  if (open) window.studioShell?.beforeWorkbenchOpen();
   $('#workbenchToggle').setAttribute('aria-expanded', String(open));
   if (!open && panel.contains(document.activeElement)) $('#workbenchToggle').focus();
+  panel.inert = !open;
+  if (!open && !panel.hidden && innerWidth >= 1180 && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    const animation = panel.animate([{opacity:1,transform:'translateX(0)'},{opacity:0,transform:'translateX(16px)'}],{duration:140,easing:'cubic-bezier(.165,.84,.44,1)',fill:'forwards'});
+    workbenchExit = animation;
+    animation.finished.then(() => {
+      if (workbenchExit !== animation) return;
+      panel.hidden = true;
+      workbenchExit = null;
+      animation.cancel();
+      syncChatContentInsets();
+    }).catch(() => {});
+  } else panel.hidden = !open;
   syncChatContentInsets();
 }
 
 function toggleMore(force) {
   const menu = $('#moreMenu');
   const open = typeof force === 'boolean' ? force : menu.hidden;
+  if (open) closeHangOverlays('#moreMenu');
   menu.hidden = !open;
   $('#moreButton').setAttribute('aria-expanded', String(open));
-  syncChatContentInsets();
+  syncShellPopover();
 }
 
 function syncToolbarDensity(view, forceExpanded = false) {
@@ -140,7 +156,8 @@ function baseName(value) {
 function taskPresentation(task, runningOperation, streamState, available = true, activity = null, runtimeLayers = null) {
   // Local execution and webpage recovery have separate status surfaces.
   const view = window.assistantState.describe(task, runningOperation, { status: 'unknown' }, Date.now(), available, activity, !available, runtimeLayers);
-  return { key: view.key, tone: window.assistantState.toneFor(view), label: window.assistantState.labelFor(view), detail: view.message, canStop: Boolean(view.canStop) };
+  if (available && view.key === 'waiting' && window.assistantState.needsHumanAttention(task)) view.userState = 'waiting_user';
+  return { key: view.key, userState: view.userState, available, tone: window.assistantState.toneFor(view), label: window.assistantState.labelFor(view), detail: view.message, canStop: Boolean(view.canStop) };
 }
 
 function formatActivityTime(value) {
@@ -329,6 +346,10 @@ function renderActivityPanel() {
 function renderChatState(state) {
   if (!state) return;
   lastChatState = state;
+  $('#chatAppearanceToggle').checked = Boolean(state.appearance?.enabled);
+  $('#chatAppearanceStatus').textContent = state.appearance?.message || '默认关闭；直接使用原网页数据，关闭后恢复原生外观和导航。';
+  $('#independentChatToggle').checked = Boolean(state.replica?.enabled);
+  $('#independentChatStatus').textContent = state.replica?.message || '默认关闭；基于 assistant-ui，只读显示。';
   const nextConversationKey = chatConversationKey(state.url);
   if (nextConversationKey !== currentConversationKey) {
     const previousIdentity = currentChatSchemaIdentity;
@@ -360,6 +381,9 @@ function renderProgress() {
   renderActivityPanel();
   const detail = buildActivityDetailPayload();
   $('#workbenchTaskDetail').textContent = progressInput.task || progressInput.operation ? detail.stage || detail.waitReason || '暂无运行记录' : '当前没有运行中的本地任务';
+  $('#workbenchTaskDetail').hidden = !progressInput.task && !progressInput.operation;
+  $('#studioTaskRecap').hidden = !progressInput.task && !progressInput.operation;
+  $('#workbenchActivity').disabled = !progressInput.task && !progressInput.operation;
   const login = nativeLoginState;
   const activeLogin = login.active || ['starting', 'waiting', 'syncing', 'closing'].includes(login.status);
   $('#nativeLoginButton').disabled = ['starting', 'syncing', 'closing'].includes(login.status);
@@ -397,6 +421,7 @@ function renderProgress() {
     progressInput.runtimeLayers
   );
   const band = $('#progressBand');
+  window.studioShell?.updateTask(progressInput.task, taskPresentation(progressInput.task, progressInput.operation, lastStreamState, progressInput.available, progressInput.activity, progressInput.runtimeLayers));
   band.className = `progress-band ${view.key} tone-${window.assistantState.toneFor(view)}`;
   syncToolbarDensity(view);
   $('#progressMessage').textContent = view.message;
@@ -526,6 +551,7 @@ function renderWorkspace(hub) {
     : (hub.recentWorkspaces || []).filter(Boolean).map((workspace) => ({ path: workspace, name: baseName(workspace), active: workspace === activeWorkspace, status: 'ready' }));
   $('#workspacePickerButton').title = `当前：${activeWorkspace || '未选择'}；打开工作区中心（${workspaces.length} 个）`;
   $('#workbenchWorkspace').textContent = activeWorkspace || '未选择工作区';
+  window.studioShell?.renderWorkspaces(hub);
 }
 
 async function refreshWorkspace() {
@@ -740,8 +766,88 @@ setInterval(refreshApprovals, 10000);
 // Local console, Git, checkpoint and handoff tools retained during upstream integration.
 let lastTaskStatus = null;
 
-// WebContentsView (ChatGPT) is a native layer above HTML overlays.
-// Tell main process how much room console drawer / hanging popovers need.
+// Transient panels use a child window above the native web view. The browser
+// preview uses the same content in the HTML top layer; neither changes insets.
+let shellPopoverToken = 0;
+let activeShellPopover = null;
+let shellPopoverKey = '';
+const shellPopoverDefs = {
+  more: { selector:'#moreMenu',trigger:'#moreButton',width:280,maxHeight:480 },
+  history: { selector:'#taskHistoryPopover',trigger:'#openTaskHistoryButton',width:460,maxHeight:420,above:true }
+};
+
+function syncShellPopover() {
+  const key = Object.keys(shellPopoverDefs).find(key => !$(shellPopoverDefs[key].selector).hidden);
+  if (!key) {
+    if (!activeShellPopover) return;
+    const { node } = activeShellPopover;
+    activeShellPopover = null;
+    shellPopoverKey = '';
+    if (node.matches(':popover-open')) node.hidePopover();
+    if (api.nativeShellPopover) void api.setShellPopover(null).catch(() => {});
+    return;
+  }
+  const def = shellPopoverDefs[key], node = $(def.selector), trigger = $(def.trigger);
+  const fresh = activeShellPopover?.key !== key;
+  if (fresh) {
+    const previous = activeShellPopover?.node;
+    if (previous?.matches(':popover-open')) previous.hidePopover();
+    activeShellPopover = { key,node,token:String(++shellPopoverToken) };
+    shellPopoverKey = '';
+    node.setAttribute('popover','manual');
+    node.classList.toggle('native-popover-source',Boolean(api.nativeShellPopover));
+    node.inert = Boolean(api.nativeShellPopover);
+    if (api.nativeShellPopover) node.setAttribute('aria-hidden','true');
+    else { node.removeAttribute('aria-hidden'); node.showPopover(); }
+  }
+  const anchor = trigger.getBoundingClientRect();
+  node.style.width = `${Math.min(def.width,innerWidth-32)}px`;
+  node.style.maxHeight = `${Math.max(80,Math.min(def.maxHeight,innerHeight-96))}px`;
+  // Native sources also need layout for measurement, but never paint in host.
+  if (api.nativeShellPopover && !node.matches(':popover-open')) node.showPopover();
+  const size = node.getBoundingClientRect();
+  const x = Math.max(16,Math.min(innerWidth-size.width-16,anchor.right-size.width));
+  const y = Math.max(16,Math.min(innerHeight-size.height-16,def.above ? anchor.top-size.height-8 : anchor.bottom+8));
+  node.style.left = `${Math.round(x)}px`;
+  node.style.top = `${Math.round(y)}px`;
+  if (!api.nativeShellPopover) {
+    if (fresh) node.querySelector('button:not(:disabled),input:not(:disabled)')?.focus({preventScroll:true});
+    return;
+  }
+  const clone = node.cloneNode(true);
+  for (const attr of ['style','popover','inert','aria-hidden']) clone.removeAttribute(attr);
+  clone.classList.remove('native-popover-source');
+  for (const input of node.querySelectorAll('input[type=checkbox]')) clone.querySelector(`#${input.id}`)?.toggleAttribute('checked',input.checked);
+  const payload = { key,token:activeShellPopover.token,html:clone.outerHTML,theme:document.body.dataset.themeMode === 'black' ? 'black' : document.body.dataset.theme,
+    bounds:{x:Math.round(x)-8,y:Math.round(y)-8,width:Math.ceil(size.width)+16,height:Math.ceil(size.height)+16} };
+  const signature = JSON.stringify(payload);
+  if (signature === shellPopoverKey) return;
+  shellPopoverKey = signature;
+  void api.setShellPopover(payload).then(result => { if (result?.ok === false) throw new Error(result.error); }).catch(error => {
+    if (activeShellPopover?.token !== payload.token) return;
+    closeHangOverlays();
+    $('#switchState').textContent = `无法打开快捷面板：${error.message}`;
+  });
+}
+
+api.onShellPopover?.(payload => {
+  if (payload.token !== activeShellPopover?.token || payload.key !== activeShellPopover.key) return;
+  if (payload.type === 'closed') {
+    closeHangOverlays();
+    if (payload.reason === 'escape') $(shellPopoverDefs[payload.key].trigger).focus();
+  } else if (payload.type === 'action') {
+    const target = document.getElementById(payload.id);
+    if (!target || !activeShellPopover.node.contains(target) || target.disabled || target.hidden) return;
+    if (payload.kind === 'change' && target.matches('input[type=checkbox]')) {
+      target.checked = Boolean(payload.checked);
+      target.dispatchEvent(new Event('change',{bubbles:true}));
+    } else if (payload.kind === 'click' && target.matches('button')) {
+      if (target.id !== 'refreshTaskHistoryBtn' && target.id !== 'checkUpdate') closeHangOverlays();
+      target.click();
+    }
+    syncShellPopover();
+  }
+});
 function hangOverlaySelectors() {
   return ['#taskHistoryPopover', '#moreMenu'];
 }
@@ -790,20 +896,10 @@ function syncChatContentInsets() {
   document.documentElement.style.setProperty('--shell-top', `${toolbarHeight}px`);
   const workbench = $('#workbench');
   const right = workbench && !workbench.hidden ? Math.ceil(workbench.getBoundingClientRect().width) : 0;
-  let overlayBottom = 0;
-  for (const selector of hangOverlaySelectors()) {
-    const el = $(selector);
-    if (!el || el.hidden) continue;
-    const rect = el.getBoundingClientRect();
-    if (selector === '#taskHistoryPopover') {
-      bottom = Math.max(bottom, Math.min(window.innerHeight - toolbarHeight, Math.ceil(window.innerHeight - rect.top)));
-      continue;
-    }
-    overlayBottom = Math.max(overlayBottom, Math.ceil(rect.bottom));
-  }
-  // top overlay is measured from below the toolbar (content area origin)
-  const top = Math.max(0, Math.min(overlayBottom - toolbarHeight, Math.round(window.innerHeight * 0.4)));
-  const insets = { top, bottom, right, toolbarHeight };
+  const left = Math.round(toolbar?.getBoundingClientRect().left || 0);
+  const insets = { top:0, bottom, left, right, toolbarHeight };
+  const replicaRoot=$('#independentChatRoot');
+  if (replicaRoot) Object.assign(replicaRoot.style,{left:`${left}px`,right:`${right}px`,top:`${toolbarHeight}px`,bottom:`${bottom}px`});
   const key = JSON.stringify(insets);
   if (syncChatContentInsets.lastKey === key) return;
   syncChatContentInsets.lastKey = key;
@@ -1260,8 +1356,7 @@ function toggleTaskHistory(force) {
   popover.hidden = nextHidden;
   btn.setAttribute('aria-expanded', String(!nextHidden));
   if (!nextHidden) refreshTaskHistoryList();
-  syncChatContentInsets();
-  requestAnimationFrame(syncChatContentInsets);
+  syncShellPopover();
 }
 
 async function refreshContextUsage() {
@@ -1421,7 +1516,7 @@ function toggleTaskConsole(forceOpen) {
   if (!drawer) return;
   const nextOpen = typeof forceOpen === 'boolean' ? forceOpen : drawer.hidden;
   if (nextOpen) {
-    // Drawer + hanging popovers together double-inset the ChatGPT view and look "deformed".
+    // Keep one temporary surface open when switching to the console.
     closeHangOverlays();
   }
   drawer.hidden = !nextOpen;
@@ -1557,9 +1652,28 @@ $('#recoverPageButton').addEventListener('click', () => {
 
 $('#workbenchToggle').onclick = () => toggleWorkbench();
 $('#closeWorkbench').onclick = () => toggleWorkbench(false);
-$('#connectionButton').onclick = $('#incidentDetailsButton').onclick = () => toggleWorkbench(true);
-$('#downloadsButton').onclick = () => { toggleWorkbench(true); $('#downloadState').scrollIntoView({ block: 'nearest' }); };
+$('#connectionButton').onclick = $('#incidentDetailsButton').onclick = () => window.studioShell.showTab('connections');
+$('#downloadsButton').onclick = () => { window.studioShell.showTab('activity'); $('#downloadState').scrollIntoView({ block: 'nearest' }); };
 $('#moreButton').onclick = (event) => { event.stopPropagation(); toggleMore(); };
+$('#moreMenu').addEventListener('click',event => {
+  const button = event.target.closest('button');
+  if (button && button.id !== 'checkUpdate') toggleMore(false);
+});
+$('#chatAppearanceToggle').onchange = async (event) => {
+  const toggle = event.currentTarget;
+  toggle.disabled = true;
+  try { renderChatState(unwrap(await api.setChatAppearance(toggle.checked))); }
+  catch (error) {
+    toggle.checked = Boolean(lastChatState.appearance?.enabled);
+    $('#chatAppearanceStatus').textContent = error.message;
+  } finally { toggle.disabled = false; }
+};
+$('#independentChatToggle').onchange = async event => {
+  const toggle=event.currentTarget;toggle.disabled=true;
+  try { renderChatState(unwrap(await api.setIndependentChat(toggle.checked))); }
+  catch(error) { toggle.checked=Boolean(lastChatState.replica?.enabled);$('#independentChatStatus').textContent=error.message; }
+  finally { toggle.disabled=false; }
+};
 $('#workbenchConsole').onclick = () => toggleTaskConsole();
 $('#workbenchHistory').onclick = (event) => { event.stopPropagation(); toggleTaskHistory(); };
 $('#workbenchActivity').onclick = () => openActivityPanel($('#workbenchActivity'), { pin: true });
@@ -1569,9 +1683,18 @@ document.addEventListener('click', (event) => {
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') {
     if (!$('#moreMenu').hidden) { toggleMore(false); $('#moreButton').focus(); }
+    else if (!$('#taskHistoryPopover').hidden) { toggleTaskHistory(false); $('#openTaskHistoryButton').focus(); }
     else if (!$('#workbench').hidden) toggleWorkbench(false);
   }
 });
+const popoverObserver = new MutationObserver(() => syncShellPopover());
+for (const selector of hangOverlaySelectors()) popoverObserver.observe($(selector),{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['hidden','disabled','checked']});
+new MutationObserver(() => syncShellPopover()).observe(document.body,{attributes:true,attributeFilter:['data-theme','data-theme-mode']});
+window.addEventListener('resize',() => closeHangOverlays());
+window.addEventListener('blur',() => { if (!api.nativeShellPopover) closeHangOverlays(); });
+document.addEventListener('studio-layout',() => closeHangOverlays());
 const shellResizeObserver = new ResizeObserver(() => requestAnimationFrame(syncChatContentInsets));
 for (const selector of ['.browser-toolbar', '#workbench', '#shellFooter', '#taskConsoleDrawer', '#taskHistoryPopover', '#moreMenu']) shellResizeObserver.observe($(selector));
+document.addEventListener('studio-layout', () => requestAnimationFrame(syncChatContentInsets));
+document.addEventListener('studio-workspace-select', event => switchWorkspace(event.detail));
 requestAnimationFrame(syncChatContentInsets);

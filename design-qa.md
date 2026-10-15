@@ -1,33 +1,120 @@
-# 超级智囊团界面验证
+# 超级智囊团工作空间 · 设计核验
 
 final result: passed
 
-Source visual truth: `C:/Users/Administrator/.codex/generated_images/01a10fc9-3d96-7a43-9f49-a65c4d23b741/exec-770bdc12-f5da-432c-a6c5-34aa364c32b8.png`.
-Implementation: `build/shell-smoke/dark-interrupted.png`.
-Full comparison: `build/shell-smoke/comparison-full.jpg`; focused toolbar comparison: `build/shell-smoke/comparison-header.jpg`.
-Viewport: 1440 × 1024 CSS pixels. Source 1487 × 1058 normalized to 1440 × 1024; implementation 1440 × 1024, density 1. Small comparison previews inspected together, with the header checked separately.
+## 核验范围与视觉依据
 
-State: dark mode, workbench open, ChatGPT interrupted, local MCP and Tunnel healthy. Additional captures cover ready/closed, ready/open, light mode, 960 × 640 and 640 × 600. Browser preview uses simulated chat and service data; native WebContentsView geometry is separately exercised in isolated Electron. The live app and Mac service were not controlled or restarted.
+用户已选择：统一工作空间和自有面板，默认保留原生 ChatGPT 对话；最新追加允许增加默认关闭的实验对话重绘开关，要求数据一致。本次通过的是这项适配实现及隔离实验的设计与交互核验；没有宣称完整复制 Claude 后端、登录后的全部界面，或全部逐像素一致。
 
-All six states also pass at 150% device scale (`build/shell-smoke-1-5/report.json`), with native geometry and eight core interaction checks passing. The source/implementation visual comparison uses density 1 screenshots; the 150% captures are supplementary geometry evidence.
+- 最新视觉来源（用户指定）：https://x.com/GKev1n/status/2110476416341184705?s=20 ，引用官方 2026-10-15 的 https://x.com/ClaudeDevs/status/2110445844675838148 。已观看总览和任务反馈短片，读取官方整条说明。此前四月演示不再作为今天新增反馈的依据。
+- 最新任务反馈短片：https://x.com/ClaudeDevs/status/2110445851466485786 ，已记录 9.8 秒的执行中待办和 16.577685 秒的待处理/摘要/侧栏状态。
+- 早期布局视觉来源：https://claude.com/resources/articles/claude-code-desktop-redesign 。已播放并捕获官方演示的 3 / 8 / 18 / 28 秒画面。
+- 原始视觉文件：`E:/projects/common/claude-desktop-reference-20261015/official-code-03s.jpg`、`official-code-28s.jpg`。
+- 当前设计参数来源：官方 MSIX 2.37337.1.0；SHA256 `30dcf402755d734c5a06d7f1061ed80d1e0b33d0fed6cfc048e5164a46f3b704`。
+- 参数与来源哈希：`E:/projects/common/claude-desktop-reference-20261015/ui-reference-facts.json`。
+- REA 保留记录：`E:/projects/common/claude-desktop-reference-20261015/rea-evidence.json`。静态分析限定于选取的三份布局/交互模块；语义图达到节点上限，不能据此宣称完整应用行为已经还原。
 
-## Findings and accepted differences
+## 比较证据与尺寸
 
-- Typography: Segoe UI / Microsoft YaHei UI, shell labels 12–15 px, panel headings 13–17 px. Labels remain horizontal; truncation is limited to paths and long status details, with full text in the workbench or tooltip.
-- Spacing/layout: 56 px navigation plus border, a conditional 52 px incident strip, 300 px collapsible panel, 36 px footer. The compact navigation follows the user's first concept. The panel scrolls rather than shrinking labels or covering chat.
-- Colors: original dark/teal tokens retained; amber reserved for connection problems. Light mode uses the existing light tokens. Each health state also has an explicit text label.
-- Assets: user-requested new name and generated icon replace the concept's old branding. Heroicons 2.2.0 outline assets are supplied with their license. Native ChatGPT branding remains owned by ChatGPT; the preview chat is explicitly a fixture.
-- Copy/content: all shell actions are Chinese. The new extension section is an intentional scope addition requested after the combined mock. Traffic is shown as accumulated bytes rather than an apparent context-window budget. The mock conversation differs from the concept because production keeps the original embedded ChatGPT page.
+- 完整组合比较：`build/studio-design-qa/comparison-full.jpg`，同时显示参考与实现。
+- 导航局部组合比较：`build/studio-design-qa/comparison-navigation.jpg`，同时显示参考与实现，检查图标、字号层级、间距和选中项。
+- 浏览器最终暗色：`build/studio-design-qa/browser-dark-advisors.jpg`；浅色：`build/studio-design-qa/browser-light-advisors.jpg`。两者实际 CSS 视口及图像均为 1280×720、1 倍密度。
+- 空闲示例：`build/studio-design-qa/browser-empty-shell.jpg`，1280×720。
+- 10 月 15 日源画面：`E:/projects/common/claude-desktop-reference-20261015/oct15-demo/status-paused.png`（16.577685 秒）和 `status-fixed-10s.png`（9.8 秒）；两张浏览器输出均为 1265×712，浏览器 CSS 视口 1280×720、devicePixelRatio=1，裁切按输出与 CSS 尺寸比例归一化。视频内原应用 CSS 视口未知。
+- 新版原型：`build/studio-design-qa/oct15-black-attention.png`、`oct15-black-running.png`，均为 1280×720。组合图 `oct15-reference-comparison.jpg` 同时包含源和实现；上排对照“需要处理/摘要”，下排对照“执行中/展开待办”。各自保留真实内容，步骤数分别为原演示 5、离线示例 4。局部放大仅便于阅读，不能拿视频缩放与原型字号作等比像素推断。
+- 参考视频是 1280×720 的宣传画面；应用区域裁为 842×675。它的原始 CSS 视口及录制密度未知。组合图保留各自比例，只用于构图与层级检查，不用作逐像素比较。参考片为四月布局，十月安装包的色板和 288px 默认导航作为当前参数依据。
+- 原生 Electron 截图：`build/shell-smoke/` 与 `build/shell-smoke-1-5/`；各覆盖 1440×1024、960×640、640×600，以及明暗主题、异常提示和展开状态。
+- 默认模式保留原生 ChatGPT 外观；新增实验开关只在同一个原生 DOM 上应用样式，不复制、序列化或替换对话节点。预览里的正文、输入框和示例记录是离线夹具，放在 scripts/fixtures，不作为生产页面加载。
 
-## Comparison history
+## 五项必要检查
 
-1. P1: page interruption also marked the local task failed. Fixed by keeping the local task strip independent of webpage stream state; post-fix interrupted capture shows local idle and healthy services. Regression assertion included in the Electron smoke.
-2. P2 in preview fixture: iframe retained its default intrinsic size. Fixed by applying the measured content dimensions; all six viewport/state captures now verify exact toolbar/footer/panel boundaries. The actual native view is verified separately.
-3. Hidden test windows throttled animation frames, making the fixture timing unreliable. Disabled background throttling in the isolated smoke window; production runtime behavior was not changed by this test correction.
-4. P1: a bottom history popover could be painted over by native chat. Added a bottom inset measured from its actual top, plus re-measurement after asynchronous history loading. Post-fix `historyReserved` interaction verifies the chat ends above the popover. Sidebar and incident inset updates now run immediately and are deduplicated.
+1. 字体：自有控件 13–14px、说明 14–15px、辅助正文 16px；层级、换行和省略正常。保留系统字体及中文回退，不分发原厂字体。管理中心及独立窗口没有可见低于 12px 的正文控件。
+2. 间距与布局：左导航 200–420px、默认 288px；右工作台 280–560px；活动/智囊/连接互斥显示。窄屏两侧栏切换时保留至少 240px 原生聊天空间，避免过渡期间重叠。长回答不撑高页面。
+3. 色彩：浅色 #fcfcfb / #f9f9f7 / #fff，深灰 #0b0b0b / #151515 / #1a1a19；独立纯黑选项的主背景、侧栏、自有面板为 #000，浮层/悬停为 #111 / #202020。正文与次级文本对比通过。状态颜色继续表达连接与任务事实。沿用自有图标和品牌。
+4. 图像与图标：沿用已选品牌 PNG；新增标准图标均来自已有 MIT Heroicons 同系列，没有用文字、emoji 或手工 SVG 代替新图标。原厂图标字体不分发。
+5. 文案与内容：导航对应现有工作区和本地任务，不冒充 Claude 会话能力；模型 ID 和请求 ID 保留在提示信息中，主界面显示可读名称。界面明确说明辅助咨询由主 AI 发起。
 
-## Interaction checks
+## 发现与修复历史
 
-Workbench open/close, More and Escape, console open/close, model catalog selection and simulated consultation return pass. There are no renderer console errors. Actual upstream inference and installation remain untested because the user requested keeping current tasks and services running.
+- [P1，已修复] 相对定位顶栏加左偏移仍保持整窗宽度，导致右侧按钮越界。改为固定定位并以两侧边界确定宽度。修复后基础截图、全部窄屏断言与浏览器最终截图均无越界。
+- [P1，已修复] 宽屏保存 420px 导航，缩到 640px 后重新展开时，导航与原生聊天左边界相差 20px。将偏好宽度与实际宽度分开，按窗口可用空间夹紧；640px 为 400+240，恢复宽屏回到 420px。两种缩放均通过专门回归。
+- [P2，已修复] 原工作台全部纵向展开容易挤压阅读空间。改为三页签；辅助回答默认折叠，展开后单条最多 240px 并独立滚动，刷新和换页保留阅读状态。
+- [P2，已修复] 控件说明展示长模型 ID，影响面板密度。主界面显示名称与用途，完整 ID 作为提示保留。
+- [P2，已修复] 新参考中任务按状态组织，旧侧栏只有固定“当前任务”，任务进度也没有在自有面板中呈现。侧栏现在区分进行中、等待网页、需要处理和本次已完成；面板读取已有 steps 呈现可折叠待办与 next_step 摘要。空任务隐藏这些卡片，未知连接状态保留“状态待确认”，不把等待网页当作等待用户。
+- [P2，已修复] 明确 waiting_user 的任务仍显示“状态待确认”。在本地展示层使用已有 needsHumanAttention 判定，显示“等待处理”；对应真实渲染回归与更新后浏览器截图通过。
+- [P2，已修复] 工作台只有进入动效，退出直接消失。增加 140ms 退出过渡，结束前保留原生聊天预留空间；重新打开取消退出，窄屏及减少动态效果设置下即时关闭。快速开关和双侧几何回归通过。
+- 修复后比较未发现阻塞本次约定范围的 P0/P1/P2 问题。
 
-P3: the mock chat content is intentionally shorter than the visual concept; it is not a production ChatGPT page redesign.
+## 验证
+
+- Python 297 项通过（源码未变，无重复运行）；新增纯黑后 Node 358 项通过。此前 Schema 与资源门禁通过，本次未改变相关输入。原本写死聊天 x=0 的旧源码断言由实际双侧几何回归覆盖。
+- ui:check、ui:smoke（5 个管理页×浅色/深灰/纯黑×3 尺寸，共 45 种）、ui:theme-smoke（独立窗口、三种外观、实时/系统主题、对比度）通过。
+- ui:shell-smoke：100% 与 150% 缩放；每轮 19 个展开/异常/基础布局场景、31 项交互与窄屏互斥、原生聊天及认证视图几何通过，控制台错误 0。
+- 10 月 15 日新增反馈回归：每种缩放另测 24 个状态组合（3 主题 × 2 宽度 × 执行/等待网页/等待用户/完成），验证待办与勾选数、状态文案、布局、轮询不重建列表；通过演示控件更新状态后保持折叠。快速关闭再打开、减少动态效果时禁用 JS 退出动画均通过。Node 358 项及更新后的 ui:smoke 通过。
+- 减少动态效果：在隔离 Electron 夹具模拟 prefers-reduced-motion，确认侧栏、顶栏、页签及面板 animation=none、transition=0s。
+- 真实浏览器核对：页签切换、设置主题预览、示例输入、折叠与导航可用，控制台错误 0。工作台过渡计算样式为 200ms / cubic-bezier(.165,.84,.44,1)。离屏测试结束有限动画后核验最终几何，不把它当作动效播放录像。
+- 当前安装软件没有重启或覆盖；本次不包含发布、安装或在线 ChatGPT 长任务验收。
+
+## 纯黑与动效的实现边界
+
+- 纯黑可从管理中心的“界面主题”单独选择；配置归一化、首次打开、实时广播均保留 black 模式，以 dark 为控件基础外观。跟随系统仍使用系统的浅色/深灰，不自动替换用户选择。已有数据和登录配置不迁移。
+- 隔离浏览器已核对深灰 → 纯黑切换，主背景/导航/工作台计算样式为 rgb(0, 0, 0)，控制台错误 0。截图 `build/studio-design-qa/browser-black-advisors.jpg`；管理页、活动详情和工作区窗口的纯黑截图在 ui-smoke / theme-smoke 中。
+- 已实现：侧栏与顶栏 200ms ease-out；工作台标题/页签 200ms 横移 24px；内容进入 140ms 上移 4px；菜单 120ms；连接提示 160ms；导航悬停 100ms。新增工作台退出 140ms、按钮按压反馈 60ms、仅步骤状态改变时的高亮 700ms；只有本地任务实际运行时才显示旋转反馈。拖动调宽时关闭过渡，窄屏采用即时换位，减少动态效果时禁用动画。
+- 10 月 15 日这一轮通过的是自有面板任务反馈适配：字号、留白、明暗/纯黑色板、图标和中文文案保持现有设计；原生 ChatGPT 正文保留，所以待办与摘要放在右工作台。原厂会话分组、嵌套会话、/btw 与多会话调度没有被伪装成已实现功能；没有把演示中的建议文字当作新的授权或服务配置。
+- 仅研究、尚未复现：原客户端侧栏边缘悬停意图、速度判断与弹簧跟随，以及全部退出和复杂组件动画。当前不能宣称所有 Claude 动效已逐帧还原。
+- 离线示例中的消息 450ms 弹性动画只存在于 scripts/fixtures；正式版原生 ChatGPT 消息、输入框及其主题不受这些示例样式控制。
+
+## 实验对话外观与数据一致性
+
+- 入口为“更多 → Claude 对话外观（实验）”。配置 experimentalClaudeChat 默认为 false，只接受明确布尔值；启用只写这一项偏好，不刷新网页、不启动模型调用或重启本地服务。关闭移除自己的样式和根节点标记，恢复原生外观及导航。
+- 采用同一个 WebContentsView、同一份原生 DOM，样式仅修改字体、颜色、留白、气泡、工具详情和输入区域；原生侧栏在实验开启时隐藏，关闭时还原。消息 ID、事件处理、草稿、附件、工具活动及发送/停止/下载均由原页面管理。没有第二份对话存储或私有聊天 API 读取。
+- 正式代码为 renderer/chat-appearance.js、renderer/chat-claude.css 与 ChatViewController 的应用/清理流程。仅允许 HTTPS ChatGPT 主页面；认证及其他来源不注入。缺少 main 或已知输入区域时 CSS 条件不匹配，原生布局继续显示。
+- 浏览器源目标：已有选定工作页面 build/studio-design-qa/oct15-black-attention.png。实现截图 chat-appearance-workspace.png；同一会话、同一草稿的 A/B 为 chat-appearance-before.png 和 chat-appearance-after.png。四张均为 1280×720、CSS 视口 1280×720、devicePixelRatio=1。组合图 chat-appearance-comparison.jpg 上排两边均打开工作台，下排同一数据状态的原生/实验对照。内容差异与任务空闲状态有意保留；原生模型选择和实际控件继续存在。
+- 字体：正文 16px / 1.8，用户消息与输入区 15px；系统字体及中文回退与自有工作台一致。间距：820px 最大阅读宽度、12px 气泡/输入区圆角，布局保留原生滚动与输入区尺寸约束。颜色：浅色/深灰/纯黑与自有面板使用同一组色值，Electron 计算样式通过。图像：沿用既有品牌和原生控件，无新增伪造图标。文案：实验入口、等待提示与离线演示标记明确，不把测试数据当作真实会话。
+- [P1，已修复] 网页 JS 无响应时，样式切换调用可能一直等待。调用者 2.5 秒后收到“等待当前网页响应”的状态，偏好保留且实际写入按顺序执行；退出通过取消信号立即释放等待。忙碌渲染器退出测试为 10ms，不据此宣称已修复其他页面无响应原因。
+- [P2，已修复] 添加实验开关后“更多”菜单更长。后续交互检查已把原来的预留空间方案替换为独立浮层，详见下方“弹层交互修正”；聊天区不再为临时菜单改变尺寸。
+- 原生 Electron 测试 ui:chat-appearance-smoke 通过：三种主题、消息 outerHTML 与 ID、DOM 节点身份、草稿、选中文本、File 对象及附件字节、工具展开状态、原生分支内容更新、流式生成、单次发送、停止生成、开关前后实际下载、跨会话导航、认证排除、未知结构回退及忙碌退出。结果 build/chat-appearance-smoke/report.json；已加入 release:verify 门禁。
+- 浏览器也通过了真实开关操作：同一消息与草稿内容一致，工具展开状态保留，流式生成中来回切换后没有新增重复消息，控制台错误 0。预览开关参数仅用于展示；正式功能仍默认关闭。
+- 局部比较为 build/studio-design-qa/chat-appearance-focus.jpg，使用同一 1280×720 源图的聊天正文/工具和输入区裁切并放入同一比较输入，检查字体、边界和间距。原生工具卡片、模型选择位置和原生发送按钮结构继续保留；这些是数据与交互一致性优先的适配选择，没有宣称每个 GPT 组件都已重写为 Claude 组件。
+- Node 364 项通过；双缩放 shell 回归的 chatAppearanceUi 两种宽度开关检查通过；原有退出及五种下载通路回归通过。ui:check、源码与发行资源门禁通过。Python、管理中心及独立窗口主题输入未变，复用此前已通过结果。
+- 通过范围限于默认原生模式和隔离实验模式。本次没有覆盖安装，也没有向正在运行的真实登录会话注入新样式；正式 ChatGPT 当前全部页面结构仍需安装后的实际验收。不存在“已在现用软件生效”的结论。
+
+## 弹层交互修正（10 月 15 日）
+
+- final result: passed，范围为“更多”、底部任务历史及其关闭、定位与长内容行为；不据此宣称所有界面已完成交互审计。
+- 1. 展开“更多”：修正前，原生聊天顶部从 57px 变为 303px，高度从 631px 减为 385px；截图 menu-before-open.png 同时记录顶部空白与菜单绘制问题。修正后 menu-after-open.png 中聊天仍为 652×631、顶部 57px，菜单覆盖显示，工作台与导航尺寸不变。来源与实现均为本轮隔离预览、1280×720、devicePixelRatio=1。
+- 2. 展开历史：history-after-open.png 中浮层向上打开，聊天边界不变。历史最多 420px 高、长内容在内部滚动；50 条超长标题和路径的原生窗口测试无横向溢出。更多最多 480px 高，更新说明变长后仍限制在视口内。
+- 3. 关闭与定位：点宿主空白或原生聊天、Esc、Tab、窗口调整大小/移动/隐藏均关闭临时浮层。Esc 把键盘焦点还给入口，不额外收起工作台。打开一种临时面板会关闭另一种；关闭后再打开不会受到延迟加载回调影响。宿主页导航、浮层关闭或渲染进程退出时清理状态，下一次可重新打开。
+- 正式 Electron 使用从属于主窗口的独立 BrowserWindow，绘制在原生 WebContentsView 上方；没有缩小、隐藏、刷新或替换 ChatGPT。浮层只复制自有控件的展示状态，动作仍返回原来的宿主处理函数；没有第二份聊天数据。浮层预加载只提供显示与动作桥，拒绝新窗口/页面导航；主进程验证来源与当前 token，宿主再验证动作目标属于当前面板。
+- 浏览器设计预览使用 HTML 顶层 popover，避免祖先裁切；其视觉与交互用于设计核对。原生实际窗口截图为 build/shell-popover-smoke/native-more-black.png；与预览分别核对主题、14px 菜单控件、边框、位置与限高。仅原生测试替换离屏工作区坐标及窗口激活方式，避免影响正在使用的桌面；窗口、视图、IPC、控件与布局均为真实 Electron。系统多屏与实际焦点切换仍需安装后验收。
+- 新增 ui:popover-smoke 已纳入 release:verify。100% / 150% 各通过 12 组（三种主题 × 两种宽度 × 工作台展开/收起），覆盖聊天和其他常驻面板尺寸不变、实验开关、检查更新、历史刷新、按键关闭与返回焦点、长内容、生成继续、延迟打开取消。Node 368 项通过；4 项新增浮层回归覆盖来源、过期事件、屏幕边界、销毁/崩溃与清理。对话外观、退出和五种下载路径回归通过，ui:check 与语法检查通过。
+- 本轮没有运行安装程序、重启现用助手或修改当前会话、配置、模型服务、Tunnel。所有新窗口和内容均为隔离测试夹具；尚未发布或覆盖安装。
+
+## 开源对话组件复用与独立渲染实验（10 月 15 日）
+
+- final result: passed，范围为本地开发版的只读独立渲染；没有覆盖安装或向当前运行的登录会话启用。
+- 选用 assistant-ui 官方 Claude 示例与 ExternalStoreRuntime（MIT），直接复用 Thread、Message、Markdown、Copy、滚动和问题置顶能力；Markdown/GFM、HTML 净化与转换、公式也使用现成开源组件。没有再编写消息仓库、Markdown 解析器或滚动引擎。工作台外壳、纯黑/深灰/浅色主题、系统字体与自有品牌继续沿用已选版本；这是开源 Claude 风格对话层，不是 Anthropic 原版 Desktop 代码或完整 Code 后端。
+- 对照过 CloudCLI/claudecodeui 与 Opcode：它们是整套 CLI 应用，整合会带入额外后端及许可义务，本次没有复制其代码。assistant-ui 提供的独立数据源适配器更适合现有 Electron WebContentsView。来源 https://www.assistant-ui.com/examples/claude ，源码固定 523d86ea12300d73f8bb0859c8228f88f8cd0f80；具体来源、版本与适配范围记录在 renderer-ui/src/upstream/assistant-ui/UPSTREAM.json。
+- 新入口“更多 → 独立对话渲染（实验）”，独立于已有 CSS 外观开关，配置默认 false 且只接受明确布尔值。关闭时不注入读取观察器、不加载约 1 MB JS 与本地公式字体 CSS；开启后才按需载入。本次未改变既有锁文件中包的版本，新增依赖使用固定版本，lockfile 保持 v3；生产依赖审计为 0 个已知漏洞。
+- 主进程只读取同一个原生网页已加载的用户/助手消息，不调用私有聊天接口、不读取草稿/附件内容，不发送模型请求；内容只在宿主 IPC 与内存中展示，没有第二份磁盘会话记录或第三方网络请求。页面观察器标记变动，每秒最多一个读取，未变化时不重新序列化全量消息；最多 100 条和约 240k 字符，超限明确显示省略提示。
+- 新视图确认提交后才隐藏原生视图；渲染组件未加载、结构不支持、认证、读取异常或 2.5 秒无响应时保留/返回原网页。渲染错误边界也请求退出实验。读取不重入，关闭与退出不等待无响应网页。URL、代次与显示确认 token 防止迟到结果跨会话生效；SPA 更改 URL 但尚未替换正文时暂不投射旧消息。
+- 输入、停止、附件、下载、编辑与分支操作继续在原网页进行，提供“返回原网页”入口；链接点击也返回原网页。原页未展开的详情只显示摘要，不主动展开全部活动。HTML 先净化再转换为 Markdown，无原始 HTML 执行、远程图片加载或带脚本链接；公式使用 trust=false。当前只读实验不宣称已重绘全部 ChatGPT 附件、Canvas 或交互组件。
+- 视觉证据：build/studio-design-qa/independent-chat-black.png（1280×720，devicePixelRatio=1）、build/chat-replica-smoke/{light,dark,black}-{1280,640}.png。初始从已加载内容开头显示问题；“最新消息”按钮可跳转，阅读历史时新内容不拉走位置。内容区内滚动，无外露滚动条；常驻导航与工作台边界保持不变。开启、返回、再次通过实验开关进入均已在浏览器核对，控制台错误 0。
+- 原生验证 ui:replica-smoke 在 100% 和 150% 各 6 组（三主题 × 两宽度）通过：默认关闭时无读取/组件加载、提交确认、完整消息 DOM 不变、草稿和 File 对象保留、表格/公式、工具展开/收起同步、流式回复、同消息编辑内容、历史阅读滚动、整页和 SPA 会话切换、未知结构/认证回退、危险 HTML、无第三方请求及退出。退出耗时见各自报告，仅代表夹具结果；不推广为真实网页全部故障的结论。
+- Node 373 项通过，后续相关 11 项回归通过；双缩放工作台、原生浮层、CSS 外观、正常/忙碌退出和五种下载路径回归通过。ui:check、构建、源码/发行资源门禁通过。独立渲染回归已加入 release:verify。Runtime/Python、公开 MCP Schema、登录、Tunnel、代理及现用配置均未修改，沿用此前相关检查结果。
+- 开源分发：THIRD_PARTY_NOTICES.md 保留 assistant-ui MIT 许可；构建输出 THIRD_PARTY_LICENSES.txt 收集模块许可证，KaTeX_FONT_LICENSE.txt 另含公式字体的实际版权/保留名称元数据及 OFL 1.1 全文。现有项目仍保留自己的 MIT 与原 Runtime 的许可声明。
+
+## 独立对话操作与 0.9.16 发行检查（10 月 15 日）
+
+- 独立实验接入当前网页的草稿、发送、停止、附件与链接控件，不另外创建模型运行时或调用 ChatGPT 私有接口。正文继续复用 assistant-ui；输入区仅镜像原网页草稿，未加入编辑、分支等未经适配的操作。
+- 原网页负责附件上传；系统文件选择器返回路径后只交给 Chromium 原生文件输入。选择文件期间会话变化则拒绝添加；附件未就绪沿用原生发送按钮的禁用状态。下载通过保留的原网页节点触发，继续由现有 DownloadService 保存与校验。
+- 草稿使用原生确认版本防止旧轮询覆盖新输入。中文输入法组合期间不提交；操作有会话身份、URL、请求 ID 和过期检查；连续点击合并，发送未确认不自动重试。草稿冲突保留实验输入，支持核对后重试或采用网页版本。未确认的输入仅在当前宿主内存中保留，恢复时需要用户选择，不自动跨会话写入。
+- 100% 与 150% 原生 Electron 隔离验证通过：六组三主题/宽度视觉与原生 DOM 保留检查，以及双向草稿、组合输入防误发、原生上传字节、上传期间禁止发送、取消选文件、重复发送保护、停止生成、实际下载文件内容及选文件期间会话切换保护。报告在 build/chat-replica-smoke 与 build/chat-replica-smoke-1.5。
+- 浏览器隔离预览已实际输入与发送，消息持续同步、输入清空后可以继续写草稿；截图为 build/studio-design-qa/independent-chat-interactive-black.png。没有向用户正在运行的 ChatGPT 会话注入本次代码、刷新或重启现用助手。正式网页的控件变化仍受实验兼容范围限制，结构不匹配时保留原网页。
+- 发行版本提升至 0.9.16，Runtime 版本和生成的 Schema 契约同步；公开工具 Schema 仍为 v15 / 11 tools。全量发行验证通过：297 项 Python、376 项 Node、三轮稳定性、界面/主题/弹层/原生对话回归，以及正常与忙碌退出、五种下载路径。最新输入细化后复跑三主题渲染及双缩放独立对话回归，通过。
+- Windows 安装包构建完成。实际 ASAR 内 15 个关键文件与已验证源码/界面/许可证逐字节一致；内置 Python 与 Schema 契约均为 0.9.16；自动更新清单的 SHA512 与安装包一致。新增 scripts/check-chat-package.js，并纳入双平台 CI。构建与检查结果在 build/release-v0.9.16.txt、build/chat-package-check.json，最终发布仅以 Git tag 和成功的发行流程为准。主工作区 Git index 哈希保持不变。
+
+## 后续细化
+
+- 若需要逐帧还原当前 Claude 登录后 Code 工作区，还需补充该状态的直接运行画面；当前采用官方演示与静态设计参数。
+- 自有品牌、中文文案、系统字体、现有功能映射，以及窄屏原生视图的即时换位，均为约定范围中的适配选择。

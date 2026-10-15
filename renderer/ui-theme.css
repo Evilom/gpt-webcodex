@@ -1,10 +1,10 @@
 @import url("scrollbars.css");
-/* Shared ChatGPT-style surfaces and typography for every assistant-owned view. */
+/* Shared surfaces for every assistant-owned view, based on the desktop Code reference. */
 :root {
-  --ui-bg:#fff; --ui-sidebar:#f9f9f9; --ui-surface:#f9f9f9; --ui-raised:#fff;
-  --ui-hover:#ececec; --ui-border:#e5e5e5; --ui-border-strong:#d1d1d1;
-  --ui-text:#0d0d0d; --ui-muted:#5d5d5d;
-  --ui-primary:#0d0d0d; --ui-primary-hover:#2f2f2f; --ui-on-primary:#fff;
+  --ui-bg:#fcfcfb; --ui-sidebar:#f9f9f7; --ui-surface:#fff; --ui-raised:#fff;
+  --ui-hover:#f0efec; --ui-border:#0b0b0b1a; --ui-border-strong:#0b0b0b33;
+  --ui-text:#0b0b0b; --ui-muted:#52514e;
+  --ui-primary:#20201f; --ui-primary-hover:#383835; --ui-on-primary:#fff;
   --ui-success:#087f65; --ui-success-soft:#e7f6f1;
   --ui-warning:#876800; --ui-warning-soft:#fff8e1;
   --ui-danger:#b3362f; --ui-danger-soft:#fbeeec;
@@ -15,16 +15,23 @@
   color-scheme:light;
 }
 html[data-theme="dark"],body[data-theme="dark"] {
-  --ui-bg:#000; --ui-sidebar:#000; --ui-surface:#212121; --ui-raised:#2f2f2f;
-  --ui-hover:#2f2f2f; --ui-border:#ffffff1a; --ui-border-strong:#ffffff33;
-  --ui-text:#fff; --ui-muted:#b4b4b4;
-  --ui-primary:#fff; --ui-primary-hover:#ececec; --ui-on-primary:#0d0d0d;
+  --ui-bg:#151515; --ui-sidebar:#0b0b0b; --ui-surface:#1a1a19; --ui-raised:#20201f;
+  --ui-hover:#2c2c2a; --ui-border:#ffffff1a; --ui-border-strong:#ffffff33;
+  --ui-text:#f0efec; --ui-muted:#c3c2b7;
+  --ui-primary:#f0efec; --ui-primary-hover:#e1e0d9; --ui-on-primary:#151515;
   --ui-success:#5ee3b5; --ui-success-soft:#12352b;
   --ui-warning:#f5cc66; --ui-warning-soft:#332b18;
   --ui-danger:#ff9b94; --ui-danger-soft:#3c2220;
   --ui-shadow:0 16px 48px #00000099;
   color-scheme:dark;
 }
+/* Pure black keeps the dark controls and uses borders for surface separation. */
+html[data-theme-mode="black"],body[data-theme-mode="black"] {
+  --ui-bg:#000; --ui-sidebar:#000; --ui-surface:#000; --ui-raised:#111;
+  --ui-hover:#202020; --ui-on-primary:#000;
+  --ui-shadow:none;
+}
+body[data-theme-mode="black"] .topbar { background:var(--ui-bg)!important; }
 /* Keep existing component names while giving them one palette. */
 :root,body[data-theme] {
   --bg:var(--ui-bg); --sidebar:var(--ui-sidebar); --surface:var(--ui-surface);

@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ChatGPT DOM · 隔离测试</title><link rel="stylesheet" href="/chat-native.css"><link rel="stylesheet" href="/chat-claude.css"><link rel="stylesheet" href="/scrollbars.css"></head>
+<body><div class="native-layout">
+  <aside id="stage-sidebar"><b>ChatGPT</b><p>示例会话</p><button type="button">连接与恢复方案</button><small>原生导航示例</small></aside>
+  <main><header><b>ChatGPT Pro</b><button id="fixtureStream" type="button">模拟流式回复</button></header>
+    <div id="thread" class="thread">
+      <article data-testid="conversation-turn-0" data-message-id="user-0"><div data-message-author-role="user">帮我检查长任务恢复方案，保留已经完成的结果。</div></article>
+      <article data-testid="conversation-turn-1" data-message-id="assistant-1"><div data-message-author-role="assistant"><p id="answerText">本地任务与网页回复应分别记录。连接恢复后，先读取已完成的步骤，再决定是否继续执行。</p><details id="toolActivity"><summary>已检查 4 个文件、2 项状态</summary><p>本地命令已结束；网页回复记录仍在当前会话中。</p></details><h2>恢复时核对三件事</h2><ol><li>确认本地命令是否仍在执行。</li><li>读取任务 ID、完成步骤和已有结果。</li><li>保留附件与辅助模型的原请求。</li></ol><pre><code>任务：恢复检查
+本地步骤：已完成
+下一步：由主 AI 复核</code></pre><button id="fixtureDownload" type="button">下载验证说明.txt</button><p><small>这是隔离演示，消息和附件都是示例数据。</small></p></div></article>
+    </div>
+    <footer><form id="nativeComposer"><div id="prompt-textarea" contenteditable="true" role="textbox" aria-label="输入消息" data-placeholder="询问 ChatGPT"></div><div class="composer-actions"><label class="attach">添加附件<input id="fixtureFile" type="file" multiple aria-label="添加示例附件"></label><span id="fixtureFileName" data-testid="attachment"></span><button data-testid="send-button" type="submit">发送</button><button data-testid="stop-button" type="button" hidden>停止</button></div></form><small class="fixture-note">离线 DOM 测试 · 不会连接 GPT、执行命令或调用辅助模型</small></footer>
+  </main>
+</div><script src="/chat-appearance.js"></script><script src="/chat-replica-source.js"></script><script src="/chat-native.js"></script></body></html>

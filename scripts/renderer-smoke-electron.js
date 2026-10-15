@@ -97,6 +97,8 @@ function installHandlers() {
     'app:lightweight-snapshot': () => ok({ workspace: demoWorkspace, mcpRunning: true, tunnelRunning: true, connectionRunning: true, fullyReady: true }),
     'advisory:status': () => ok({ configured: false, models: [], selected: [], job: null }),
     'chat:status': () => ok({ url: 'https://chatgpt.com/', loading: false }),
+    'chat:replica-state': () => ok({enabled:false,active:false,status:'off',snapshot:null,token:''}),
+    'shell-popover:update': () => ok(false),
     'approval:list': () => ok({ items: [] }),
     'context:usage': () => ok({ totalTokens: 0, totalBytes: 0, percent: 0, level: 'safe', topTools: [] }),
     'checkpoint:status': () => ok({ hasCapsule: false, canRollback: false }),
@@ -162,7 +164,7 @@ async function runTheme(theme) {
     show: false,
     width: 1440,
     height: 960,
-    backgroundColor: theme === 'dark' ? '#111214' : '#ffffff',
+    backgroundColor: theme === 'light' ? '#ffffff' : '#000000',
     webPreferences: {
       preload: path.join(root, 'electron', 'preload.js'),
       contextIsolation: true,
@@ -194,9 +196,13 @@ async function runTheme(theme) {
     const appearance = await win.webContents.executeJavaScript(`(() => {
       const css = getComputedStyle(document.body);
       const text = Array.from(document.querySelectorAll('.page.active *,.sidebar *,.topbar *')).filter(el=>el.getClientRects().length && Array.from(el.childNodes).some(n=>n.nodeType===3 && n.textContent.trim()));
-      return {bg:css.backgroundColor,size:parseFloat(css.fontSize),small:text.filter(el=>parseFloat(getComputedStyle(el).fontSize)<12).map(el=>({class:el.className,size:getComputedStyle(el).fontSize})),overflow:document.documentElement.scrollWidth>innerWidth};
+      return {bg:css.backgroundColor,surfaces:['.app-shell','.sidebar','.topbar'].map(selector=>getComputedStyle(document.querySelector(selector)).backgroundColor),selection:document.getElementById('themeSelect').value,themeLabel:document.querySelector('[data-react-slot="settings"]').textContent,size:parseFloat(css.fontSize),small:text.filter(el=>parseFloat(getComputedStyle(el).fontSize)<12).map(el=>({class:el.className,size:getComputedStyle(el).fontSize})),overflow:document.documentElement.scrollWidth>innerWidth};
     })()`);
-    if (appearance.bg !== (theme === 'dark' ? 'rgb(0, 0, 0)' : 'rgb(255, 255, 255)') || appearance.size !== 14 || appearance.small.length || appearance.overflow) throw new Error(`Manager appearance ${theme}/${page}: ${JSON.stringify(appearance)}`);
+    if (appearance.bg !== (theme === 'black' ? 'rgb(0, 0, 0)' : theme === 'dark' ? 'rgb(21, 21, 21)' : 'rgb(252, 252, 251)') || appearance.size !== 14 || appearance.small.length || appearance.overflow) throw new Error(`Manager appearance ${theme}/${page}: ${JSON.stringify(appearance)}`);
+    if (theme === 'black') {
+      assert.deepEqual(appearance.surfaces, ['rgb(0, 0, 0)','rgb(0, 0, 0)','rgb(0, 0, 0)']);
+      assert.equal(appearance.selection,'black'); assert.ok(appearance.themeLabel.includes('纯黑'));
+    }
     const layouts=[];
     for (const width of [1440,980,820]) {
       win.setContentSize(width,width===820?640:720);
@@ -222,7 +228,7 @@ async function runTheme(theme) {
     const text = JSON.stringify(item);
     return item.type !== 'console' || /ReferenceError|TypeError|Uncaught|process is not defined|Failed to load/i.test(text);
   });
-  if (state.theme !== theme) throw new Error(`Expected ${theme} theme, got ${state.theme || 'empty'}`);
+  if (state.theme !== (theme === 'black' ? 'dark' : theme) || state.themeMode !== theme) throw new Error(`Expected ${theme} theme, got ${state.themeMode || 'empty'}`);
   if (state.width.scroll > state.width.client + 2) throw new Error(`Horizontal overflow in ${theme}: ${state.width.scroll} > ${state.width.client}`);
   if (fatalErrors.length) throw new Error(`Renderer errors in ${theme}: ${JSON.stringify(fatalErrors)}`);
 
@@ -259,6 +265,7 @@ async function runBrowser(theme, width) {
     document.getElementById('consoleTabFiles').click();
     return {
       theme: document.body.dataset.theme,
+      themeMode: document.body.dataset.themeMode,
       toolbarHeight: document.querySelector('.browser-toolbar').getBoundingClientRect().height,
       consoleOpen: !document.getElementById('taskConsoleDrawer').hidden,
       filesOpen: !document.getElementById('consoleFilesView').hidden,
@@ -267,7 +274,7 @@ async function runBrowser(theme, width) {
         .filter((node) => node.getBoundingClientRect().right > innerWidth + 2).map((node) => node.id || node.className)
     };
   })()`);
-  if (state.theme !== theme || state.toolbarHeight < 56 || state.toolbarHeight > 58 || !state.consoleOpen || !state.filesOpen || state.overflow.length || errors.length) {
+  if (state.theme !== (theme === 'black' ? 'dark' : theme) || state.themeMode !== theme || state.toolbarHeight < 56 || state.toolbarHeight > 58 || !state.consoleOpen || !state.filesOpen || state.overflow.length || errors.length) {
     throw new Error(`Browser integration smoke failed: ${JSON.stringify({ theme, width, state, errors })}`);
   }
   await win.webContents.executeJavaScript(`document.getElementById('closeConsoleBtn').click(); document.getElementById('openTaskHistoryButton').click();`);
@@ -289,8 +296,9 @@ app.whenReady().then(async () => {
   try {
     results.push(await runTheme('light'));
     results.push(await runTheme('dark'));
+    results.push(await runTheme('black'));
     const browserResults = [];
-    for (const theme of ['light', 'dark']) {
+    for (const theme of ['light', 'dark', 'black']) {
       for (const width of [960, 1360]) browserResults.push(await runBrowser(theme, width));
     }
     const report = { ok: true, generatedAt: new Date().toISOString(), results, browserResults };

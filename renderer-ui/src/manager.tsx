@@ -70,7 +70,7 @@ function MemoryStrip({ state }: { state: ManagerState }) {
 
 function SettingsStrip({ state }: { state: ManagerState }) {
   const settings = state.snapshot?.settings || {};
-  const themeLabel = settings.theme === 'system' ? '跟随系统' : settings.theme === 'light' ? '浅色' : '深色';
+  const themeLabel = settings.theme === 'system' ? '跟随系统' : settings.theme === 'light' ? '浅色' : settings.theme === 'black' ? '纯黑' : '深灰';
   return <div className="react-insight-strip"><div><b>管理中心</b><span>React + TypeScript + Vite 渐进迁移层</span></div><div className="react-chip-row"><Chip label="主题" value={themeLabel} /><Chip label="自动启动" value={settings.autoStartServices ? '开启' : '关闭'} /><Chip label="后台运行" value={settings.keepRunningOnClose === false ? '关闭' : '开启'} /></div></div>;
 }
 

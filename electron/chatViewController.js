@@ -1,4 +1,4 @@
-const { shell, session, WebContentsView } = require('electron');
+const { shell, session, WebContentsView, nativeTheme } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { DownloadService } = require('./services/downloadService');
@@ -8,6 +8,9 @@ const { AUTH_HOSTS, authUrl, readAuthenticatedSession, LOGIN_DOCUMENT_PROBE } = 
 
 const CHAT_HOME = 'https://chatgpt.com/';
 const CHAT_SCROLLBARS = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'scrollbars.css'), 'utf8');
+const CHAT_CLAUDE_CSS = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'chat-claude.css'), 'utf8');
+const { applyChatAppearanceDocument } = require('../renderer/chat-appearance');
+const { ChatReplica } = require('./chatReplica');
 const CHAT_PARTITION = 'persist:chatgpt-session';
 const NAVIGATION_HOSTS = new Set([
   'chatgpt.com', 'www.chatgpt.com', 'openai.com', 'www.openai.com',
@@ -146,11 +149,12 @@ function bindChatNetworkDiagnostics(chatSession, log) {
 }
 
 class ChatViewController {
-  constructor({ window, log, settings, nativeLoginRoot, createWebContentsView = (options) => new WebContentsView(options), toolbarHeight = 64, onState = () => {}, onDownload = () => {}, onConversationTurn = () => {} }) {
+  constructor({ window, log, settings, nativeLoginRoot, createWebContentsView = (options) => new WebContentsView(options), toolbarHeight = 64, onState = () => {}, onDownload = () => {}, onConversationTurn = () => {}, onNativeFocus = () => {}, onReplica = () => {} }) {
     this.window = window;
     this.log = log;
     this.toolbarHeight = toolbarHeight;
     this.onState = onState;
+    this.onNativeFocus = onNativeFocus;
     this.settings = settings;
     this.nativeLoginRoot = nativeLoginRoot;
     this.nativeLogin = null;
@@ -179,18 +183,92 @@ class ChatViewController {
     this.browserNetwork = { mode: '', browserRoute: '', tunnelRoute: '', aligned: null, source: '', updatedAt: 0 };
     this.streamState = { status: 'unknown', event: 'init', updatedAt: 0, activityAt: 0, quietSeconds: 0, stalled: false };
     this.pendingPageLoadReason = '';
+    this.chatAppearance = { enabled:false, active:false, message:'使用原生 ChatGPT 外观' };
+    this.chatAppearanceCss = null;
+    this.chatAppearancePending = Promise.resolve();
+    this.chatAppearanceDocument = 0;
+    this.chatAppearanceAbort = new AbortController();
     this.boundResize = () => this.resize();
+    this.replica = new ChatReplica({
+      chooseFiles: multiple => require('electron').dialog.showOpenDialog(this.window,{title:'添加对话附件',properties:multiple?['openFile','multiSelections']:['openFile']}),
+      contents:()=>this.view?.webContents,
+      eligible:url=>isChatGptNavigation(url)&&!authUrl(url)&&!this.login.prompt&&!this.liveAuthViews().length,
+      onChange:state=>{ this.syncLoginVisibility(); this.emitState(); onReplica(state); }
+    });
   }
 
-  setContentInsets({ top = 0, bottom = 0, right = 0, toolbarHeight = this.toolbarHeight } = {}) {
+  applyChatAppearance() {
+    if (this.disposed) return Promise.resolve({ ...this.chatAppearance,active:false });
+    const apply = async () => {
+      const current = this.settings?.load?.() || {};
+      const enabled = current.experimentalClaudeChat === true;
+      const contents = this.view?.webContents;
+      const url = contents && !contents.isDestroyed() ? contents.getURL() : '';
+      const eligible = !this.disposed && isChatGptNavigation(url) && !authUrl(url);
+      const theme = current.theme === 'system' ? (nativeTheme?.shouldUseDarkColors ? 'dark' : 'light') : current.theme;
+      const documentRevision = this.chatAppearanceDocument;
+      const touchDocument = enabled || this.chatAppearance.enabled || Boolean(this.chatAppearanceCss);
+      try {
+        if ((!enabled || !eligible) && this.chatAppearanceCss) {
+          const { owner, key } = this.chatAppearanceCss;
+          this.chatAppearanceCss = null;
+          if (!owner.isDestroyed()) await owner.removeInsertedCSS(key).catch(() => {});
+        }
+        let active = false;
+        if (eligible && touchDocument) {
+          if (enabled && !this.chatAppearanceCss) {
+            const key = await contents.insertCSS(CHAT_CLAUDE_CSS,{cssOrigin:'user'});
+            if (documentRevision !== this.chatAppearanceDocument || this.disposed) {
+              if (!contents.isDestroyed()) await contents.removeInsertedCSS(key).catch(() => {});
+              return { ...this.chatAppearance };
+            }
+            this.chatAppearanceCss = { owner:contents,key };
+          }
+          const result = await contents.executeJavaScript(`(${applyChatAppearanceDocument.toString()})(${JSON.stringify({enabled,theme,url})})`);
+          if (documentRevision !== this.chatAppearanceDocument || this.disposed) return { ...this.chatAppearance };
+          active = Boolean(enabled && result?.active);
+        }
+        if ((this.settings?.load?.().experimentalClaudeChat === true) !== enabled) return { ...this.chatAppearance };
+        this.chatAppearance = { enabled,active,pending:false,message:!enabled?'使用原生 ChatGPT 外观':active?'Claude 对话外观已应用；使用原网页数据':'实验外观已开启；网页就绪后应用，不匹配时显示原生布局' };
+      } catch {
+        if (this.chatAppearanceCss) {
+          const { owner,key } = this.chatAppearanceCss;
+          this.chatAppearanceCss = null;
+          if (!owner.isDestroyed()) await owner.removeInsertedCSS(key).catch(() => {});
+        }
+        this.chatAppearance = { enabled,active:false,message:'实验外观未能应用，当前使用原生布局；可以关闭开关' };
+      }
+      if (!this.disposed) this.emitState();
+      return { ...this.chatAppearance };
+    };
+    this.chatAppearancePending = this.chatAppearancePending.then(apply,apply);
+    let timer,abort;
+    const stopped = new Promise(resolve => {
+      abort = () => resolve({ ...this.chatAppearance,active:false,pending:false });
+      this.chatAppearanceAbort.signal.addEventListener('abort',abort,{once:true});
+    });
+    const waiting = new Promise(resolve => { timer = setTimeout(() => {
+      this.chatAppearance = { ...this.chatAppearance,enabled:this.settings?.load?.().experimentalClaudeChat===true,pending:true,message:'等待当前网页响应；已保留开关选择，不会重新发送消息' };
+      if (!this.disposed) this.emitState();
+      resolve({ ...this.chatAppearance });
+    },2500); });
+    return Promise.race([this.chatAppearancePending,stopped,waiting]).finally(() => {
+      clearTimeout(timer);
+      this.chatAppearanceAbort.signal.removeEventListener('abort',abort);
+    });
+  }
+
+  setContentInsets({ top = 0, bottom = 0, left = 0, right = 0, toolbarHeight = this.toolbarHeight } = {}) {
     const nextTop = Math.max(0, Number(top) || 0);
     const nextBottom = Math.max(0, Number(bottom) || 0);
     const nextRight = Math.max(0, Math.min(600, Number(right) || 0));
+    const nextLeft = Math.max(0, Math.min(420, Number(left) || 0));
     const nextToolbar = Math.max(0, Math.min(240, Number(toolbarHeight) || 0));
-    if (this.topOverlay === nextTop && this.bottomInset === nextBottom && (this.rightInset || 0) === nextRight && this.toolbarHeight === nextToolbar) return;
+    if (this.topOverlay === nextTop && this.bottomInset === nextBottom && (this.leftInset || 0) === nextLeft && (this.rightInset || 0) === nextRight && this.toolbarHeight === nextToolbar) return;
     this.topOverlay = nextTop;
     this.bottomInset = nextBottom;
     this.rightInset = nextRight;
+    this.leftInset = nextLeft;
     this.toolbarHeight = nextToolbar;
     this.resize();
   }
@@ -337,6 +415,7 @@ class ChatViewController {
       }
     });
     this.view.webContents.setBackgroundThrottling(false);
+    this.view.webContents.on('focus', this.onNativeFocus);
     if (browserUserAgent) this.view.webContents.setUserAgent(browserUserAgent);
     this.view.setBackgroundColor('#f7f7f8');
     this.window.contentView.addChildView(this.view);
@@ -395,6 +474,7 @@ class ChatViewController {
     });
     listen('did-start-loading', () => {
       if (this.disposed) return;
+      this.replica.reset();
       const reason = this.pendingPageLoadReason || 'page-or-browser-navigation';
       this.pendingPageLoadReason = '';
       this.log.info('ChatGPT 页面开始加载', { host: parseUrl(contents.getURL())?.hostname || '', reason });
@@ -414,6 +494,9 @@ class ChatViewController {
       this.emitState();
     });
     listen('dom-ready', () => {
+      this.replica.reset();
+      this.chatAppearanceDocument++;
+      this.chatAppearanceCss = null; // Navigation discards styles inserted into the old document.
       if (isChatGptNavigation(contents.getURL()) && !authUrl(contents.getURL())) {
         void contents.insertCSS(CHAT_SCROLLBARS, { cssOrigin: 'user' }).catch((error) => this.log.warn('网页滚动条样式未载入', { message: error.message }));
       }
@@ -433,6 +516,8 @@ class ChatViewController {
       this.emitState();
     });
     listen('did-navigate-in-page', () => {
+      this.replica.reset();
+      this.replica.configure(this.settings?.load?.().experimentalIndependentChat === true);
       this.emitState();
       this.suspendChatUiEnhancements();
       clearTimeout(this.enhancementTimer);
@@ -599,7 +684,7 @@ class ChatViewController {
     // Keep ChatGPT visible underneath them so a transient/blank/destroyed OAuth child can
     // never expose the shell's startup placeholder. Only the shell DOM login prompt needs
     // the primary native view hidden so that the dialog can render above it.
-    if (this.view && !this.view.webContents.isDestroyed()) this.view.setVisible(!this.login.prompt);
+    if (this.view && !this.view.webContents.isDestroyed()) this.view.setVisible(!this.login.prompt && !(this.replica.state.active && !authViews.length));
     for (const view of authViews) view.setVisible(!this.login.prompt && !this.login.returning && view === authViews.at(-1));
   }
 
@@ -649,6 +734,7 @@ class ChatViewController {
     this.resize();
     const contents = view.webContents;
     let navigationDeadline;
+    contents.on('focus', this.onNativeFocus);
     const clearDeadline = () => { clearTimeout(navigationDeadline); navigationDeadline = null; };
     contents.setBackgroundThrottling(false);
     contents.setWindowOpenHandler(({ url: next }) => {
@@ -780,6 +866,8 @@ class ChatViewController {
   scheduleChatUiEnhancements() {
     const contents = this.view?.webContents;
     if (this.disposed || !contents || contents.isDestroyed()) return;
+    void this.applyChatAppearance();
+    this.replica.configure(this.settings?.load?.().experimentalIndependentChat === true);
     this.scheduleMemoryObserver();
     this.scheduleStreamObserver();
     this.scheduleContinuousMcpMode();
@@ -1153,18 +1241,19 @@ class ChatViewController {
     if (this.disposed || !this.view || this.view.webContents.isDestroyed() || !this.window || this.window.isDestroyed()) return;
     const [width, height] = this.window.getContentSize();
     // WebContentsView is a native layer that always paints above HTML.
-    // Leave room for console drawer (bottom) and toolbar popovers that hang into content (top).
+    // Reserve permanent shell panes; transient menus paint in a child window.
     const top = Math.min(Math.max(0, height), this.toolbarHeight + (this.topOverlay || 0));
     const bottom = Math.min(Math.max(0, height - top), Math.max(0, this.bottomInset || 0));
-    const right = Math.min(Math.max(0, width - 240), this.rightInset || 0);
+    const left = Math.min(Math.max(0, width - 240), this.leftInset || 0);
+    const right = Math.min(Math.max(0, width - left - 240), this.rightInset || 0);
     const viewHeight = Math.max(0, height - top - bottom);
     this.view.setBounds({
-      x: 0,
+      x: left,
       y: top,
-      width: Math.max(0, width - right),
+      width: Math.max(0, width - left - right),
       height: viewHeight
     });
-    for (const authView of this.liveAuthViews()) authView.setBounds({ x: 0, y: this.toolbarHeight, width: Math.max(0, width - right), height: Math.max(0, height - this.toolbarHeight - bottom) });
+    for (const authView of this.liveAuthViews()) authView.setBounds({ x: left, y: this.toolbarHeight, width: Math.max(0, width - left - right), height: Math.max(0, height - this.toolbarHeight - bottom) });
   }
 
   emitState() {
@@ -1185,6 +1274,8 @@ class ChatViewController {
       canGoForward: Boolean(contents && !contents.isDestroyed() && contents.canGoForward()),
       mcpAttachment: { ...this.mcpAttachment },
       browserNetwork: { ...this.browserNetwork },
+      appearance: { ...this.chatAppearance },
+      replica: this.replica.summary(),
       streamState: { ...this.streamState },
       nativeLogin: this.nativeLogin?.getState() || { status: 'idle', message: '', browser: '' },
       login: { ...this.login }
@@ -1338,6 +1429,8 @@ class ChatViewController {
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
+    this.chatAppearanceAbort.abort();
+    this.replica.dispose();
     this.loginRevision++;
     clearTimeout(this.loadTimer);
     clearTimeout(this.enhancementTimer);

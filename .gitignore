@@ -28,3 +28,4 @@ __pycache__/
 
 # Generated React manager bundle.
 renderer/react-dist/
+renderer/chat-dist/

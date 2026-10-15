@@ -8,6 +8,7 @@ const { LogService } = require('./services/logService');
 const { EnvironmentService } = require('./services/environmentService');
 const { RuntimeOrchestrator } = require('./services/runtimeOrchestrator');
 const { ChatViewController } = require('./chatViewController');
+const { ShellPopover } = require('./shellPopover');
 const { run } = require('./services/commandRunner');
 const { resolveProxy, clearProxyCache } = require('./services/proxyService');
 const { BuildVerificationService } = require('./services/buildVerificationService');
@@ -54,6 +55,7 @@ let activityDetailPinned = false;
 let activityDetailHover = false;
 let activityDetailHideTimer = null;
 let chatController;
+let shellPopover;
 let orchestrator;
 let forceQuit = false;
 let quitReady = false;
@@ -81,11 +83,12 @@ const approvalService = new ApprovalService(settings);
 const workspaceManager = new WorkspaceManager(settings);
 
 function themeBackground(mode = settings.load().theme) {
-  const dark = mode === 'dark' || (mode === 'system' && nativeTheme.shouldUseDarkColors);
+  const dark = mode === 'dark' || mode === 'black' || (mode === 'system' && nativeTheme.shouldUseDarkColors);
   return dark ? '#000000' : '#ffffff';
 }
 
 function broadcastTheme(mode) {
+  void chatController?.applyChatAppearance();
   for (const window of [chatWindow, managerWindow, workspaceWindow, activityDetailWindow, approvalWindow]) {
     if (!window || window.isDestroyed()) continue;
     window.webContents.send('theme:changed', mode);
@@ -320,7 +323,7 @@ function createChatWindow() {
     return chatWindow;
   }
 
-  const initialTheme = ['light', 'dark', 'system'].includes(settings.load().theme) ? settings.load().theme : 'light';
+  const initialTheme = ['light', 'dark', 'black', 'system'].includes(settings.load().theme) ? settings.load().theme : 'light';
   chatWindow = new BrowserWindow({
     width: 1360,
     height: 900,
@@ -354,9 +357,12 @@ function createChatWindow() {
       if (payload?.status === 'completed' && payload.path) lastDownloadPath = path.resolve(String(payload.path));
       sendWindow(chatWindow, 'chat:download', payload);
     },
-    onConversationTurn: (turn) => autoMemoryService?.ingestTurn(turn)
+    onConversationTurn: (turn) => autoMemoryService?.ingestTurn(turn),
+    onNativeFocus: () => shellPopover?.close('outside'),
+    onReplica: state => sendWindow(chatWindow,'chat:replica-state',state)
   });
   chatController.mount();
+  shellPopover = new ShellPopover(chatWindow);
 
   chatWindow.once('ready-to-show', () => chatWindow.show());
   chatWindow.on('move', () => {
@@ -366,6 +372,8 @@ function createChatWindow() {
     if (activityDetailWindow && !activityDetailWindow.isDestroyed() && activityDetailWindow.isVisible()) positionActivityDetailWindow();
   });
   chatWindow.on('closed', () => {
+    shellPopover?.dispose();
+    shellPopover = null;
     if (chatController) chatController.dispose();
     chatController = null;
     if (activityDetailWindow && !activityDetailWindow.isDestroyed()) activityDetailWindow.destroy();
@@ -426,7 +434,7 @@ function openWorkspaceWindow() {
     }
   });
   workspaceWindow.removeMenu();
-  const initialTheme = ['light', 'dark', 'system'].includes(settings.load().theme) ? settings.load().theme : 'light';
+  const initialTheme = ['light', 'dark', 'black', 'system'].includes(settings.load().theme) ? settings.load().theme : 'light';
   workspaceWindow.loadFile(path.join(__dirname, '..', 'renderer', 'workspace.html'), { query: { theme: initialTheme } });
   workspaceWindow.once('ready-to-show', () => workspaceWindow.show());
   workspaceWindow.on('close', (event) => {
@@ -642,7 +650,7 @@ function openManagerWindow() {
     }
   });
   managerWindow.removeMenu();
-  const initialTheme = ['light', 'dark', 'system'].includes(settings.load().theme) ? settings.load().theme : 'light';
+  const initialTheme = ['light', 'dark', 'black', 'system'].includes(settings.load().theme) ? settings.load().theme : 'light';
   managerWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'), { query: { theme: initialTheme } });
   managerWindow.once('ready-to-show', () => managerWindow.show());
   managerWindow.on('close', (event) => {
@@ -1308,14 +1316,45 @@ function registerIpc() {
     return candidate;
   }));
   secureHandle('chat:status', () => invokeSafely(async () => chatController?.getState() || null));
+  secureHandle('chat:appearance', (_event, enabled) => invokeSafely(async () => {
+    if (typeof enabled !== 'boolean') throw new Error('实验开关必须为布尔值。');
+    if (!chatController) throw new Error('聊天窗口尚未初始化。');
+    settings.save({experimentalClaudeChat:enabled});
+    await chatController.applyChatAppearance();
+    return chatController.getState();
+  }));
   secureHandle('chat:inject-prompt', (_event, text, autoSend) => invokeSafely(async () => chatController?.injectPrompt(text, autoSend)));
+  secureHandle('chat:replica-enable', (event, enabled) => invokeSafely(async () => {
+    if (event.sender !== chatWindow?.webContents || event.senderFrame !== event.sender.mainFrame || typeof enabled !== 'boolean') throw new Error('无效的实验渲染请求。');
+    settings.save({experimentalIndependentChat:enabled});
+    chatController?.replica.configure(enabled);
+    return chatController?.getState();
+  }));
+  secureHandle('chat:replica-ack', (event, token) => invokeSafely(async () => {
+    if (event.sender !== chatWindow?.webContents || event.senderFrame !== event.sender.mainFrame) return false;
+    return chatController?.replica.acknowledge(String(token));
+  }));
+  secureHandle('chat:replica-state', event => invokeSafely(async () => {
+    if(event.sender!==chatWindow?.webContents||event.senderFrame!==event.sender.mainFrame) return null;
+    return chatController?.replica.state;
+  }));
+  secureHandle('chat:replica-action', (event,request) => invokeSafely(async () => {
+    if(event.sender!==chatWindow?.webContents||event.senderFrame!==event.sender.mainFrame)throw new Error('无效的对话操作来源。');
+    return chatController?.replica.action(request);
+  }));
   secureHandle('chat:set-content-insets', (_event, insets = {}) => invokeSafely(async () => {
     chatController?.setContentInsets({
       top: Number(insets.top) || 0,
       bottom: Number(insets.bottom) || 0,
+      left: Number(insets.left) || 0,
       right: Number(insets.right) || 0,
       toolbarHeight: Number.isFinite(Number(insets.toolbarHeight)) ? Number(insets.toolbarHeight) : chatController?.toolbarHeight
     });
+    return true;
+  }));
+  secureHandle('shell-popover:update', (event, payload) => invokeSafely(async () => {
+    if (event.sender !== chatWindow?.webContents || event.senderFrame !== event.sender.mainFrame) throw new Error('浮层只能由主工作空间打开。');
+    await shellPopover?.update(payload);
     return true;
   }));
   secureHandle('chat:login-open', () => invokeSafely(async () => {

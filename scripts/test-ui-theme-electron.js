@@ -37,7 +37,7 @@ const appearance = `(() => {
   const style=getComputedStyle(document.body);
   const texts=Array.from(document.querySelectorAll('body *')).filter(el=>el.getClientRects().length && Array.from(el.childNodes).some(n=>n.nodeType===3 && n.textContent.trim()));
   const small=texts.filter(el=>parseFloat(getComputedStyle(el).fontSize)<12).map(el=>({tag:el.tagName,class:el.className,text:el.textContent.slice(0,50),size:getComputedStyle(el).fontSize}));
-  return {theme:document.body.dataset.theme,bg:style.backgroundColor,color:style.color,font:style.fontFamily,size:parseFloat(style.fontSize),muted:style.getPropertyValue('--ui-muted').trim(),surface:style.getPropertyValue('--ui-surface').trim(),overflow:document.documentElement.scrollWidth>innerWidth,small};
+  return {theme:document.body.dataset.theme,mode:document.body.dataset.themeMode,bg:style.backgroundColor,color:style.color,font:style.fontFamily,size:parseFloat(style.fontSize),muted:style.getPropertyValue('--ui-muted').trim(),surface:style.getPropertyValue('--ui-surface').trim(),overflow:document.documentElement.scrollWidth>innerWidth,small};
 })()`;
 
 function luminance(hex) {
@@ -46,8 +46,10 @@ function luminance(hex) {
   return [0,2,4].map(i=>parseInt(full.slice(i,i+2),16)/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((sum,v,i)=>sum+v*[.2126,.7152,.0722][i],0);
 }
 function verify(state, theme, name) {
-  assert.equal(state.theme,theme,name); assert.equal(state.bg,theme==='dark'?'rgb(0, 0, 0)':'rgb(255, 255, 255)',name);
-  assert.equal(state.color,theme==='dark'?'rgb(255, 255, 255)':'rgb(13, 13, 13)',name);
+  assert.equal(state.theme,theme==='black'?'dark':theme,name);
+  if(theme==='black') assert.equal(state.mode,'black',name);
+  assert.equal(state.bg,theme==='black'?'rgb(0, 0, 0)':theme==='dark'?'rgb(21, 21, 21)':'rgb(252, 252, 251)',name);
+  assert.equal(state.color,theme==='light'?'rgb(11, 11, 11)':'rgb(240, 239, 236)',name);
   assert.equal(state.size,14,name); assert.equal(state.overflow,false,name); assert.deepEqual(state.small,[],name);
   const a=luminance(state.muted), b=luminance(state.surface);
   assert.ok((Math.max(a,b)+.05)/(Math.min(a,b)+.05)>=4.5,`secondary text contrast: ${name}`);
@@ -63,7 +65,7 @@ app.whenReady().then(async () => {
     const win=new BrowserWindow({show:false,width:view.width,height:view.height,webPreferences:{preload:path.join(root,'electron',view.preload),sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
     win.webContents.on('preload-error',(_event,_file,error)=>errors.push(error.message));
     win.webContents.on('console-message',(_event,details)=>{if(details.level==='error')errors.push(details.message);});
-    for (const theme of ['dark','light']) {
+    for (const theme of ['dark','black','light']) {
       await win.loadFile(path.join(root,'renderer',`${view.name}.html`),{query:{theme}});
       if(view.name==='activity-detail') win.webContents.send('activity-detail:payload',fixture);
       await delay(180);
@@ -80,7 +82,7 @@ app.whenReady().then(async () => {
       win.setContentSize(view.width,view.height); await delay(80);
       fs.writeFileSync(path.join(output,`${view.name}-${theme}.png`),(await capture(win)).toPNG());
       const content=await win.webContents.executeJavaScript('document.body.textContent');
-      const next=theme==='dark'?'light':'dark'; win.webContents.send('theme:changed',next); await delay(80);
+      const next=theme==='dark'?'black':theme==='black'?'light':'dark'; win.webContents.send('theme:changed',next); await delay(80);
       verify(await win.webContents.executeJavaScript(appearance),next,`${view.name}-live`);
       assert.equal(await win.webContents.executeJavaScript('document.body.textContent'),content,'theme switch must retain payload');
       results.push({view:view.name,theme,state,layouts,liveSwitch:true,payloadRetained:true});

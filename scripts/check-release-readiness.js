@@ -28,6 +28,10 @@ const schema = Number((server.match(/TOOL_SCHEMA_VERSION\s*=\s*(\d+)/) || [])[1]
 if (Number(contract.schema_version) !== schema) errors.push(`schema contract v${contract.schema_version} != server v${schema}`);
 const uiBundle = path.join(root, 'renderer', 'react-dist', 'manager-react.js');
 if (!fs.existsSync(uiBundle) || fs.statSync(uiBundle).size < 1000) errors.push('React manager bundle missing; run npm run ui:build');
+for(const name of ['chat-replica.js','chat-replica.css','THIRD_PARTY_LICENSES.txt','KaTeX_FONT_LICENSE.txt']){
+  const file=path.join(root,'renderer','chat-dist',name);
+  if(!fs.existsSync(file)||fs.statSync(file).size<100)errors.push(`Independent chat distribution resource missing: ${name}`);
+}
 if (errors.length) {
   console.error('[release-readiness] FAIL');
   for (const error of errors) console.error(`- ${error}`);

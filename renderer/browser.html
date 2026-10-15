@@ -3,22 +3,39 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self';style-src 'self';script-src 'self';img-src 'self' data:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self';style-src 'self';script-src 'self';img-src 'self' data:;font-src 'self' data:;">
   <title>超级智囊团</title>
   <link rel="stylesheet" href="browser.css">
   <link rel="stylesheet" href="browser-shell.css">
   <link rel="stylesheet" href="ui-theme.css">
+  <link rel="stylesheet" href="studio-shell.css">
 </head>
 <body>
   <script src="theme-bootstrap.js"></script>
+  <aside id="studioSidebar" class="studio-sidebar" aria-label="工作空间导航">
+    <div id="studioSidebarResize" class="studio-sidebar-resize" role="separator" aria-label="调整导航宽度" aria-orientation="vertical" aria-valuemin="200" aria-valuemax="420" aria-valuenow="288" tabindex="0"></div>
+    <div class="studio-brand"><img src="brand-icon.png" alt=""><b>超级智囊团</b><button id="collapseSidebar" class="shell-button" type="button" aria-label="收起导航"><img class="shell-icon" src="icons/rectangle-group.svg" alt=""></button></div>
+    <nav class="studio-navigation" aria-label="工作空间操作">
+      <button id="studioNewChat" class="studio-nav-item" type="button"><img class="shell-icon" src="icons/plus.svg" alt=""><span>新建对话</span></button>
+      <button id="studioWorkspaceHub" class="studio-nav-item" type="button"><img class="shell-icon" src="icons/folder.svg" alt=""><span>工作区</span></button>
+      <button id="studioAdvisors" class="studio-nav-item" type="button"><img class="shell-icon" src="icons/squares-plus.svg" alt=""><span>智囊扩展</span></button>
+    </nav>
+    <div class="studio-sidebar-scroll">
+      <section><h2>工作区</h2><div id="studioWorkspaceList"></div></section>
+      <section><h2 id="studioTaskGroup">当前任务</h2><button id="studioCurrentTask" class="studio-nav-item studio-task" type="button"><img class="shell-icon" src="icons/chat-bubble-left.svg" alt=""><span id="studioTaskTitle">当前没有本地任务</span></button><p id="studioTaskState" class="studio-meta">等待任务记录</p></section>
+      <section><div class="studio-section-title"><h2>最近任务</h2><button id="studioRefreshHistory" class="shell-button" type="button" aria-label="刷新最近任务"><img class="shell-icon" src="icons/arrow-path.svg" alt=""></button></div><div id="studioRecentTasks"><p class="studio-meta">正在读取任务记录…</p></div><button id="studioAllHistory" class="studio-nav-item studio-history-link" type="button">查看全部历史</button></section>
+    </div>
+    <div class="studio-sidebar-footer"><button id="studioSettings" class="studio-nav-item" type="button"><img class="shell-icon" src="icons/cog-6-tooth.svg" alt=""><span>设置与连接</span></button><small>超级智囊团 <span id="studioVersion"></span></small></div>
+  </aside>
   <header class="browser-toolbar">
     <div class="toolbar-main">
+      <button id="expandSidebar" type="button" class="shell-button" aria-label="展开导航" aria-controls="studioSidebar" aria-expanded="true"><img class="shell-icon" src="icons/rectangle-group.svg" alt=""></button>
       <nav class="nav-actions" aria-label="网页导航">
         <button id="backButton" type="button" class="shell-button" aria-label="后退" title="后退" disabled><img class="shell-icon" src="icons/arrow-left.svg" alt=""><span></span></button>
         <button id="forwardButton" type="button" class="shell-button" aria-label="前进" title="前进" disabled><img class="shell-icon" src="icons/arrow-right.svg" alt=""><span></span></button>
         <button id="reloadButton" type="button" class="shell-button" aria-label="刷新网页" title="刷新网页"><img class="shell-icon" src="icons/arrow-path.svg" alt=""><span></span></button>
       </nav>
-      <button id="homeButton" type="button" class="shell-brand" title="打开 ChatGPT 首页"><img src="brand-icon.png" alt=""><b>超级智囊团</b></button>
+      <button id="homeButton" type="button" class="shell-brand" title="打开 ChatGPT 首页"><img class="shell-icon" src="icons/chat-bubble-left.svg" alt=""><b>对话</b></button>
       <button id="workspacePickerButton" type="button" class="shell-workspace" aria-label="打开工作区中心" title="打开工作区中心"><img class="shell-icon" src="icons/folder.svg" alt=""><strong id="activeWorkspace">未选择工作区</strong><img class="shell-icon" src="icons/chevron-down.svg" alt=""></button>
       <div class="shell-spacer"></div>
       <button id="connectionButton" type="button" class="shell-button" aria-controls="workbench" title="查看连接详情"><img class="shell-icon" src="icons/signal.svg" alt=""><span>正在确认</span></button>
@@ -26,7 +43,11 @@
       <button id="managerButton" type="button" class="shell-button" ><img class="shell-icon" src="icons/cog-6-tooth.svg" alt=""><span>设置</span></button>
       <div class="shell-more-wrap">
         <button id="moreButton" type="button" class="shell-button" aria-expanded="false" aria-controls="moreMenu"><img class="shell-icon" src="icons/ellipsis-horizontal.svg" alt=""><span>更多</span></button>
-        <div id="moreMenu" class="shell-menu" hidden>
+        <div id="moreMenu" class="shell-menu" role="dialog" aria-label="更多操作" hidden>
+          <label class="chat-appearance-switch"><span>Claude 对话外观 <small>实验</small></span><input id="chatAppearanceToggle" type="checkbox" aria-label="Claude 对话外观（实验）"></label>
+          <p id="chatAppearanceStatus" class="shell-muted">默认关闭；关闭后恢复原生外观和导航。</p>
+          <label class="chat-appearance-switch"><span>独立对话渲染 <small>实验</small></span><input id="independentChatToggle" type="checkbox" aria-label="独立对话渲染（实验）"></label>
+          <p id="independentChatStatus" class="shell-muted">默认关闭；基于 assistant-ui，只读显示。</p>
           <button id="nativeLoginButton" type="button" class="shell-button" ><img class="shell-icon" src="icons/user-circle.svg" alt=""><span>账号与登录帮助</span></button>
           <button id="addWorkspace" type="button" class="shell-button" ><img class="shell-icon" src="icons/folder-plus.svg" alt=""><span>添加工作区</span></button>
           <button id="addAuthorizedRootQuick" type="button" class="shell-button" ><img class="shell-icon" src="icons/lock-open.svg" alt=""><span>授权额外目录</span></button>
@@ -44,26 +65,15 @@
     </section>
   </header>
   <aside id="workbench" class="workbench" aria-label="工作台" hidden>
+    <div id="workbenchResize" class="studio-panel-resize" role="separator" aria-label="调整工作台宽度" aria-orientation="vertical" aria-valuemin="280" aria-valuemax="560" aria-valuenow="340" tabindex="0"></div>
     <header class="workbench-header"><h1>工作台</h1><button id="closeWorkbench" type="button" class="shell-button" aria-label="收起工作台" title="收起工作台"><img class="shell-icon" src="icons/x-mark.svg" alt=""><span></span></button></header>
+    <div class="studio-panel-tabs" role="tablist" aria-label="工作台视图"><button id="studioActivityTab" role="tab" type="button" aria-selected="true" aria-controls="studioActivityPanel" data-studio-tab="activity">活动</button><button id="studioAdvisorsTab" role="tab" type="button" aria-selected="false" aria-controls="studioAdvisorsPanel" data-studio-tab="advisors" tabindex="-1">智囊</button><button id="studioConnectionsTab" role="tab" type="button" aria-selected="false" aria-controls="studioConnectionsPanel" data-studio-tab="connections" tabindex="-1">连接</button></div>
     <div class="workbench-content">
+      <div id="studioConnectionsPanel" role="tabpanel" aria-labelledby="studioConnectionsTab" data-studio-panel="connections" hidden>
       <section><h2>连接状态</h2>
         <div class="health-row"><div id="pageState"><i></i><span>ChatGPT · 等待确认</span></div><small id="pageHealthDetail">等待网页状态</small></div>
         <div class="health-row"><div id="mcpState"><i></i><span>本地工具 · 等待确认</span></div><small id="mcpHealthDetail">独立检查本地服务</small></div>
         <div class="health-row"><div id="tunnelState"><i></i><em id="connectionStateLabel">Tunnel · 等待确认</em></div><small id="tunnelHealthDetail">独立检查远端通道</small></div>
-      </section>
-      <section><h2>当前任务</h2>
-        <div class="task-strip idle" id="taskStrip"><i></i><b id="taskStatusLabel">空闲</b><small id="taskTitle">当前没有运行中的本地任务</small><button id="stopTask" type="button" hidden>停止本地任务</button></div>
-        <p id="workbenchTaskDetail" class="shell-muted">暂无运行记录</p>
-        <button id="workbenchActivity" type="button" class="shell-button" ><img class="shell-icon" src="icons/list-bullet.svg" alt=""><span>查看活动详情</span></button>
-      </section>
-      <section><h2>最近下载</h2><p id="downloadState" class="download-state">暂无附件下载</p><button id="openDownloadButton" type="button" class="shell-button" hidden><img class="shell-icon" src="icons/document-text.svg" alt=""><span>打开附件</span></button></section>
-      <section><h2>扩展辅助</h2>
-        <p class="shell-muted">允许主 AI 按需调用勾选的太极 / AntiGravity 模型。由 AI 提交必要材料、查询结果并复核意见；取消勾选只影响后续咨询。</p>
-        <div class="advisory-actions"><button id="advisoryImport" class="shell-button" type="button">导入客户端配置</button><button id="advisoryRefresh" class="shell-button" type="button">读取模型</button></div>
-        <p id="advisoryStatus" class="shell-muted" role="status">正在读取服务配置…</p>
-        <div id="extensionProviders" class="extension-providers"></div>
-        <div class="advisory-actions"><button id="advisoryResult" class="shell-button" type="button" hidden>刷新辅助进度</button></div>
-        <div id="advisoryAnswers" class="advisory-answers" aria-live="polite"></div>
       </section>
       <section><h2>当前工作区</h2><div class="workspace-label" id="workspaceLabel"><button id="workspaceHealthButton" class="shell-button" type="button" aria-label="查看工作区同步状态" aria-expanded="false"><img class="shell-icon" src="icons/folder.svg" alt=""><span>同步状态</span><i></i></button><div id="workspaceHealthPopover" class="workspace-health-popover" hidden>
           <b id="workspaceHealthName">未选择工作区</b>
@@ -108,7 +118,28 @@
             </div>
           </div>
         </div></section>
+      </div>
+      <div id="studioActivityPanel" role="tabpanel" aria-labelledby="studioActivityTab" data-studio-panel="activity">
+      <section><h2>当前任务</h2>
+        <div class="task-strip idle" id="taskStrip"><i></i><b id="taskStatusLabel">空闲</b><small id="taskTitle">当前没有运行中的本地任务</small><button id="stopTask" type="button" hidden>停止本地任务</button></div>
+        <details id="studioTaskPlan" class="studio-task-plan" open hidden><summary><span>执行计划</span><small id="studioPlanCount"></small><img class="shell-icon" src="icons/chevron-down.svg" alt=""></summary><ol id="studioPlanSteps"></ol></details>
+        <div id="studioTaskRecap" class="studio-task-recap" hidden><span id="studioRecapLabel">本地进展</span><p id="workbenchTaskDetail" class="shell-muted">暂无运行记录</p><small id="studioTaskNext" hidden></small></div>
+        <button id="workbenchActivity" type="button" class="shell-button" ><img class="shell-icon" src="icons/list-bullet.svg" alt=""><span>查看活动详情</span></button>
+      </section>
+      <section><h2>最近下载</h2><p id="downloadState" class="download-state">暂无附件下载</p><button id="openDownloadButton" type="button" class="shell-button" hidden><img class="shell-icon" src="icons/document-text.svg" alt=""><span>打开附件</span></button></section>
       <section class="workbench-actions"><h2>快捷操作</h2><button id="workbenchConsole" type="button" class="shell-button" ><img class="shell-icon" src="icons/command-line.svg" alt=""><span>控制台</span></button><button id="workbenchHistory" type="button" class="shell-button" ><img class="shell-icon" src="icons/clock.svg" alt=""><span>任务历史</span></button></section>
+      </div>
+      <div id="studioAdvisorsPanel" role="tabpanel" aria-labelledby="studioAdvisorsTab" data-studio-panel="advisors" hidden>
+      <section><h2>扩展辅助</h2>
+        <p class="shell-muted">允许主 AI 按需调用勾选的太极 / AntiGravity 模型。由 AI 提交必要材料、查询结果并复核意见；取消勾选只影响后续咨询。</p>
+        <div class="advisory-actions"><button id="advisoryImport" class="shell-button" type="button">导入客户端配置</button><button id="advisoryRefresh" class="shell-button" type="button">读取模型</button></div>
+        <p id="advisoryStatus" class="shell-muted" role="status">正在读取服务配置…</p>
+        <div id="extensionProviders" class="extension-providers"></div>
+        <div class="advisory-actions"><button id="advisoryResult" class="shell-button" type="button" hidden>刷新辅助进度</button></div>
+        <div id="advisoryAnswers" class="advisory-answers" aria-live="polite"></div>
+      </section>
+      </div>
+
     </div>
   </aside>
   <footer id="shellFooter" class="shell-footer">
@@ -118,7 +149,7 @@
       <button id="taskChangesBtn" class="terminal-toggle-btn changes-btn" type="button" hidden>修改文件</button>
       <button id="downloadsButton" type="button" class="shell-button" ><img class="shell-icon" src="icons/arrow-down-tray.svg" alt=""><span>下载</span></button>
       <button id="openTerminalButton" type="button" class="terminal-toggle-btn shell-button" ><img class="shell-icon" src="icons/command-line.svg" alt=""><span>控制台</span></button>
-      <div class="task-history-wrap"><button id="openTaskHistoryButton" class="terminal-toggle-btn" type="button" title="查看最近任务历史（读取工作区 .coding-tools/task-history.json）" aria-expanded="false">历史</button><div id="taskHistoryPopover" class="task-history-popover" hidden>
+      <div class="task-history-wrap"><button id="openTaskHistoryButton" class="terminal-toggle-btn" type="button" title="查看最近任务历史（读取工作区 .coding-tools/task-history.json）" aria-expanded="false" aria-controls="taskHistoryPopover">历史</button><div id="taskHistoryPopover" class="task-history-popover" role="dialog" aria-label="最近任务历史" hidden>
             <div class="popover-header">
               <b>最近任务历史</b>
               <div class="popover-actions">
@@ -201,8 +232,11 @@
   <script src="progressPresentation.js"></script>
   <script src="assistantState.js"></script>
   <script src="shellPresentation.js"></script>
+  <script src="studio-shell.js"></script>
   <script src="browser.js"></script>
   <script src="advisory.js"></script>
   <script src="update-ui.js"></script>
+  <div id="independentChatRoot" hidden></div>
+  <script src="chat-replica-host.js"></script>
 </body>
 </html>
