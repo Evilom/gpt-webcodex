@@ -831,6 +831,8 @@ _TOOL_PATHS: dict[str, str] = {}
 _CONTEXT_BUNDLE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _CONTEXT_BUNDLE_CACHE_LOCK = threading.Lock()
 CONTEXT_BUNDLE_CACHE_TTL_SECONDS = 30
+CONTEXT_SEARCH_TIMEOUT_SECONDS = 10.0
+CONTEXT_SEARCH_FILE_BYTES = 2 * 1024 * 1024
 _FAST_TOOL_CACHE: dict[str, tuple[float, int, dict[str, Any]]] = {}
 _FAST_TOOL_CACHE_LOCK = threading.Lock()
 _WORKSPACE_CACHE_GENERATION: dict[str, int] = {}
@@ -1456,6 +1458,7 @@ class Runtime:
         self.sessions_lock = threading.Lock()
         self.starting_sessions = 0
         self._closed = False
+        self.context_search_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="context-search")
         self.http_session_id = secrets.token_urlsafe(24)
         self.protocol_version = PROTOCOL_VERSION
         self.patch_baselines: dict[str, str | None] = {}
@@ -1657,6 +1660,7 @@ class Runtime:
             self.output_sessions.clear()
         with self.background_operation_condition:
             self.background_operation_condition.notify_all()
+        self.context_search_pool.shutdown(wait=False, cancel_futures=True)
         for session in sessions:
             session.refresh_status()
             if session.process.poll() is None:
@@ -3987,8 +3991,10 @@ class Runtime:
         searches: list[dict[str, Any]] = []
         path_scores: dict[str, int] = {path: 1_000_000 - index for index, path in enumerate(requested_paths)}
         match_lines: dict[str, list[int]] = {}
+        search_deadline = time.monotonic() + CONTEXT_SEARCH_TIMEOUT_SECONDS
 
         def search_once(query: str) -> dict[str, Any]:
+            self.request_context.context_search_deadline = search_deadline
             try:
                 result = self.search_text({
                     "query": query,
@@ -4007,14 +4013,16 @@ class Runtime:
                     "engine": result.get("engine"),
                     "total_matches": result.get("total_matches", len(matches)),
                     "truncated": result.get("truncated", False),
+                    "warnings": result.get("warnings", []),
                     "matches": matches,
                 }
             except (ToolFailure, OSError, ValueError) as exc:
                 return {"query": query, "error": str(exc), "matches": []}
+            finally:
+                del self.request_context.context_search_deadline
 
         if queries:
-            with ThreadPoolExecutor(max_workers=min(4, len(queries)), thread_name_prefix="context-search") as pool:
-                searches = list(pool.map(search_once, queries))
+            searches = list(self.context_search_pool.map(search_once, queries))
         for result in searches:
             for match in result.get("matches", []):
                 path = str(match.get("path", ""))
@@ -5716,7 +5724,8 @@ class Runtime:
         context_lines = int(args.get("context_lines", 0))
         max_results = int(args.get("max_results", 1000))
         max_preview_bytes = int(args.get("max_preview_bytes", 512))
-        fast_result = self._search_text_with_rg(
+        deadline = getattr(self.request_context, "context_search_deadline", None)
+        fast_result = None if deadline is not None and time.monotonic() >= deadline else self._search_text_with_rg(
             resolved,
             query,
             regex=regex,
@@ -5731,6 +5740,18 @@ class Runtime:
             return fast_result
         matches: list[dict[str, Any]] = []
         total = 0
+        skipped_large = False
+
+        def python_result(reason: str = "") -> dict[str, Any]:
+            truncated = bool(reason or skipped_large or total > len(matches))
+            warnings = ([reason] if reason else []) + (["large files skipped in bounded context search"] if skipped_large else [])
+            if total > len(matches):
+                warnings.append("result limit reached")
+            return {"query": query, "matches": matches, "backend": "python", "engine": "python", "match_count": len(matches), "total_matches": total, "limit": max_results, "total_matches_exact": not truncated, "truncated": truncated, "warnings": warnings}
+
+        def exhausted() -> bool:
+            return deadline is not None and (self._closed or time.monotonic() >= deadline)
+
         flags = 0 if case_sensitive else re.IGNORECASE
         try:
             compiled = re.compile(query, flags) if regex else None
@@ -5740,6 +5761,8 @@ class Runtime:
 
         roots = [resolved.path] if resolved.path.is_file() else walk_files(resolved.path)
         for batch in path_batches(roots, 256):
+            if exhausted():
+                return python_result("search time budget reached; narrow the path or queries")
             # Filter by glob first so git check-ignore runs once per batch of
             # candidates instead of once per walked file.
             candidates = []
@@ -5756,19 +5779,28 @@ class Runtime:
                 candidates.append((path, rel))
             ignored = self.workspace.git_ignored_paths([rel for _, rel in candidates])
             for path, rel in candidates:
+                if exhausted():
+                    return python_result("search time budget reached; narrow the path or queries")
                 if self.workspace.is_ignored_path(path, git_ignored=ignored):
                     continue
                 try:
-                    data = path.read_bytes()
+                    with path.open("rb") as source:
+                        prefix = source.read(4096)
+                        if b"\x00" in prefix:
+                            continue
+                        if deadline is not None and path.stat().st_size > CONTEXT_SEARCH_FILE_BYTES:
+                            skipped_large = True
+                            continue
+                        data = prefix + source.read()
                 except OSError:
-                    continue
-                if b"\x00" in data[:4096]:
                     continue
                 try:
                     lines = data.decode("utf-8").splitlines()
                 except UnicodeDecodeError:
                     continue
                 for index, line in enumerate(lines):
+                    if exhausted():
+                        return python_result("search time budget reached; narrow the path or queries")
                     if compiled:
                         found = compiled.search(line)
                         if not found:
@@ -5785,17 +5817,9 @@ class Runtime:
                     before = lines[max(0, index - context_lines) : index]
                     after = lines[index + 1 : index + 1 + context_lines]
                     matches.append(search_match_item(rel, index + 1, column, line, before, after, max_preview_bytes))
-        return {
-            "query": query,
-            "matches": matches,
-            "backend": "python",
-            "engine": "python",
-            "match_count": len(matches),
-            "total_matches": total,
-            "limit": max_results,
-            "truncated": total > len(matches),
-            "warnings": ["result limit reached"] if total > len(matches) else [],
-        }
+                    if deadline is not None and len(matches) >= max_results:
+                        return python_result("result limit reached; context search stopped early")
+        return python_result()
 
     def _search_text_with_rg(
         self,
@@ -5813,7 +5837,13 @@ class Runtime:
         rg = cached_which("rg")
         if not rg:
             return None
+        deadline = getattr(self.request_context, "context_search_deadline", None)
+        remaining = min(10.0, deadline - time.monotonic()) if deadline is not None else 10.0
+        if remaining <= 0:
+            return None
         args = [rg, "--json", "--line-number", "--color=never"]
+        if deadline is not None:
+            args.extend(["--max-filesize", str(CONTEXT_SEARCH_FILE_BYTES)])
         if not case_sensitive:
             args.append("--ignore-case")
         if not regex:
@@ -5848,7 +5878,7 @@ class Runtime:
             except OSError:
                 pass
 
-        timeout = threading.Timer(10, stop_timed_out_search)
+        timeout = threading.Timer(remaining, stop_timed_out_search)
         timeout.daemon = True
         timeout.start()
         matches: list[dict[str, Any]] = []
@@ -5905,7 +5935,7 @@ class Runtime:
                 process.kill()
                 process.wait(timeout=1)
         if timed_out.is_set():
-            return None
+            truncated = True
         if not truncated and process.returncode not in {0, 1}:
             return None
         return {
@@ -5918,7 +5948,8 @@ class Runtime:
             "total_matches_exact": not truncated,
             "truncated": truncated,
             "engine": "rg",
-            "warnings": ["result limit reached; search stopped early"] if truncated else [],
+            "warnings": (["search time budget reached; partial results retained; narrow the path or queries"] if timed_out.is_set() else ["result limit reached; search stopped early"] if truncated else [])
+                + (["context search skips files larger than 2 MiB"] if deadline is not None else []),
         }
 
     def apply_patch(self, args: dict[str, Any]) -> dict[str, Any]:
