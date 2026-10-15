@@ -68,7 +68,9 @@ app.whenReady().then(async()=>{
   const closed=[],close=popover.close.bind(popover);
   popover.close=reason=>{closed.push(reason);return close(reason);};
   diagnostic=()=>({hostVisible:host.isVisible(),current:popover.current?.key,popupVisible:popover.window?.isVisible(),popupUrl:popover.window?.webContents.getURL(),closed:closed.slice(-8)});
-  native.webContents.on('focus',()=>popover.close('outside'));
+  // macOS may focus the native view when showing a non-activating child. The
+  // fixture controls activation; explicit clicks still exercise focus dismissal.
+  native.webContents.on('focus',event=>{if(event?.fixtureClick)popover.close('outside');});
   ipcMain.handle('test:popover-update',(event,payload)=>{
     assert.equal(event.sender,host.webContents);assert.equal(event.senderFrame,event.sender.mainFrame);
     return popover.update(payload);
@@ -120,7 +122,7 @@ app.whenReady().then(async()=>{
     await popover.window.webContents.executeJavaScript(`document.getElementById('refreshTaskHistoryBtn').click()`);
     await until(()=>host.webContents.executeJavaScript('window.historyCalls===1'));
     assert.ok(popover.window.isVisible());
-    native.webContents.emit('focus');await until(()=>!popover.current);
+    native.webContents.emit('focus',{fixtureClick:true});await until(()=>!popover.current);
     assert.deepEqual(native.getBounds(),before);
     results.push({width,theme,workbench,bounds:before,popup:bounds,styles});
   }
