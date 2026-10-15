@@ -33,8 +33,9 @@ function startPreview() {
     server.once('exit',()=>reject(new Error('preview exited')));
   });
 }
-// Keep every test surface offscreen and non-activating. Only display work-area
-// coordinates and activation are substituted; the windows, IPC and views are real.
+// Keep user machines offscreen and non-activating. macOS repositions offscreen
+// child windows (and their parent); the disposable hosted Mac uses screen bounds.
+// Coordinates and activation are substituted; windows, IPC and views are real.
 const exported = {exports:{}};
 vm.runInNewContext(fs.readFileSync(path.join(root,'electron/shellPopover.js'),'utf8'),{
   module:exported,__dirname:path.join(root,'electron'),setImmediate,
@@ -50,7 +51,8 @@ vm.runInNewContext(fs.readFileSync(path.join(root,'electron/shellPopover.js'),'u
 const { ShellPopover }=exported.exports;
 app.whenReady().then(async()=>{
   const url=await startPreview();
-  const host=new BrowserWindow({show:false,frame:false,thickFrame:false,useContentSize:true,x:-10000,y:-10000,width:1440,height:900,webPreferences:{preload:path.join(__dirname,'fixtures/shell-popover-preload.cjs'),sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
+  const position=process.platform==='darwin'&&process.env.GITHUB_ACTIONS==='true'?{x:0,y:0}:{x:-10000,y:-10000};
+  const host=new BrowserWindow({show:false,frame:false,thickFrame:false,useContentSize:true,...position,width:1440,height:900,webPreferences:{preload:path.join(__dirname,'fixtures/shell-popover-preload.cjs'),sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
   host.showInactive();
   // A non-activating offscreen fixture has no OS focus. Model the owning host
   // as focused, while explicit native-focus/outside/layout events remain real.
@@ -66,8 +68,8 @@ app.whenReady().then(async()=>{
   const original=await nativeData();
   const popover=new ShellPopover(host);
   const closed=[],close=popover.close.bind(popover);
-  popover.close=reason=>{closed.push(reason);return close(reason);};
-  diagnostic=()=>({hostVisible:host.isVisible(),current:popover.current?.key,popupVisible:popover.window?.isVisible(),popupUrl:popover.window?.webContents.getURL(),closed:closed.slice(-8)});
+  popover.close=reason=>{closed.push({reason,key:popover.current?.key,caller:new Error().stack.split('\n')[2]?.trim()});return close(reason);};
+  diagnostic=()=>({hostVisible:host.isVisible(),hostBounds:host.getBounds(),current:popover.current?.key,popupVisible:popover.window?.isVisible(),popupBounds:popover.window?.getBounds(),popupUrl:popover.window?.webContents.getURL(),closed:closed.slice(-8)});
   // macOS may focus the native view when showing a non-activating child. The
   // fixture controls activation; explicit clicks still exercise focus dismissal.
   native.webContents.on('focus',event=>{if(event?.fixtureClick)popover.close('outside');});
