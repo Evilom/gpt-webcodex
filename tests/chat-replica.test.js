@@ -29,6 +29,15 @@ test('late snapshots and acknowledgements cannot cross navigation or disabling',
   assert.equal(f.replica.state.snapshot,null);assert.equal(f.replica.acknowledge('1'),false);
   f.replica.dispose();
 });
+test('same-URL native remount requires a fresh view acknowledgement',async()=>{
+  const f=fixture();f.replica.configure(true);await f.replica.sample();
+  const previous=f.replica.state.token;f.replica.acknowledge(previous);
+  f.data.sourceId='remounted-page';f.data.revision=0;f.data.messages=[{id:'new',role:'assistant',html:'new document'}];
+  await f.replica.sample();
+  assert.equal(f.replica.state.active,false);assert.equal(f.replica.acknowledge(previous),false);
+  assert.equal(f.replica.state.snapshot.messages[0].html,'new document');
+  assert.equal(f.replica.acknowledge(f.replica.state.token),true);f.replica.dispose();
+});
 test('unknown pages and structures preserve the native page and clear stale content',async()=>{
   const f=fixture();f.replica.configure(true);await f.replica.sample();f.replica.acknowledge(f.replica.state.token);
   f.url('https://auth.openai.com/login');f.replica.sample();

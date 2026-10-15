@@ -16,9 +16,9 @@ app.setPath('userData',fs.mkdtempSync(path.join(os.tmpdir(),'think-tank-replica-
 app.on('window-all-closed',()=>{});
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const errors=[],requests=[],results=[];
-let stage='start',server;
+let stage='start',server,diagnostic=async()=>({});
 process.on('exit',()=>server?.kill());
-async function until(check){const end=Date.now()+10000;while(Date.now()<end){if(await check())return;await delay(40);}throw new Error('Timeout: '+stage);}
+async function until(check){const end=Date.now()+10000;while(Date.now()<end){if(await check())return;await delay(40);}throw new Error('Timeout: '+stage+' '+JSON.stringify(await diagnostic()));}
 function preview(){return new Promise((resolve,reject)=>{
   server=spawn(process.execPath,[path.join(__dirname,'shell-preview-server.js')],{windowsHide:true,env:{...process.env,ELECTRON_RUN_AS_NODE:'1',SHELL_PREVIEW_PORT:'0'},stdio:['ignore','pipe','pipe']});
   server.on('error',reject);server.stdout.on('data',data=>{const match=String(data).match(/http:\/\/127\.0\.0\.1:\d+/);if(match)resolve(match[0]);});
@@ -77,6 +77,7 @@ app.whenReady().then(async()=>{
   await native.webContents.executeJavaScript(`window.savedFile=document.getElementById('fixtureFile').files[0];true;`);
   original.sameFile=true;
   const read=source=>host.webContents.executeJavaScript(source);
+  diagnostic=async()=>({native:await native.webContents.executeJavaScript(`window.__thinkTankConversationReplica?.composer?.()`),host:await read(`({draft:document.querySelector('.replica-composer textarea')?.value,disabled:document.querySelector('.replica-composer textarea')?.disabled,submit:document.querySelector('.replica-submit')?.textContent,error:document.querySelector('.replica-error')?.textContent,status:document.querySelector('.replica-compose-actions [role=status]')?.textContent})`),replica:{enabled:controller.replica.state.enabled,active:controller.replica.state.active,status:controller.replica.state.status}});
   const click=id=>read(`document.getElementById(${JSON.stringify(id)}).click()`);
   const load=async(theme,width)=>{
     host.setContentSize(width,800);
@@ -149,6 +150,7 @@ app.whenReady().then(async()=>{
   stage='cancel-upload';chooseResult={canceled:true,filePaths:[]};
   await until(()=>read(`!document.querySelector('.replica-compose-actions button').disabled`));
   await read(`document.querySelector('.replica-compose-actions button').click()`);await delay(200);
+  await until(()=>read(`!document.querySelector('.replica-composer textarea').disabled&&!document.querySelector('.replica-compose-actions button').disabled`));
   assert.equal(await native.webContents.executeJavaScript(`document.getElementById('fixtureFile').files[0].name`),'上传验证.txt');
   chooseResult={canceled:false,filePaths:[attachment]};
   stage='send-once';

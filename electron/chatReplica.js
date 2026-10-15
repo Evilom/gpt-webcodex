@@ -83,7 +83,8 @@ class ChatReplica {
         return {id:message.id.slice(0,240),role:message.role,html};
       });
       const snapshot = {url,sourceId:result.sourceId,revision:result.revision,messages,running:Boolean(result.running),truncated,composer:result.composer};
-      this.publish({snapshot,token:String(++this.sequence),status:'ready',message:'独立渲染实验 · 与原网页共用会话、草稿和附件'});
+      const remounted=this.state.snapshot?.sourceId&&this.state.snapshot.sourceId!==snapshot.sourceId;
+      this.publish({snapshot,...(remounted?{active:false}:{}),token:String(++this.sequence),status:'ready',message:'独立渲染实验 · 与原网页共用会话、草稿和附件'});
     }).catch(() => {
       if (current()) this.publish({active:false,snapshot:null,token:'',status:'unavailable',message:'独立视图读取失败，已返回原网页'});
     }).finally(() => {
