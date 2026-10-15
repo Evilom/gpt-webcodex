@@ -23,7 +23,7 @@ test('model generation is distinguished from local execution', () => {
   const result = describe(null, null, { status: 'generating', updatedAt: now - 18000 }, now);
   assert.equal(result.key, 'generating');
   assert.match(result.message, /ChatGPT 正在生成/);
-  assert.match(result.detail, /尚未收到工具调用/);
+  assert.match(result.detail, /收到本地工具调用后/);
   assert.equal(result.elapsed, '18 秒');
 });
 
@@ -77,13 +77,22 @@ test('stream recovery polling timeout is shown as recoverable page state, not lo
   assert.match(result.detail, /本地任务状态/);
 });
 
-test('quiet ChatGPT generation becomes actionable instead of looking alive forever', () => {
+test('DOM silence does not claim that model generation stalled or recommend stopping it', () => {
   const result = describe(null, null, {
     status: 'generating', stalled: true, quietSeconds: 61, updatedAt: now - 61000
   }, now);
-  assert.equal(result.key, 'stalled');
-  assert.equal(result.action, 'stop-generation');
+  assert.equal(result.key, 'generating');
+  assert.equal(result.action, undefined);
+  assert.equal(result.canStop, false);
   assert.match(result.message, /没有新内容/);
+  assert.match(result.detail, /不能判断模型是否停滞/);
+});
+
+test('a completed local workflow does not imply the whole model answer finished', () => {
+  const result = describe({status:'completed',lifecycle_state:'completed'}, null, {status:'generating'}, now);
+  assert.equal(result.key, 'generating');
+  assert.match(result.detail, /本地阶段已完成/);
+  assert.doesNotMatch(result.detail, /尚未收到/);
 });
 
 test('dynamic page asset errors offer a safe manual reload', () => {

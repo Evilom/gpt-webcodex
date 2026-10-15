@@ -19,6 +19,32 @@ function fixture(t, url = 'https://chatgpt.com/') {
   return { controller, contents, states, closes, loads };
 }
 
+test('stream state rejects stale documents, other conversations and child-frame reports', (t) => {
+  const f = fixture(t, 'https://chatgpt.com/c/first');
+  f.contents.id = 42;
+  f.contents.mainFrame = {};
+  const report = (documentId, conversationId, frame=f.contents.mainFrame) => f.contents.emit('console-message', {
+    frame, message:'[web-mcp-stream] '+JSON.stringify({document_id:documentId,conversation_id:conversationId,status:'generating',event:'page-response-generating',activity_at:1000,quiet_seconds:0,stalled:false})
+  });
+  report(0, 'first');
+  assert.equal(f.controller.streamState.status,'generating');
+  f.contents.url='https://chatgpt.com/g/project/c/second';
+  f.contents.emit('did-navigate-in-page', {}, f.contents.url, true);
+  assert.equal(f.controller.streamState.status,'unknown');
+  assert.equal(f.controller.streamState.activityAt,0);
+  report(0,'first');
+  report(1,'first');
+  report(1,'second',{});
+  assert.equal(f.controller.streamState.status,'unknown');
+  report(1,'second');
+  assert.equal(f.controller.streamState.status,'generating');
+  assert.equal(f.controller.streamState.webContentsId,42);
+  assert.equal(f.controller.streamState.conversationId,'second');
+  f.contents.emit('did-navigate-in-page', {}, 'https://chatgpt.com/c/child', false);
+  assert.equal(f.controller.streamState.status,'generating');
+  assert.equal(f.controller.streamDocumentRevision,1);
+});
+
 test('dispose is idempotent, skips beforeunload and detaches late renderer events', async (t) => {
   const f = fixture(t);
   f.controller.nativeLogin = { cancel: async () => { throw new Error('cleanup failed'); } };

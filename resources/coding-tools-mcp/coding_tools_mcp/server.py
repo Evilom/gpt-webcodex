@@ -104,6 +104,7 @@ from .tool_registry import TOOL_REGISTRY, ToolSpec
 from .runtime_v2 import context_budget_snapshot, layered_runtime_state, tool_registry_snapshot
 from .trust import trust_policy_payload
 from .transport_http import HTTPSessionManager
+from .rpc_trace import RpcTraceStore, trace_id
 from .transport_stdio import serve_stdio
 
 
@@ -1450,6 +1451,7 @@ class Runtime:
         self.auth_token = auth_token or None
         self.oauth_config = oauth_config
         self.server_instance_id = secrets.token_urlsafe(12)
+        self.rpc_trace = RpcTraceStore(self.workspace.root)
         self._set_runtime_dir(runtime_dir_for_workspace(self.workspace.root, self.server_instance_id))
         self.fallback_runtime_dir = fallback_runtime_dir_for_workspace(self.workspace.root, self.server_instance_id)
         self.default_cwd = self.workspace.root
@@ -2638,6 +2640,8 @@ class Runtime:
                 return existing, existing["event"]
         operation_id = secrets.token_urlsafe(12)
         execution_id = secrets.token_urlsafe(18)
+        rpc_trace = {**getattr(self.request_context, "rpc_trace", {}), "operation_id": operation_id, "execution_id": execution_id}
+        self.rpc_trace.record("operation.queued", **{**rpc_trace, "tool": name})
         done = threading.Event()
         queued_epoch = time.time()
         timeout_budget_seconds = min(max(int(arguments.get("timeout_seconds", 600)), 1), 600)
@@ -2723,6 +2727,7 @@ class Runtime:
 
         def worker() -> None:
             slot_acquired = False
+            self.request_context.rpc_trace = rpc_trace
             previous_origin = getattr(self.request_context, "trace_origin", None)
             previous_deadline = getattr(self.execution_context, "deadline_epoch", None)
             try:
@@ -2788,6 +2793,7 @@ class Runtime:
                 self.request_context.trace_origin = trace_origin
                 self.execution_context.deadline_epoch = deadline_epoch
                 self.task_state.upsert_operation(persisted_record("running"))
+                self.rpc_trace.record("operation.started", **{**rpc_trace, "tool": name})
                 operation["result"] = self._call_tool_sync(name, arguments, request_id=request_id)
                 result = operation.get("result")
                 structured = result.get("structuredContent") if isinstance(result, dict) and isinstance(result.get("structuredContent"), dict) else {}
@@ -2847,6 +2853,7 @@ class Runtime:
                 operation["heartbeat_epoch"] = time.time()
                 operation["heartbeat_at"] = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
                 self.task_state.upsert_operation(persisted_record("failed" if operation.get("error") else "completed"))
+                self.rpc_trace.record("operation.finished", **{**rpc_trace, "tool": name, "status": operation["execution_lifecycle_state"], "result_available": operation.get("result") is not None})
                 if slot_acquired:
                     with self.background_operation_condition:
                         self.background_active_workers = max(0, self.background_active_workers - 1)
@@ -3360,6 +3367,7 @@ class Runtime:
     ) -> dict[str, Any]:
         started_at = time.monotonic()
         args = arguments or {}
+        self.rpc_trace.record("tool.started", **{**getattr(self.request_context, "rpc_trace", {}), "tool": name})
         compatibility_call = self.tool_mode == "smart" and name in SMART_COMPAT_TOOL_NAMES
         handler = self._tool_handlers.get(name) if name in self._exposed_tool_name_set or compatibility_call else None
         if handler is None:
@@ -5360,6 +5368,7 @@ class Runtime:
         error = raw_error if isinstance(raw_error, dict) else {}
         finished_at = time.monotonic()
         duration_ms = int((finished_at - started_at) * 1000)
+        self.rpc_trace.record("tool.finished", **{**getattr(self.request_context, "rpc_trace", {}), "tool": name, "status": "failed" if payload.get("ok") is False else "completed", "duration_ms": duration_ms})
         files_read = 0
         if bool(payload.get("ok", False)):
             if name == "read_file":
@@ -9903,7 +9912,30 @@ class MCPHandler(http.server.BaseHTTPRequestHandler):
         else:
             self.send_rpc_error(-32002, "Server not initialized", request_id=request.get("id"))
             return
+        params = request.get("params") if isinstance(request.get("params"), dict) else {}
+        arguments = params.get("arguments") if isinstance(params.get("arguments"), dict) else {}
+        self._rpc_trace_context = {
+            "transport_id": secrets.token_hex(16), "rpc_id": trace_id(request.get("id")),
+            "runtime_instance_id": self.runtime.server_instance_id,
+            "session_hash": hashlib.sha256(str(session_id or self.runtime.http_session_id).encode()).hexdigest()[:16],
+            "origin": "desktop" if self.headers.get("X-Coding-Tools-Origin") == "desktop" else "external",
+            "method": trace_id(method),
+        }
+        if isinstance(params.get("name"), str) and params["name"] in TOOL_REGISTRY:
+            self._rpc_trace_context["tool"] = params["name"]
+        if isinstance(arguments.get("operation_id"), str):
+            self._rpc_trace_context["operation_id"] = trace_id(arguments["operation_id"])
+        upstream_id = self.headers.get("X-Request-Id") or self.headers.get("X-OpenAI-Request-Id")
+        if upstream_id:
+            self._rpc_trace_context["upstream_request_id"] = trace_id(upstream_id)
+        self.runtime.rpc_trace.record("rpc.received", **self._rpc_trace_context)
         response = self.handle_rpc(request)
+        result = response.get("result") if isinstance(response, dict) and isinstance(response.get("result"), dict) else {}
+        structured = result.get("structuredContent") if isinstance(result.get("structuredContent"), dict) else {}
+        operation = structured.get("background_operation") if isinstance(structured.get("background_operation"), dict) else {}
+        if operation.get("operation_id"):
+            self._rpc_trace_context["operation_id"] = trace_id(operation["operation_id"])
+        self.runtime.rpc_trace.record("rpc.response_ready", **self._rpc_trace_context, result_available=not operation or "result" in operation, status=str(operation.get("status") or ("error" if isinstance(response, dict) and "error" in response else "completed")))
         if created_session and response is not None and "error" in response:
             self.server.sessions.delete(self.runtime.http_session_id)  # type: ignore[attr-defined]
             self._send_session_header = False
@@ -9920,12 +9952,15 @@ class MCPHandler(http.server.BaseHTTPRequestHandler):
         raw_origin = str(self.headers.get("X-Coding-Tools-Origin") or "").strip().lower()
         trace_origin = "desktop" if raw_origin == "desktop" else "external"
         previous_origin = getattr(self.runtime.request_context, "trace_origin", None)
+        previous_rpc_trace = getattr(self.runtime.request_context, "rpc_trace", {})
+        self.runtime.request_context.rpc_trace = getattr(self, "_rpc_trace_context", {})
         self.runtime.request_context.trace_origin = trace_origin
         try:
             return dispatch_rpc(self.runtime, request)
         except Exception as exc:  # noqa: BLE001 - HTTP must always answer with JSON-RPC
             return jsonrpc_error(response_id(request), -32603, str(exc))
         finally:
+            self.runtime.request_context.rpc_trace = previous_rpc_trace
             if previous_origin is None:
                 try:
                     delattr(self.runtime.request_context, "trace_origin")
@@ -10308,19 +10343,39 @@ class MCPHandler(http.server.BaseHTTPRequestHandler):
         extra_headers: dict[str, str] | None = None,
         head_only: bool = False,
     ) -> None:
-        body = json_response_payload(payload)
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        if getattr(self, "_send_session_header", False):
-            self.send_header("Mcp-Session-Id", self.runtime.http_session_id)
-        self.send_cors_headers()
-        for name, value in (extra_headers or {}).items():
-            self.send_header(name, value)
-        self.end_headers()
-        if not head_only:
-            self.wfile.write(body)
+        trace = getattr(self, "_rpc_trace_context", None)
+        try:
+            body = json_response_payload(payload)
+        except Exception as error:
+            if trace:
+                self.runtime.rpc_trace.record("rpc.serialization_failed", **trace, error_type=type(error).__name__)
+            raise
+        if trace:
+            self.runtime.rpc_trace.record("rpc.serialized", **trace, response_bytes=len(body))
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            if trace:
+                self.send_header("X-Coding-Tools-Trace-Id", trace["transport_id"])
+            if getattr(self, "_send_session_header", False):
+                self.send_header("Mcp-Session-Id", self.runtime.http_session_id)
+            self.send_cors_headers()
+            for name, value in (extra_headers or {}).items():
+                self.send_header(name, value)
+            self.end_headers()
+            if not head_only:
+                self.wfile.write(body)
+                self.wfile.flush()
+            if trace:
+                self.runtime.rpc_trace.record("rpc.response_written", **trace, response_bytes=0 if head_only else len(body), delivery_stage="local_socket_only")
+        except OSError as error:
+            if trace:
+                self.runtime.rpc_trace.record("rpc.write_failed", **trace, response_bytes=len(body), error_type=type(error).__name__)
+            raise
+        finally:
+            self._rpc_trace_context = None
 
 
 class RuntimeHTTPServer(http.server.ThreadingHTTPServer):

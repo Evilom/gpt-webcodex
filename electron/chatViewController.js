@@ -181,6 +181,7 @@ class ChatViewController {
     this.mcpAttachment = { status: 'unknown', event: 'init', detail: '', updatedAt: 0 };
     this.browserNetwork = { mode: '', browserRoute: '', tunnelRoute: '', aligned: null, source: '', updatedAt: 0 };
     this.streamState = { status: 'unknown', event: 'init', updatedAt: 0, activityAt: 0, quietSeconds: 0, stalled: false };
+    this.streamDocumentRevision = 0;
     this.pendingPageLoadReason = '';
     this.chatAppearance = { enabled:false, active:false, message:'使用原生 ChatGPT 外观' };
     this.chatAppearanceCss = null;
@@ -271,10 +272,14 @@ class ChatViewController {
       status: String(payload.status || this.streamState.status || 'unknown'),
       event: String(payload.event || 'page-stream'),
       updatedAt: Date.now(),
-      activityAt: Number(payload.activityAt || payload.activity_at || this.streamState.activityAt || 0),
+      activityAt: Number(payload.activityAt ?? payload.activity_at ?? this.streamState.activityAt ?? 0),
       quietSeconds: Math.max(0, Number(payload.quietSeconds ?? payload.quiet_seconds ?? this.streamState.quietSeconds ?? 0)),
       stalled: Boolean(payload.stalled ?? this.streamState.stalled),
-      detail: String(payload.detail || this.streamState.detail || '')
+      pageQuiet: Boolean(payload.pageQuiet ?? payload.page_quiet ?? this.streamState.pageQuiet ?? false),
+      documentId: this.streamDocumentRevision,
+      webContentsId: this.view?.webContents?.id || 0,
+      conversationId: this.streamConversationId(),
+      detail: String(payload.detail ?? this.streamState.detail ?? '')
     };
     const changed = next.status !== this.streamState.status || next.event !== this.streamState.event
       || next.stalled !== this.streamState.stalled
@@ -284,6 +289,15 @@ class ChatViewController {
       this.log[next.status === 'interrupted' ? 'warn' : 'info']('ChatGPT 回答流状态变化', next);
       this.emitState();
     }
+  }
+
+  streamConversationId() {
+    return parseUrl(this.view?.webContents?.getURL() || '')?.pathname.match(/(?:^|\/)c\/([^/]+)/)?.[1] || '';
+  }
+
+  resetStreamDocument() {
+    this.streamDocumentRevision++;
+    this.updateStreamState({ status: 'unknown', event: 'page-navigation', activityAt: 0, quietSeconds: 0, stalled: false, pageQuiet: false, detail: '' });
   }
 
   async refreshBrowserNetworkDiagnostics({ force = false } = {}) {
@@ -467,6 +481,7 @@ class ChatViewController {
     });
     listen('did-start-loading', () => {
       if (this.disposed) return;
+      this.resetStreamDocument();
       const reason = this.pendingPageLoadReason || 'page-or-browser-navigation';
       this.pendingPageLoadReason = '';
       this.log.info('ChatGPT 页面开始加载', { host: parseUrl(contents.getURL())?.hostname || '', reason });
@@ -506,7 +521,9 @@ class ChatViewController {
     listen('did-navigate', () => {
       this.emitState();
     });
-    listen('did-navigate-in-page', () => {
+    listen('did-navigate-in-page', (_event, _url, isMainFrame) => {
+      if (isMainFrame === false) return;
+      this.resetStreamDocument();
       this.emitState();
       this.suspendChatUiEnhancements();
       clearTimeout(this.enhancementTimer);
@@ -514,7 +531,7 @@ class ChatViewController {
     });
     listen('console-message', (_event, level, message) => {
       const memoryPrefix = '[web-mcp-memory] ';
-      const raw = String(message || '');
+      const raw = String(_event?.message ?? (level && typeof level === 'object' ? level.message : message) ?? '');
       if (raw.startsWith(memoryPrefix)) {
         contents.executeJavaScript(`(() => { const payload = window.__mcpAutoMemoryQueue || null; window.__mcpAutoMemoryQueue = null; return payload; })()`, true).then((payload) => {
           if (!payload || typeof payload !== 'object') return;
@@ -524,14 +541,17 @@ class ChatViewController {
       }
       const streamPrefix = '[web-mcp-stream] ';
       if (raw.startsWith(streamPrefix)) {
+        if (_event?.frame && contents.mainFrame && _event.frame !== contents.mainFrame) return;
         let payload = {};
         try { payload = JSON.parse(raw.slice(streamPrefix.length)); } catch { payload = { event: 'page-stream' }; }
+        if (payload.document_id !== this.streamDocumentRevision || payload.conversation_id !== this.streamConversationId()) return;
         this.updateStreamState({
           event: payload.event,
           status: payload.status,
           activityAt: payload.activity_at,
           quietSeconds: payload.quiet_seconds,
           stalled: payload.stalled,
+          pageQuiet: payload.page_quiet,
           detail: payload.detail
         });
         return;
@@ -883,6 +903,8 @@ class ChatViewController {
     contents.executeJavaScript(`(() => {
       const PREFIX='[web-mcp-stream] ';
       const STALE_AFTER_SECONDS=45;
+      const DOCUMENT_ID=${JSON.stringify(this.streamDocumentRevision)};
+      const conversationId=()=>(globalThis.location?.pathname||'').match(/(?:^|\\/)c\\/([^/]+)/)?.[1]||'';
       const RENDER_ERROR_MARKERS=${JSON.stringify(CHAT_RENDER_ERROR_MARKERS)};
       const STREAM_RECOVERY_ERROR_MARKERS=${JSON.stringify(CHAT_STREAM_RECOVERY_ERROR_MARKERS)};
       const normalize=(v)=>String(v||'').replace(/\\s+/g,' ').trim();
@@ -898,7 +920,7 @@ class ChatViewController {
       };
       const visible=(node)=>{if(!node)return false;const style=getComputedStyle(node);if(style.display==='none'||style.visibility==='hidden'||Number(style.opacity)===0)return false;const rect=node.getBoundingClientRect();return rect.width>0&&rect.height>0;};
       const renderError=()=>Array.from(document.querySelectorAll('main [role="alert"],main [aria-live="assertive"],main [data-testid*="error" i],main [class*="error" i]')).some((node)=>{if(!visible(node))return false;const value=normalize(node.innerText||node.textContent||'').toLowerCase();return RENDER_ERROR_MARKERS.some((marker)=>value.includes(String(marker).toLowerCase()));});
-      const report=(status,event,extra={})=>{try{console.info(PREFIX+JSON.stringify({status,event,...extra}));}catch{}};
+      const report=(status,event,extra={})=>{try{console.info(PREFIX+JSON.stringify({status,event,document_id:DOCUMENT_ID,conversation_id:conversationId(),...extra}));}catch{}};
       const scan=()=>{
         window.__mcpStreamTimer=0;
         window.__mcpStreamNextScanAt=0;
@@ -913,13 +935,14 @@ class ChatViewController {
         }
         const stopSelector='button[data-testid="stop-button"],button[data-testid*="stop" i],button[aria-label="Stop"],button[aria-label*="Stop generating" i],button[aria-label="停止"],button[aria-label*="停止生成"]';
         const stopControls=Array.from(document.querySelectorAll(stopSelector));
-        const isGenerationControl=(node)=>{const value=normalize((node.getAttribute('aria-label')||'')+' '+(node.getAttribute('data-testid')||'')).toLowerCase();return value==='停止'||value.includes('stop-button')||value.includes('stop generating')||value.includes('停止生成')||(value.includes('stop')&&!/(share|record|audio|speaking)/i.test(value));};
+        const isGenerationControl=(node)=>{const label=normalize(node.getAttribute('aria-label')||'').toLowerCase(),testId=node.getAttribute('data-testid')||'';return /^(停止|停止生成|停止生成回复|stop|stop generating|stop generating response)$/.test(label)||testId==='stop-button'||testId==='stop-generating-button';};
         const generating=stopControls.some((node)=>visible(node)&&!node.disabled&&node.getAttribute('aria-disabled')!=='true'&&isGenerationControl(node));
         const recoveryTimeout=recoveryTimedOut(text);
         const now=Date.now();
         const activityAt=Number(window.__mcpStreamLastActivityAt||now);
         const quietSeconds=generating?Math.max(0,Math.floor((now-activityAt)/1000)):0;
-        const stalled=generating&&quietSeconds>=STALE_AFTER_SECONDS;
+        const pageQuiet=generating&&quietSeconds>=STALE_AFTER_SECONDS;
+        const stalled=false; // DOM silence cannot establish a model or MCP stall.
         if(generating){
           window.__mcpStreamStableIdleSince=0;
           window.__mcpStreamLastGeneratingAt=now;
@@ -939,15 +962,16 @@ class ChatViewController {
         }
         const next=(recoveryTimeout||interrupted(text))?'interrupted':generating?'generating':'healthy';
         const quietBucket=Math.floor(quietSeconds/5);
-        if(window.__mcpStreamStatus===next && window.__mcpStreamQuietBucket===quietBucket && window.__mcpStreamStalled===stalled){
+        if(window.__mcpStreamStatus===next && window.__mcpStreamQuietBucket===quietBucket && window.__mcpStreamStalled===stalled && window.__mcpStreamReportedActivityAt===activityAt){
           if(generating)schedule(1000);
           return;
         }
         const previous=window.__mcpStreamStatus;
+        window.__mcpStreamReportedActivityAt=activityAt;
         window.__mcpStreamStatus=next;
         window.__mcpStreamQuietBucket=quietBucket;
         window.__mcpStreamStalled=stalled;
-        const extra={activity_at:activityAt,quiet_seconds:quietSeconds,stalled};
+        const extra={activity_at:activityAt,quiet_seconds:quietSeconds,stalled,page_quiet:pageQuiet,evidence:'page-dom'};
         if(next==='interrupted')report(next,recoveryTimeout?'page-stream-recovery-timeout':'page-stream-interrupted',extra);
         else if(next==='generating')report(next,'page-response-generating',extra);
         else if(previous==='interrupted')report(next,'page-stream-recovered',extra);
@@ -962,9 +986,10 @@ class ChatViewController {
         window.__mcpStreamNextScanAt=dueAt;
         window.__mcpStreamTimer=setTimeout(scan,delay);
       };
-      const target=document.querySelector('main')||document.body;
+      const target=document.body||document.documentElement;
       if(!window.__mcpStreamLastActivityAt)window.__mcpStreamLastActivityAt=Date.now();
-      if(!window.__mcpStreamObserver){window.__mcpStreamObserver=new MutationObserver(()=>{window.__mcpStreamLastActivityAt=Date.now();schedule(350);});if(target)window.__mcpStreamObserver.observe(target,{childList:true,subtree:true,characterData:true});}
+      if(window.__mcpStreamDocumentId!==DOCUMENT_ID){window.__mcpStreamObserver?.disconnect();window.__mcpStreamObserver=null;window.__mcpStreamLastActivityAt=Date.now();window.__mcpStreamStatus='unknown';window.__mcpStreamStableIdleSince=0;window.__mcpStreamDocumentId=DOCUMENT_ID;}
+      if(!window.__mcpStreamObserver){window.__mcpStreamObserver=new MutationObserver((records)=>{const main=document.querySelector('main')||target;const relevant=records.some((record)=>main===record.target||main?.contains(record.target)||(record.type==='childList'&&Array.from(record.addedNodes||[]).some(node=>node===main||node.contains?.(main))));if(relevant){window.__mcpStreamLastActivityAt=Date.now();schedule(350);}});if(target)window.__mcpStreamObserver.observe(target,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['aria-label','aria-busy','aria-disabled','disabled','data-state','data-testid']});}
       schedule(250);
       return true;
     })()`, true).catch(()=>false);

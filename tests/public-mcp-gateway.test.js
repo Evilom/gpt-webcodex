@@ -63,6 +63,54 @@ function createRuntime(label, calls) {
   });
 }
 
+test('gateway correlates complete HTTP delivery without logging private payloads', async (t) => {
+  const trace = 'a'.repeat(32), logs = [];
+  const runtime = http.createServer((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      res.writeHead(200, {'Content-Type':'application/json','X-Coding-Tools-Trace-Id':trace});
+      res.end(JSON.stringify({id:17,result:'private-result-must-not-be-logged'}));
+    });
+  });
+  const runtimePort = await listen(runtime);
+  t.after(() => close(runtime));
+  const gateway = new PublicMcpGateway({settings:{load:()=>({mcpPort:runtimePort})},secrets:{get:()=> 'runtime-token'},port:0,log:{info:(message,meta)=>logs.push({message,...meta}),warn:(message,meta)=>logs.push({message,...meta})}});
+  const info = await gateway.start();
+  t.after(() => gateway.stop());
+  const result = await request({port:info.port,path:publicMcpAccessPath('runtime-token'),body:'private-request-must-not-be-logged'});
+  assert.equal(result.headers['x-coding-tools-trace-id'],trace);
+  assert.match(result.body,/private-result/);
+  const stages = logs.filter(item=>item.transportId===trace);
+  assert.equal(stages.length,3);
+  assert.equal(new Set(stages.map(item=>item.gatewayRequestId)).size,1);
+  assert.ok(stages.some(item=>item.deliveryStage==='local_socket_only'));
+  assert.doesNotMatch(JSON.stringify(logs),/private-request|private-result|runtime-token/);
+});
+
+test('gateway records a truncated Runtime response and closes the downstream', async (t) => {
+  const logs = [];
+  const runtime = http.createServer((req,res)=>{
+    req.resume();
+    req.on('end',()=>{
+      res.writeHead(200,{'Content-Length':'10000','X-Coding-Tools-Trace-Id':'b'.repeat(32)});
+      res.write('partial');
+      setTimeout(()=>res.destroy(),20);
+    });
+  });
+  const runtimePort=await listen(runtime);
+  t.after(()=>close(runtime));
+  const gateway=new PublicMcpGateway({settings:{load:()=>({mcpPort:runtimePort})},secrets:{get:()=> 'runtime-token'},port:0,log:{info(){},warn:(message,meta)=>logs.push({message,...meta})}});
+  const info=await gateway.start();
+  t.after(()=>gateway.stop());
+  const aborted=await new Promise((resolve,reject)=>{
+    const req=http.get({host:'127.0.0.1',port:info.port,path:publicMcpAccessPath('runtime-token')},res=>{
+      res.resume();res.on('aborted',()=>resolve(true));res.on('end',()=>resolve(false));res.on('error',()=>{});
+    });req.on('error',reject);
+  });
+  assert.equal(aborted,true);
+  assert.ok(logs.some(item=>item.message==='MCP Gateway Runtime 响应中断'&&item.transportId==='b'.repeat(32)));
+});
+
 test('public gateway rejects unknown paths and injects local Runtime auth', async (t) => {
   const calls = [];
   const runtime = createRuntime('one', calls);

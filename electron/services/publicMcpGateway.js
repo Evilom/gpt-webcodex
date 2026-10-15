@@ -125,6 +125,17 @@ class PublicMcpGateway {
       return;
     }
 
+    const gatewayRequestId = crypto.randomBytes(16).toString('hex');
+    let transportId = '', receivedBytes = 0;
+    const evidence = () => ({ gatewayRequestId, transportId, receivedBytes });
+    response.on('finish', () => this.log?.info?.('MCP Gateway 响应已写出', { ...evidence(), status: response.statusCode, deliveryStage: 'local_socket_only' }));
+    response.on('close', () => {
+      if (!response.writableFinished) {
+        this.log?.warn?.('MCP Gateway 下游提前断开', evidence());
+        upstream.destroy();
+      }
+    });
+    response.on('error', () => {}); // The close event records the incomplete delivery.
     const upstream = http.request({
       host: '127.0.0.1',
       port: upstreamPort,
@@ -132,6 +143,15 @@ class PublicMcpGateway {
       method: request.method,
       headers: requestHeadersForUpstream(request.headers, token, upstreamPort)
     }, (upstreamResponse) => {
+      const trace = String(upstreamResponse.headers['x-coding-tools-trace-id'] || '');
+      transportId = /^[a-f0-9]{32}$/.test(trace) ? trace : '';
+      this.log?.info?.('MCP Gateway 收到 Runtime 响应头', { ...evidence(), status: upstreamResponse.statusCode });
+      upstreamResponse.on('data', (chunk) => { receivedBytes += chunk.length; });
+      upstreamResponse.on('end', () => this.log?.info?.('MCP Gateway 已接收完整响应', evidence()));
+      upstreamResponse.on('error', () => {
+        this.log?.warn?.('MCP Gateway Runtime 响应中断', evidence());
+        response.destroy();
+      });
       copyResponseHeaders(upstreamResponse.headers, response);
       response.writeHead(upstreamResponse.statusCode || 502);
       upstreamResponse.pipe(response);

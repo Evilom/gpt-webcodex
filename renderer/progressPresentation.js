@@ -113,9 +113,9 @@
     if (stream === 'generating') {
       const quietSeconds = Number(streamState?.quietSeconds || streamState?.quiet_seconds || 0);
       if (streamState?.stalled || quietSeconds >= CHAT_QUIET_STALL_SECONDS) {
-        return { key: 'stalled', message: `ChatGPT 仍在生成，但页面已 ${duration(Math.floor(quietSeconds))} 没有新内容`, detail: '这不等于本地 MCP 失败；可以停止本轮生成，或刷新页面重试', elapsed: duration(secondsSince(streamState?.updatedAt, now)), action: 'stop-generation', actionLabel: '停止生成' };
+        return { key: 'generating', userState: 'generating', message: `ChatGPT 仍在处理，页面已 ${duration(Math.floor(quietSeconds))} 没有新内容`, detail: '页面静默不能判断模型是否停滞；工具执行和长时间思考可能暂时没有可见变化', elapsed: duration(quietSeconds), canStop: false };
       }
-      return { key: 'generating', message: 'ChatGPT 正在生成回复', detail: '本地尚未收到工具调用；网页端只公开回复生成状态，收到调用后会显示命令与输出', elapsed: duration(secondsSince(streamState?.updatedAt, now)) };
+      return { key: 'generating', message: 'ChatGPT 正在生成回复', detail: status === 'completed' || lifecycle === 'completed' ? '本地阶段已完成，等待 ChatGPT 继续检查或组织回答' : '网页端只公开回复生成状态；收到本地工具调用后会显示命令与输出', elapsed: duration(secondsSince(streamState?.updatedAt, now)) };
     }
     if (status === 'completed' || lifecycle === 'completed') {
       return { key: 'completed', message: `本地任务已完成：${current || objective || '执行结束'}`, detail: next || objective, elapsed: '' };

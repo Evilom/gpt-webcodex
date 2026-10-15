@@ -41,10 +41,39 @@ app.whenReady().then(async () => {
   await contents.executeJavaScript(`const button=document.createElement('button');button.ariaLabel='停止';button.hidden=true;document.querySelector('main').append(button);true;`);
   await delay(600);
   assert.equal(controller.streamState.status, 'healthy', 'hidden stale controls are ignored');
+  // Exercise the actual injected observer in Chromium, including a tool status
+  // that changes attributes without producing visible text.
+  await contents.executeJavaScript(`document.querySelector('main').innerHTML='<div id="tool" aria-busy="true"></div><button aria-label="停止">停止</button>';true;`);
+  await until(() => controller.streamState.status === 'generating');
+  await delay(500); // Let the real DOM mutation batch settle before aging its clock.
+  await contents.executeJavaScript(`window.__mcpStreamLastActivityAt=Date.now()-415000;true;`);
+  controller.scheduleStreamObserver();
+  await until(() => controller.streamState.quietSeconds >= 415);
+  assert.equal(controller.streamState.stalled, false, 'DOM silence is not a model stall');
+  assert.equal(controller.streamState.pageQuiet, true);
+  const quietActivityAt = controller.streamState.activityAt;
+  await contents.executeJavaScript(`document.getElementById('tool').setAttribute('data-state','completed');true;`);
+  await until(() => controller.streamState.activityAt > quietActivityAt && !controller.streamState.pageQuiet);
+  const beforeReplacement = controller.streamState.activityAt;
+  await delay(30);
+  await contents.executeJavaScript(`const replacement=document.createElement('main');replacement.innerHTML='<div id="tool" aria-busy="true"></div><button aria-label="停止">停止</button>';document.querySelector('main').replaceWith(replacement);true;`);
+  await until(() => controller.streamState.activityAt > beforeReplacement);
+  const replacedActivityAt = controller.streamState.activityAt;
+  await delay(30);
+  await contents.executeJavaScript(`document.getElementById('tool').setAttribute('aria-busy','false');true;`);
+  await until(() => controller.streamState.activityAt > replacedActivityAt);
+  const oldDocument = controller.streamDocumentRevision;
+  controller.resetStreamDocument();
+  contents.emit('console-message', {}, 1, '[web-mcp-stream] '+JSON.stringify({document_id:oldDocument,conversation_id:'',status:'generating',event:'late-old-page'}));
+  assert.equal(controller.streamState.status, 'unknown', 'late events from the old document are ignored');
+  controller.scheduleStreamObserver();
+  await until(() => controller.streamState.status === 'generating');
+  await contents.executeJavaScript(`document.querySelector('main').innerHTML='<button data-testid="stop-recording" aria-label="Stop recording">audio</button>';true;`);
+  await until(() => controller.streamState.status === 'healthy');
   controller.dispose();
   window.destroy();
   fs.mkdirSync(path.dirname(output), { recursive: true });
-  fs.writeFileSync(output, JSON.stringify({ ok: true, generatingMs, stoppedAfterNativeConfirmation: true }, null, 2));
+  fs.writeFileSync(output, JSON.stringify({ ok: true, generatingMs, stoppedAfterNativeConfirmation: true, quiet415SecondsNotStalled:true, attributeActivity:true, replacementMainObserved:true, oldDocumentIgnored:true, recordingStopIgnored:true }, null, 2));
   app.exit(0);
 }).catch(async error => {
   fs.mkdirSync(path.dirname(output), { recursive: true });
