@@ -33,7 +33,10 @@ class UpdateService {
   getState() { return { ...this.state, releasePage: RELEASE_PAGE }; }
   failed(error) {
     const message = String(error?.message || error);
-    this.set({ stage: 'error', error: message.slice(0, 400) });
+    const reason = error instanceof TypeError && message === 'fetch failed'
+      ? '无法连接 GitHub，请检查网络或代理后重试。'
+      : message;
+    this.set({ stage: 'error', error: reason.slice(0, 400) });
     this.log.warn('检查或下载助手更新失败', { error: message.slice(0, 400) });
   }
   start() {

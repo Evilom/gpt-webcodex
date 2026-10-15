@@ -43,6 +43,21 @@ test('network failure remains retryable without blocking startup', async () => {
   assert.equal((await f.service.check()).stage, 'current');
 });
 
+test('GitHub fetch failures are readable while HTTP and integrity diagnostics stay specific', async () => {
+  const logged = [];
+  const f = fixture({ log: { warn: (_message, detail) => logged.push(detail.error) } });
+  f.updater.checkForUpdates = async () => { throw new TypeError('fetch failed'); };
+  const state = await f.service.check();
+  assert.match(state.error, /GitHub.*网络或代理/);
+  assert.deepEqual(logged, ['fetch failed']);
+  for (const error of [new Error('fetch failed'), new Error('GitHub 返回 403'), new Error('sha512 mismatch'), new TypeError('Invalid URL')]) {
+    f.service.failed(error);
+    assert.equal(f.service.getState().error, error.message);
+  }
+  f.updater.checkForUpdates = async () => f.updater.emit('update-not-available');
+  assert.equal((await f.service.check()).stage, 'current');
+});
+
 test('Mac and source checkouts check our release but require a manual install', async () => {
   let opened;
   const f = fixture({ platform: 'darwin', fetch: async (url, options) => {

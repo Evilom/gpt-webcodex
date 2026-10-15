@@ -94,9 +94,21 @@ app.whenReady().then(async()=>{
     if(width===1440&&theme==='dark'&&workbench) {
       await host.webContents.executeJavaScript(`document.body.dataset.skin='glass';document.documentElement.dataset.skin='glass';true;`);
       await until(()=>popover.window.webContents.executeJavaScript(`document.body.dataset.skin==='glass'`));
-      const material=await popover.window.webContents.executeJavaScript(`(()=>{const s=getComputedStyle(document.getElementById('moreMenu')),body=getComputedStyle(document.body);return {bg:s.backgroundColor,backdrop:s.backdropFilter,canvas:body.backgroundImage,outside:body.backgroundColor}})()`);
-      assert.notEqual(material.bg,styles.bg);assert.match(material.backdrop,/blur/);
-      assert.equal(material.canvas,'none');assert.equal(material.outside,'rgba(0, 0, 0, 0)');
+      popover.window.webContents.debugger.attach('1.3');
+      try {
+        for (const transparency of ['no-preference','reduce']) {
+          await popover.window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-transparency',value:transparency}]});
+          const material=await popover.window.webContents.executeJavaScript(`(()=>{const s=getComputedStyle(document.getElementById('moreMenu')),body=getComputedStyle(document.body);return {bg:s.backgroundColor,backdrop:s.backdropFilter,canvas:body.backgroundImage,outside:body.backgroundColor,reduced:matchMedia('(prefers-reduced-transparency:reduce)').matches}})()`);
+          assert.equal(material.reduced,transparency==='reduce');
+          assert.notEqual(material.bg,styles.bg);
+          if (material.reduced) assert.equal(material.backdrop,'none');
+          else assert.match(material.backdrop,/blur/);
+          assert.equal(material.canvas,'none');assert.equal(material.outside,'rgba(0, 0, 0, 0)');
+        }
+      } finally {
+        await popover.window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[]});
+        popover.window.webContents.debugger.detach();
+      }
       assert.deepEqual(native.getBounds(),before,'skin changes must retain native ChatGPT geometry');
       await host.webContents.executeJavaScript(`document.body.dataset.skin='classic';document.documentElement.dataset.skin='classic';true;`);
       await until(()=>popover.window.webContents.executeJavaScript(`document.body.dataset.skin==='classic'`));

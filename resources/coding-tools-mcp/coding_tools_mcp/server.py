@@ -746,8 +746,31 @@ def normalize_rel_display(path: Path, root: Path) -> str:
     return "." if text == "" else text
 
 
+@functools.lru_cache(maxsize=256)
+def globstar_variants(pattern: str) -> tuple[str, ...]:
+    """Allow **/ to match zero directories, as fd and rg do (upstream PR #96)."""
+    variants = {pattern}
+    pending = [pattern]
+    while pending:
+        current = pending.pop()
+        candidates = [current[3:]] if current.startswith("**/") else []
+        start = current.find("/**/")
+        while start != -1:
+            candidates.append(current[:start] + current[start + 3 :])
+            start = current.find("/**/", start + 1)
+        for candidate in candidates:
+            if candidate and candidate not in variants:
+                variants.add(candidate)
+                pending.append(candidate)
+    return tuple(sorted(variants))
+
+
 def matches_any_glob(rel: str, patterns: list[str]) -> bool:
-    return any(fnmatch.fnmatch(rel, pattern) or PurePosixPath(rel).match(pattern) for pattern in patterns)
+    return any(
+        fnmatch.fnmatch(rel, variant) or PurePosixPath(rel).match(variant)
+        for pattern in patterns
+        for variant in globstar_variants(pattern)
+    )
 
 
 def file_entry(path: Path, rel: str, path_stat: os.stat_result) -> dict[str, Any]:
