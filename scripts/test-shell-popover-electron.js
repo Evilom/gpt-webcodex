@@ -40,7 +40,7 @@ const exported = {exports:{}};
 vm.runInNewContext(fs.readFileSync(path.join(root,'electron/shellPopover.js'),'utf8'),{
   module:exported,__dirname:path.join(root,'electron'),setImmediate,
   require:name=>name === 'electron' ? {...electron,
-    screen:{getDisplayMatching:()=>({workArea:{x:-20000,y:-20000,width:20000,height:20000}})},
+    screen:{getDisplayMatching:()=>({workArea:{x:-20000,y:-20000,width:40000,height:40000}})},
     BrowserWindow:function(options) {
       const win=new BrowserWindow({...options,focusable:false});
       win.webContents.on('console-message',details=>{if(details.level==='error')errors.push('popover: '+details.message);});
