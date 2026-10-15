@@ -9,6 +9,7 @@ const root = path.resolve(__dirname, '..');
 const scale = Number(process.env.SHELL_SMOKE_SCALE || 1);
 if (![1, 1.25, 1.5, 2].includes(scale)) throw new Error('Unsupported smoke scale');
 if (scale !== 1) app.commandLine.appendSwitch('force-device-scale-factor', String(scale));
+if (process.env.SHELL_SMOKE_MOTION === 'reduce') app.commandLine.appendSwitch('force-prefers-reduced-motion');
 const output = path.join(root, 'build', scale === 1 ? 'shell-smoke' : `shell-smoke-${String(scale).replace('.', '-')}`);
 fs.mkdirSync(output, { recursive: true });
 app.setPath('userData', fs.mkdtempSync(path.join(os.tmpdir(), 'think-tank-ui-smoke-')));
@@ -317,6 +318,11 @@ app.whenReady().then(async () => {
   })()`);
   for (const [name, value] of Object.entries(interactions)) assert.equal(value, true, name);
   await window.webContents.executeJavaScript(`toggleWorkbench(true)`); await settleLayout(window);
+  // Hosted runners can request reduced motion. This case specifically tests
+  // cancellation of an animated exit; reduced-motion closure is tested below.
+  const defaultReducedMotion = await window.webContents.executeJavaScript(`matchMedia('(prefers-reduced-motion: reduce)').matches`);
+  window.webContents.debugger.attach('1.3');
+  await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'no-preference'}]});
   const rapidReopen = await window.webContents.executeJavaScript(`(() => {
     toggleWorkbench(false);
     const exiting=document.getElementById('workbench').inert&&!document.getElementById('workbench').hidden;
@@ -326,6 +332,8 @@ app.whenReady().then(async () => {
   await settleLayout(window);
   assert.equal(rapidReopen,true,'reopening cancels the exit without hiding the active pane');
   assert.equal(await window.webContents.executeJavaScript(`document.getElementById('workbench').hidden`),false);
+  await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[]});
+  window.webContents.debugger.detach();
   stage = 'navigation-persistence';
   await window.loadURL(`${previewUrl}/?theme=dark`); await settleLayout(window);
   assert.equal(await window.webContents.executeJavaScript(`document.getElementById('studioSidebar').inert`), true, 'explicit collapse survives reload');
@@ -398,7 +406,7 @@ app.whenReady().then(async () => {
   assert.deepEqual(authView.getBounds(), { x:0,y:56,width:640,height:512 });
   controller.dispose();
   assert.deepEqual(errors, []);
-  fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify({ ok: true, scale, results, expandedSidebars, taskFeedback, stateChange, chatAppearanceUi, rapidReopen, interactions, narrow, compactNavigation, restoredNavigation, reducedMotion, nativeBounds: bounds, authBounds, errors }, null, 2));
+  fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify({ ok: true, scale, defaultReducedMotion, results, expandedSidebars, taskFeedback, stateChange, chatAppearanceUi, rapidReopen, interactions, narrow, compactNavigation, restoredNavigation, reducedMotion, nativeBounds: bounds, authBounds, errors }, null, 2));
   window.destroy();
   app.exit(0);
 }).catch((error) => { fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify({ ok: false, stage, error: error.stack, errors }, null, 2)); app.exit(1); });
