@@ -24,7 +24,8 @@
   document.getElementById('fixtureFile').onchange=event=>{
     const label=document.getElementById('fixtureFileName');label.textContent=event.target.files[0]?.name||'';
     send.disabled=true;label.setAttribute('role','progressbar');
-    setTimeout(()=>{send.disabled=false;label.removeAttribute('role');},400);
+    window.__fixtureFinishUpload=()=>{send.disabled=false;label.removeAttribute('role');};
+    if(!window.__fixtureHoldUpload)setTimeout(window.__fixtureFinishUpload,400);
   };
   document.getElementById('fixtureDownload').onclick=()=>{
     const url=URL.createObjectURL(new Blob(['隔离测试附件：切换外观前后内容一致。'],{type:'text/plain;charset=utf-8'}));
