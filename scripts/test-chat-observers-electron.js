@@ -70,10 +70,17 @@ app.whenReady().then(async () => {
   await until(() => controller.streamState.status === 'generating');
   await contents.executeJavaScript(`document.querySelector('main').innerHTML='<button data-testid="stop-recording" aria-label="Stop recording">audio</button>';true;`);
   await until(() => controller.streamState.status === 'healthy');
+  await contents.executeJavaScript(`document.querySelector('main').innerHTML='<section data-testid="conversation-turn-1"><div data-message-author-role="assistant">用户问：连接已中断，正在等待完整答复，是什么原因？</div></section>';true;`);
+  await delay(650);
+  assert.equal(controller.streamState.status, 'healthy', 'quoting a connection error in a message must not report a broken stream');
+  await contents.executeJavaScript(`const notice=document.createElement('div');notice.id='native-status';notice.setAttribute('role','status');notice.textContent='连接已中断，正在等待完整答复';document.querySelector('main').append(notice);true;`);
+  await until(() => controller.streamState.status === 'interrupted');
+  await contents.executeJavaScript(`document.getElementById('native-status').remove();true;`);
+  await until(() => controller.streamState.status === 'healthy');
   controller.dispose();
   window.destroy();
   fs.mkdirSync(path.dirname(output), { recursive: true });
-  fs.writeFileSync(output, JSON.stringify({ ok: true, generatingMs, stoppedAfterNativeConfirmation: true, quiet415SecondsNotStalled:true, attributeActivity:true, replacementMainObserved:true, oldDocumentIgnored:true, recordingStopIgnored:true }, null, 2));
+  fs.writeFileSync(output, JSON.stringify({ ok: true, generatingMs, stoppedAfterNativeConfirmation: true, quiet415SecondsNotStalled:true, attributeActivity:true, replacementMainObserved:true, oldDocumentIgnored:true, recordingStopIgnored:true, quotedErrorIgnored:true, nativeRecoveryStatusObserved:true }, null, 2));
   app.exit(0);
 }).catch(async error => {
   fs.mkdirSync(path.dirname(output), { recursive: true });

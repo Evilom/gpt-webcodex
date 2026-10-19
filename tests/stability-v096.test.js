@@ -149,6 +149,7 @@ test('stream observer recognizes visible recovery status in current Chinese and 
     let script;
     const timers = [], reports = [];
     const notice = { textContent: text, getBoundingClientRect: () => ({ width: visible ? 100 : 0, height: visible ? 20 : 0 }) };
+    notice.firstChild = { nodeType: 3, substringData: (offset, count) => text.slice(offset, offset + count), nextSibling: null, parentNode: notice };
     f.contents.executeJavaScript = (source) => { script = source; return Promise.resolve(); };
     f.controller.scheduleStreamObserver();
     const window = {};

@@ -2,6 +2,7 @@ const { shell, session, WebContentsView, nativeTheme } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { DownloadService } = require('./services/downloadService');
+const { readBoundedDomText } = require('./chatDomText');
 const { normalizeProxyValue, resolveProxy } = require('./services/proxyService');
 const { NativeLoginService, SESSION_CHECK } = require('./services/nativeLoginService');
 const { AUTH_HOSTS, authUrl, readAuthenticatedSession, LOGIN_DOCUMENT_PROBE } = require('./services/chatLoginPolicy');
@@ -886,14 +887,45 @@ class ChatViewController {
     if (!contents || contents.isDestroyed()) return;
     contents.executeJavaScript(`(() => {
       const PREFIX='[web-mcp-memory] ', SEEN_KEY='__webMcpAutoMemorySeenV1';
-      const normalize=(v)=>String(v||'').replace(/\\s+/g,' ').trim();
       const digest=(value)=>{let hash=2166136261,text=String(value||'');for(let i=0;i<text.length;i+=1){hash^=text.charCodeAt(i);hash=Math.imul(hash,16777619);}return(hash>>>0).toString(16).padStart(8,'0');};
       const conversationId=()=>{const m=location.pathname.match(/(?:^|\\/)c\\/([^/?#]+)/i);return m?m[1]:'';};
-      const clean=(node,limit)=>{if(!node)return'';const clone=node.cloneNode(true);clone.querySelectorAll('button,[role="button"],pre,code,svg,nav,[data-testid*="tool"]').forEach((item)=>item.remove());return normalize(clone.textContent).slice(0,limit);};
+      const readText=${readBoundedDomText.toString()};
+      const clean=(node,limit)=>readText(node,limit,'button,[role="button"],pre,code,svg,nav,[data-testid*="tool"]');
+      const latestPair=()=>{
+        const turns=document.querySelectorAll('[data-testid^="conversation-turn-"]');
+        let assistant=null,user=null,turnId='';
+        for(let i=turns.length-1;i>=Math.max(0,turns.length-32);i--){
+          const turn=turns[i];
+          if(!assistant){assistant=turn.querySelector('[data-message-author-role="assistant"]');if(assistant)turnId=String(turn.dataset.testid||'');}
+          if(assistant){user=turn.querySelector('[data-message-author-role="user"]');if(user){turnId=turnId||String(turn.dataset.testid||'');break;}}
+        }
+        if(!assistant||!user)return null;
+        return {user:clean(user,6000),assistant:clean(assistant,8000),turnId};
+      };
+      const generating=()=>Array.from(document.querySelectorAll('button[data-testid="stop-button"],button[data-testid="stop-generating-button"],button[aria-label="停止"],button[aria-label*="停止生成"],button[aria-label="Stop"],button[aria-label*="Stop generating"]')).some(node=>getComputedStyle(node).visibility!=='hidden'&&node.getClientRects().length>0);
       const loadSeen=()=>{try{return new Set(JSON.parse(sessionStorage.getItem(SEEN_KEY)||'[]'));}catch{return new Set();}};
       const saveSeen=(seen)=>{try{sessionStorage.setItem(SEEN_KEY,JSON.stringify([...seen].slice(-160)));}catch{}};
-      const scan=()=>{window.__mcpAutoMemoryTimer=0;if(document.querySelector('button[data-testid="stop-button"],button[aria-label*="Stop"]'))return;const turns=Array.from(document.querySelectorAll('[data-testid^="conversation-turn-"]'));let lastUser=null;const pairs=[];for(const turn of turns){const u=turn.querySelector('[data-message-author-role="user"]'),a=turn.querySelector('[data-message-author-role="assistant"]');if(u)lastUser={text:clean(u,6000),id:String(turn.dataset.testid||'')};if(a&&lastUser){const assistant=clean(a,8000);if(lastUser.text&&assistant)pairs.push({user:lastUser.text,assistant,turnId:String(turn.dataset.testid||lastUser.id||'')});}}const pair=pairs[pairs.length-1];if(!pair)return;const id=conversationId(),stableKey=digest(id+'\\n'+pair.user+'\\n'+pair.assistant),seen=loadSeen(),dedupeKey=id+':'+stableKey;if(seen.has(dedupeKey))return;if(window.__mcpAutoMemoryStableKey!==stableKey){window.__mcpAutoMemoryStableKey=stableKey;window.__mcpAutoMemoryTimer=setTimeout(scan,1400);return;}seen.add(dedupeKey);saveSeen(seen);try{window.__mcpAutoMemoryQueue={conversation_id:id,turn_id:pair.turnId,user_text:pair.user,assistant_text:pair.assistant};console.info(PREFIX+'ready');}catch{}};
-      const schedule=(delay=1800)=>{if(window.__mcpAutoMemoryTimer)clearTimeout(window.__mcpAutoMemoryTimer);window.__mcpAutoMemoryTimer=setTimeout(scan,delay);};const target=document.querySelector('main')||document.body;if(!window.__mcpAutoMemoryObserver){window.__mcpAutoMemoryObserver=new MutationObserver(()=>schedule(1800));if(target)window.__mcpAutoMemoryObserver.observe(target,{childList:true,subtree:true,characterData:true});}schedule(1200);return true;
+      const scan=()=>{
+        window.__mcpAutoMemoryTimer=0;
+        if(generating())return;
+        const pair=latestPair();
+        if(!pair?.user||!pair.assistant)return;
+        const id=conversationId(),stableKey=digest(id+'\\n'+pair.user+'\\n'+pair.assistant),seen=loadSeen(),dedupeKey=id+':'+stableKey;
+        if(seen.has(dedupeKey))return;
+        if(window.__mcpAutoMemoryStableKey!==stableKey){window.__mcpAutoMemoryStableKey=stableKey;window.__mcpAutoMemoryTimer=setTimeout(scan,1400);return;}
+        seen.add(dedupeKey);saveSeen(seen);
+        try{window.__mcpAutoMemoryQueue={conversation_id:id,turn_id:pair.turnId,user_text:pair.user,assistant_text:pair.assistant};console.info(PREFIX+'ready');}catch{}
+      };
+      const schedule=(delay=1800)=>{if(window.__mcpAutoMemoryTimer)clearTimeout(window.__mcpAutoMemoryTimer);window.__mcpAutoMemoryTimer=setTimeout(scan,delay);};
+      const target=document.body||document.documentElement;
+      if(!window.__mcpAutoMemoryObserver){
+        window.__mcpAutoMemoryObserver=new MutationObserver(records=>{
+          const main=document.querySelector('main')||target;
+          if(records.some(record=>main===record.target||main.contains(record.target)||Array.from(record.addedNodes||[]).some(node=>node===main||node.contains?.(main))))schedule(1800);
+        });
+        if(target)window.__mcpAutoMemoryObserver.observe(target,{childList:true,subtree:true,characterData:true});
+      }
+      schedule(1200);return true;
     })()`, true).catch(()=>false);
   }
 
@@ -907,6 +939,7 @@ class ChatViewController {
       const conversationId=()=>(globalThis.location?.pathname||'').match(/(?:^|\\/)c\\/([^/]+)/)?.[1]||'';
       const RENDER_ERROR_MARKERS=${JSON.stringify(CHAT_RENDER_ERROR_MARKERS)};
       const STREAM_RECOVERY_ERROR_MARKERS=${JSON.stringify(CHAT_STREAM_RECOVERY_ERROR_MARKERS)};
+      const readText=${readBoundedDomText.toString()};
       const normalize=(v)=>String(v||'').replace(/\\s+/g,' ').trim();
       const interrupted=(text)=>{
         const value=normalize(text);
@@ -919,14 +952,13 @@ class ChatViewController {
         return STREAM_RECOVERY_ERROR_MARKERS.some((marker)=>value.includes(String(marker).toLowerCase()));
       };
       const visible=(node)=>{if(!node)return false;const style=getComputedStyle(node);if(style.display==='none'||style.visibility==='hidden'||Number(style.opacity)===0)return false;const rect=node.getBoundingClientRect();return rect.width>0&&rect.height>0;};
-      const renderError=()=>Array.from(document.querySelectorAll('main [role="alert"],main [aria-live="assertive"],main [data-testid*="error" i],main [class*="error" i]')).some((node)=>{if(!visible(node))return false;const value=normalize(node.innerText||node.textContent||'').toLowerCase();return RENDER_ERROR_MARKERS.some((marker)=>value.includes(String(marker).toLowerCase()));});
+      const renderError=()=>Array.from(document.querySelectorAll('main [role="alert"],main [aria-live="assertive"],main [data-testid*="error" i],main [class*="error" i]')).slice(-8).some((node)=>{if(!visible(node))return false;const value=readText(node,4096,'pre,code').toLowerCase();return RENDER_ERROR_MARKERS.some((marker)=>value.includes(String(marker).toLowerCase()));});
       const report=(status,event,extra={})=>{try{console.info(PREFIX+JSON.stringify({status,event,document_id:DOCUMENT_ID,conversation_id:conversationId(),...extra}));}catch{}};
       const scan=()=>{
         window.__mcpStreamTimer=0;
         window.__mcpStreamNextScanAt=0;
-        const recentTurns=Array.from(document.querySelectorAll('[data-testid^="conversation-turn-"]')).slice(-2);
-        const notices=Array.from(document.querySelectorAll('main [role="alert"],main [role="status"],main [data-testid*="error" i]')).filter(visible);
-        const text=[...recentTurns,...notices].map(node=>node.textContent||'').join(' ');
+        const notices=Array.from(document.querySelectorAll('main [role="alert"],main [role="status"],main [data-testid*="error" i]')).slice(-16).filter(visible);
+        const text=notices.map(node=>readText(node,4096,'pre,code')).join(' ');
         if(renderError()){
           const changed=window.__mcpStreamStatus!=='render_error';
           window.__mcpStreamStatus='render_error';

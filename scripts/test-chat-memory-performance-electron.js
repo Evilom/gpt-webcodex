@@ -1,0 +1,116 @@
+'use strict';
+const { app, BrowserWindow } = require('electron');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const http = require('node:http');
+const crypto = require('node:crypto');
+const { ChatViewController } = require('../electron/chatViewController');
+const output = path.join(__dirname, '../build/chat-memory-performance.json');
+app.setPath('userData', fs.mkdtempSync(path.join(os.tmpdir(), 'thinktank-memory-')));
+app.on('window-all-closed', () => {});
+let window, server;
+const report = { ok: false };
+const watchdog = setTimeout(() => {
+  fs.mkdirSync(path.dirname(output), { recursive: true });
+  fs.writeFileSync(output, JSON.stringify({ ...report, error: 'Memory observer smoke timed out' }, null, 2));
+  app.exit(1);
+}, 30000);
+app.whenReady().then(async () => {
+  const fixture = process.env.THINKTANK_MEMORY_FIXTURE
+    ? JSON.parse(fs.readFileSync(process.env.THINKTANK_MEMORY_FIXTURE, 'utf8'))
+    : { user: '请先核对已有成果，再继续未完成的步骤。', assistant: '已核对记录，继续剩余步骤。', code: 'const result = verify();\n'.repeat(1000), tool: 'operation completed\n'.repeat(1000) };
+  report.fixtureSha256 = crypto.createHash('sha256').update(JSON.stringify(fixture)).digest('hex');
+  server = http.createServer((_request, response) => {
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    response.end('<main></main><div id="outside"></div>');
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  window = new BrowserWindow({ show: false, webPreferences: { backgroundThrottling: false } });
+  const page = window.webContents;
+  await page.loadURL(`http://127.0.0.1:${server.address().port}/c/memory-performance`);
+  await page.executeJavaScript(`(() => {
+    const fixture=${JSON.stringify(fixture)};
+    const main=document.querySelector('main');
+    const turn=(role,text,id,history=false)=>{const section=document.createElement('section');section.dataset.testid='conversation-turn-'+id;if(history)section.dataset.history='true';const message=document.createElement('div');message.dataset.messageAuthorRole=role;message.textContent=text;section.append(message);main.append(section);return message;};
+    for(let i=0;i<160;i++){
+      turn('user','历史问题 '+i,i*2,true);
+      const answer=turn('assistant','历史回答 '+i,i*2+1,true);
+      const pre=document.createElement('pre');for(const line of fixture.code.slice(0,16000).split('\\n').slice(0,120)){const span=document.createElement('span');span.textContent=line+'\\n';pre.append(span);}answer.append(pre);
+    }
+    window.latestUser=turn('user',fixture.user,320);
+    window.latestAssistant=turn('assistant',fixture.assistant,321);
+    const pre=document.createElement('pre');
+    for(const line of fixture.code.split('\\n').slice(0,12000)){const span=document.createElement('span');span.textContent=line+'\\n';pre.append(span);}
+    latestAssistant.append(pre);
+    const tool=document.createElement('div');tool.dataset.testid='tool-result';tool.textContent=fixture.tool;latestAssistant.append(tool);
+    const button=document.createElement('button');button.textContent='复制';latestAssistant.append(button);
+    window.memoryMetrics={clones:0,historyQueries:0,readChars:0,nodeMatches:0,emissions:0};
+    const clone=Node.prototype.cloneNode,query=Element.prototype.querySelector,matches=Element.prototype.matches,substring=CharacterData.prototype.substringData,info=console.info;
+    Node.prototype.cloneNode=function(...args){memoryMetrics.clones++;return clone.apply(this,args);};
+    Element.prototype.querySelector=function(...args){if(this.dataset?.history)memoryMetrics.historyQueries++;return query.apply(this,args);};
+    Element.prototype.matches=function(...args){memoryMetrics.nodeMatches++;return matches.apply(this,args);};
+    CharacterData.prototype.substringData=function(offset,count){memoryMetrics.readChars+=Math.min(count,this.length-offset);return substring.call(this,offset,count);};
+    console.info=(...args)=>{if(String(args[0]).startsWith('[web-mcp-memory]'))memoryMetrics.emissions++;info.apply(console,args);};
+    const timers=new Map();let timerId=0;
+    window.setTimeout=(callback,delay)=>{const id=++timerId;timers.set(id,{callback,delay});return id;};
+    window.clearTimeout=id=>timers.delete(id);
+    window.flushMemory=()=>{const first=timers.entries().next().value;if(!first)return null;timers.delete(first[0]);const started=performance.now();first[1].callback();return performance.now()-started;};
+    window.memorySnapshot=()=>({metrics:{...memoryMetrics},payload:window.__mcpAutoMemoryQueue,identity:latestUser.isConnected&&latestAssistant.isConnected});
+    return true;
+  })()`);
+  let observerScript;
+  ChatViewController.prototype.scheduleMemoryObserver.call({ view: { webContents: { isDestroyed: () => false, executeJavaScript(script) { observerScript = script; return Promise.resolve(true); } } } });
+  await page.executeJavaScript(observerScript);
+  report.scanMs = await page.executeJavaScript('[flushMemory(),flushMemory()]');
+  const snapshot = await page.executeJavaScript('memorySnapshot()');
+  report.metrics = snapshot.metrics;
+  assert.equal(snapshot.payload?.user_text === fixture.user, true, 'latest user content changed');
+  assert.equal(snapshot.payload?.assistant_text === fixture.assistant, true, 'code, tools and buttons must remain excluded');
+  assert.equal(snapshot.payload?.conversation_id, 'memory-performance');
+  assert.equal(snapshot.payload?.turn_id, 'conversation-turn-321');
+  assert.equal(snapshot.identity, true, 'original DOM nodes must stay connected');
+  assert.equal(snapshot.metrics.clones, 0, 'memory capture must not deep-clone the transcript');
+  assert.equal(snapshot.metrics.historyQueries, 0, 'memory capture must skip historical turns');
+  assert.ok(snapshot.metrics.readChars <= 112000, 'text reads must have a fixed budget');
+  await page.executeJavaScript(`latestAssistant.append(document.createTextNode(''));true;`);
+  await page.executeJavaScript('flushMemory()');
+  assert.equal(await page.executeJavaScript('memoryMetrics.emissions'), 1, 'unchanged pairs must stay deduplicated');
+  await page.executeJavaScript(`document.getElementById('outside').textContent='sidebar update';true;`);
+  assert.equal(await page.executeJavaScript('flushMemory()'), null, 'outside changes must not rescan the transcript');
+  await page.executeJavaScript(`window.stopButton=document.createElement('button');stopButton.ariaLabel='停止';document.querySelector('main').append(stopButton);latestAssistant.firstChild.data='新回答';true;`);
+  await page.executeJavaScript('flushMemory()');
+  assert.equal(await page.executeJavaScript('memoryMetrics.emissions'), 1, 'Chinese generation controls must prevent partial capture');
+  await page.executeJavaScript('stopButton.remove();true;');
+  await page.executeJavaScript('[flushMemory(),flushMemory()]');
+  assert.equal(await page.executeJavaScript('window.__mcpAutoMemoryQueue.assistant_text'), '新回答');
+  await page.executeJavaScript(`latestAssistant.firstChild.data='超长回复'.repeat(1000000);true;`);
+  const beforeBudget = await page.executeJavaScript('memoryMetrics.readChars');
+  await page.executeJavaScript('[flushMemory(),flushMemory()]');
+  const bounded = await page.executeJavaScript('({length:__mcpAutoMemoryQueue.assistant_text.length,reads:memoryMetrics.readChars})');
+  assert.equal(bounded.length, 8000);
+  assert.ok(bounded.reads - beforeBudget <= 112000, 'large text nodes must be read using bounded slices');
+  await page.executeJavaScript(`latestAssistant.innerHTML='开头'+'<span></span>'.repeat(20000)+'末尾';true;`);
+  const beforeNodes = await page.executeJavaScript('memoryMetrics.nodeMatches');
+  await page.executeJavaScript('[flushMemory(),flushMemory()]');
+  assert.ok(await page.executeJavaScript('memoryMetrics.nodeMatches') - beforeNodes <= 8192, 'markup-heavy messages must have a node budget');
+  assert.equal(await page.executeJavaScript('__mcpAutoMemoryQueue.assistant_text'), '开头');
+  await page.executeJavaScript(`const replacement=document.createElement('main');replacement.innerHTML='<section data-testid="conversation-turn-400"><div data-message-author-role="user">新容器问题</div></section><section data-testid="conversation-turn-401"><div data-message-author-role="assistant">新容器回答</div></section>';document.querySelector('main').replaceWith(replacement);true;`);
+  await page.executeJavaScript('[flushMemory(),flushMemory()]');
+  assert.equal(await page.executeJavaScript('__mcpAutoMemoryQueue.assistant_text'), '新容器回答');
+  report.largeTextBounded = true;
+  report.markupBounded = true;
+  report.mainReplacement = true;
+  report.nativeStopGuard = true;
+  report.deduplicated = true;
+  report.ok = true;
+}).catch(error => { report.error = error.stack; }).finally(async () => {
+  clearTimeout(watchdog);
+  window?.destroy();
+  if (server) await new Promise(resolve => server.close(resolve));
+  fs.mkdirSync(path.dirname(output), { recursive: true });
+  fs.writeFileSync(output, JSON.stringify(report, null, 2));
+  console.log(JSON.stringify(report));
+  app.exit(report.ok ? 0 : 1);
+});

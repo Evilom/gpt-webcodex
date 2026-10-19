@@ -1,6 +1,6 @@
 {
   "name": "web-mcp-assistant",
-  "version": "0.9.23",
+  "version": "0.9.24",
   "description": "超级智囊团：ChatGPT 工作台、Coding Tools MCP 与太极 / AntiGravity 扩展辅助",
   "author": "3169657175",
   "license": "MIT",
@@ -26,11 +26,12 @@
     "ui:check": "tsc -p renderer-ui/tsconfig.json --noEmit",
     "ui:smoke": "npm run ui:build && electron scripts/renderer-smoke-electron.js && node scripts/assert-renderer-smoke.js",
     "test:quick": "npm run ui:check && python scripts/check-schema-contract.py && node --test tests/assistant-state-v090.test.js tests/auto-memory-v042.test.js tests/task-notification.test.js tests/v090-architecture.test.js tests/mcp-session-recovery-v092.test.js tests/memory-views-v092.test.js tests/renderer-production-smoke-v092.test.js tests/runtime-info-v092.test.js tests/schema-hint-v092.test.js tests/service-state-v092.test.js tests/theme-v092.test.js tests/tunnel-recovery-v092.test.js tests/workspace-quick-switch-v092.test.js",
-    "release:verify": "npm run ui:check && npm run ui:smoke && npm run ui:shell-smoke && npm run ui:theme-smoke && npm run ui:chat-appearance-smoke && npm run ui:popover-smoke && npm run ui:observers-smoke && npm test && electron scripts/test-advisory-mcp-electron.js && npm run soak:quick && node scripts/check-release-readiness.js",
+    "release:verify": "npm run ui:check && npm run ui:smoke && npm run ui:shell-smoke && npm run ui:theme-smoke && npm run ui:chat-appearance-smoke && npm run ui:popover-smoke && npm run ui:observers-smoke && npm run ui:memory-smoke && npm test && electron scripts/test-advisory-mcp-electron.js && npm run soak:quick && node scripts/check-release-readiness.js",
     "release:git-ready": "node scripts/check-release-git-ready.js",
     "test:chat-lifecycle": "electron scripts/test-chat-lifecycle-electron.js",
     "test:chat-downloads": "electron scripts/test-chat-downloads-electron.js",
-    "ui:observers-smoke": "electron scripts/test-chat-observers-electron.js"
+    "ui:observers-smoke": "electron scripts/test-chat-observers-electron.js",
+    "ui:memory-smoke": "electron scripts/test-chat-memory-performance-electron.js"
   },
   "dependencies": {
     "electron-updater": "^6.8.9",
