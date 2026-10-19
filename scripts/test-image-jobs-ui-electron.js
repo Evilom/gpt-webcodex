@@ -44,13 +44,13 @@ app.whenReady().then(async () => {
   }
   const service = new ImageJobService({ directory: profile, ...(run ? { run } : {}) });
   await service.importConfiguration(config); service.select(true);
-  let previewCalls = 0, activePreviews = 0, peakPreviews = 0; const assetActions = [];
+  let previewCalls = 0, activePreviews = 0, peakPreviews = 0, saveCount = 0; const assetActions = [];
   const safely = fn => async (_event, ...args) => { try { return { ok: true, data: await fn(...args) }; } catch (error) { return { ok: false, error: error.message }; } };
   for (const [name, fn] of Object.entries({
     status: () => service.status(), list: options => service.list(options?.view === 'grid' ? 4 : 5, options), select: enabled => service.select(enabled),
     preview: async id => { previewCalls++; activePreviews++; peakPreviews = Math.max(peakPreviews, activePreviews); try { return await service.preview(id); } finally { activePreviews--; } },
     open: async id => { const target = await service.assetPath(id); assetActions.push({ action: 'open', id, target }); return { opened: true }; },
-    save: async id => { const target = await service.assetPath(id); const saved = path.join(output, 'saved-original.png'); await fs.promises.copyFile(target, saved); assetActions.push({ action: 'save', id, target, saved }); return { saved: true }; }
+    save: async id => { const target = await service.assetPath(id); const saved = path.join(output, `saved-original-${++saveCount}.png`); await fs.promises.copyFile(target, saved); assetActions.push({ action: 'save', id, target, saved }); return { saved: true }; }
   })) ipcMain.handle(`image-jobs:${name}`, safely(fn));
   const html = fs.readFileSync(path.join(codeRoot, 'renderer/browser.html'), 'utf8');
   const tail = html.slice(html.indexOf('<div class="advisor-views"'));
@@ -91,10 +91,11 @@ app.whenReady().then(async () => {
     await wait('!document.getElementById("imageJobsRefresh").disabled');
     assert.equal(await window.webContents.executeJavaScript('document.querySelectorAll("#imageJobsList details[open]").length'), 1);
     assert.equal(previewCalls, beforePreview + 1, 'refresh preserves the loaded preview and fold state');
+    const actionStart = assetActions.length;
     await window.webContents.executeJavaScript('document.querySelectorAll("#imageJobsList details[open] button")[1].click()');
     await wait('document.querySelector("#imageJobsList details[open] img").complete');
-    for (let i = 0; i < 50 && !assetActions.some(action => action.id === id && action.action === 'save'); i++) await delay(50);
-    const saved = assetActions.find(action => action.id === id && action.action === 'save'); assert.ok(saved);
+    for (let i = 0; i < 50 && !assetActions.slice(actionStart).some(action => action.id === id && action.action === 'save'); i++) await delay(50);
+    const saved = assetActions.slice(actionStart).find(action => action.id === id && action.action === 'save'); assert.ok(saved, 'this theme must finish its own save before checking bytes');
     assert.ok(fs.readFileSync(saved.target).equals(fs.readFileSync(saved.saved)), 'save keeps the real original bytes');
     const layout = await window.webContents.executeJavaScript('({width:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth,bg:getComputedStyle(document.body).backgroundColor,previewWidth:document.querySelector("details[open] img").getBoundingClientRect().width})');
     assert.equal(layout.overflow, false); assert.ok(layout.previewWidth <= layout.width);
