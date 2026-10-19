@@ -75,6 +75,23 @@ test('visible Google entry/refusal is detected without reading any input or chat
   assert.equal(run('chatgpt.com', '/c/test', [], '无法登录 此浏览器或应用可能不安全', []).kind, '');
 });
 
+test('conversation login checks inspect only the composer instead of every historical control', () => {
+  let layoutChecks = 0;
+  const composer = { isConnected: true, getBoundingClientRect: () => { layoutChecks++; return { width: 400, height: 60 }; } };
+  const run = (pathname, present) => vm.runInNewContext(LOGIN_DOCUMENT_PROBE, {
+    location: { hostname: 'chatgpt.com', pathname, protocol: 'https:' },
+    getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }),
+    document: { querySelectorAll: selector => {
+      if (selector.includes('prompt-textarea')) return present ? [composer] : [];
+      throw new Error('Historical controls must not be inspected');
+    } }
+  });
+  assert.equal(run('/c/long-conversation', true).composer, true);
+  assert.equal(run('/g/project/c/long-conversation', false).composer, false);
+  assert.equal(run('/', true).kind, '');
+  assert.equal(layoutChecks, 2);
+});
+
 test('OAuth child is adopted intact and nested popups retain their opener instead of being denied', (t) => {
   const f = fixture(t), child = new Contents('https://auth.openai.com/login');
   const view = f.controller.createEmbeddedAuthView({ webContents: child });

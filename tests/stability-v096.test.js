@@ -88,6 +88,60 @@ test('main-frame deadline leaves conversation recovery to the user and is cancel
   assert.deepEqual(f.loads, []);
 });
 
+test('a slow conversation is not aborted by the load watchdog', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture(t, 'https://chatgpt.com/c/slow');
+  let stops = 0;
+  f.contents.stop = () => { stops++; };
+  f.controller.loading = true;
+  f.controller.armLoadDeadline(f.contents, 10);
+  t.mock.timers.tick(10);
+  assert.equal(stops, 0, 'stopping a busy renderer can leave its next document empty');
+  assert.equal(f.controller.loading, true);
+  assert.match(f.controller.lastError, /仍在等待/);
+  assert.equal(f.controller.retryTimer, null);
+  assert.deepEqual(f.loads, []);
+});
+
+test('an empty document stays actionable after load completion and renderer responsiveness', async (t) => {
+  const f = fixture(t, 'https://chatgpt.com/c/empty');
+  f.contents.executeJavaScript = async () => ({ readyState: 'complete', hasRoot: false });
+  f.controller.lastError = 'ChatGPT 页面暂时无响应';
+  f.controller.errorLayer = 'chat-renderer';
+  f.contents.emit('did-finish-load');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match(f.controller.lastError, /内容为空/);
+  f.contents.emit('responsive');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match(f.controller.lastError, /内容为空/);
+  assert.equal(f.controller.errorLayer, 'chat-page');
+});
+
+test('a late document check cannot clear the next navigation error', async (t) => {
+  const f = fixture(t, 'https://chatgpt.com/c/first');
+  let resolve;
+  f.contents.executeJavaScript = () => new Promise(done => { resolve = done; });
+  f.contents.emit('did-finish-load');
+  f.controller.resetStreamDocument();
+  f.controller.lastError = 'new document error';
+  f.controller.errorLayer = 'chat-page';
+  resolve({ readyState: 'complete', hasRoot: true });
+  await new Promise(done => setImmediate(done));
+  assert.equal(f.controller.lastError, 'new document error');
+});
+
+test('a completed document check preserves a newer asset failure in the same navigation', async (t) => {
+  const f = fixture(t, 'https://chatgpt.com/c/current');
+  let resolve;
+  f.contents.executeJavaScript = () => new Promise(done => { resolve = done; });
+  f.contents.emit('did-finish-load');
+  f.controller.lastError = 'new asset failure';
+  f.controller.errorLayer = 'chat-page';
+  resolve({ readyState: 'complete', hasRoot: true });
+  await new Promise(done => setImmediate(done));
+  assert.equal(f.controller.lastError, 'new asset failure');
+});
+
 test('1000 streaming mutations create one capability scan, without rereading armed history', (t) => {
   const f = fixture(t);
   let script, callback, reads = 0;

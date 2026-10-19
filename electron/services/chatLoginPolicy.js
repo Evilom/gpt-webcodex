@@ -48,6 +48,10 @@ function inspectLoginDocument() {
     return node.isConnected && style.display !== 'none' && style.visibility !== 'hidden'
       && Number(style.opacity) !== 0 && rect.width > 0 && rect.height > 0;
   };
+  const entryPage = isProvider || isChat && (location.pathname === '/' || /^\/(?:auth|login)(?:\/|$)/.test(location.pathname));
+  const composer = isChat && !/^\/(?:auth|login|api\/auth)(?:\/|$)/.test(location.pathname)
+    && Array.from(document.querySelectorAll('#prompt-textarea, [data-testid="prompt-textarea"], [contenteditable="true"][role="textbox"]')).some(visible);
+  if (isChat && (composer || !entryPage)) return { kind: '', composer };
   if (host === 'accounts.google.com') {
     const headings = Array.from(document.querySelectorAll('h1, h2, [role="heading"]')).filter(visible).map((node) => node.textContent).join(' ');
     const notice = String(document.body?.innerText || '').slice(0, 4000);
@@ -59,10 +63,7 @@ function inspectLoginDocument() {
   const controls = Array.from(document.querySelectorAll('button, a, [role="button"]')).filter(visible);
   const labels = controls.map((node) => String(node.getAttribute('aria-label') || node.textContent || '').replace(/\s+/g, ' ').trim());
   const providerButton = labels.some((label) => /^(?:continue with google|sign in with google|使用\s*google\s*(?:账号)?(?:继续|登录)|通过\s*google\s*登录|继续使用\s*google)$/i.test(label));
-  const entryPage = isProvider || isChat && (location.pathname === '/' || /^\/(?:auth|login)(?:\/|$)/.test(location.pathname));
   const signIn = labels.some((label) => /^(?:log in|sign in|登录|登入|登录\s*chatgpt)$/i.test(label));
-  const composer = isChat && !/^\/(?:auth|login|api\/auth)(?:\/|$)/.test(location.pathname)
-    && Array.from(document.querySelectorAll('#prompt-textarea, [data-testid="prompt-textarea"], [contenteditable="true"][role="textbox"]')).some(visible);
   return { kind: entryPage && (providerButton || signIn) ? 'entry' : '', composer };
 }
 

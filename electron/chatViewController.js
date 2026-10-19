@@ -492,10 +492,12 @@ class ChatViewController {
       this.armLoadDeadline(contents);
       this.emitState();
     });
-    listen('did-finish-load', () => {
+    listen('did-finish-load', async () => {
       clearTimeout(this.loadTimer);
       this.loadTimer = null;
       this.clearRetryState();
+      const previousError = this.lastError;
+      if (!await this.verifyLoadedDocument(contents) || this.lastError !== previousError) return;
       this.lastError = '';
       this.errorLayer = '';
       if (this.streamState.status === 'render_error') this.updateStreamState({ status: 'healthy', event: 'page-message-render-recovered' });
@@ -585,12 +587,13 @@ class ChatViewController {
       this.log.warn(this.lastError, { host: parseUrl(contents.getURL())?.hostname || '' });
       this.emitState();
     });
-    listen('responsive', () => {
+    listen('responsive', async () => {
+      this.log.info('ChatGPT 页面进程已恢复响应');
+      if (!await this.verifyLoadedDocument(contents)) return;
       if (this.errorLayer === 'chat-renderer' && this.lastError === 'ChatGPT 页面暂时无响应') {
         this.lastError = '';
         this.errorLayer = '';
       }
-      this.log.info('ChatGPT 页面已恢复响应');
       this.emitState();
     });
     listen('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
@@ -659,15 +662,36 @@ class ChatViewController {
       this.loadTimer = null;
       if (this.disposed || contents.isDestroyed() || !contents.isLoadingMainFrame()) return;
       const url = contents.getURL();
-      contents.stop();
-      this.loading = false;
-      this.lastError = 'ChatGPT 页面加载超过 60 秒，请检查代理网络后点击刷新';
+      const conversation = isChatConversationUrl(url);
+      if (!conversation) contents.stop();
+      this.loading = conversation;
+      this.lastError = conversation ? 'ChatGPT 页面加载超过 60 秒，仍在等待网页恢复；可以重新加载原会话'
+        : 'ChatGPT 页面加载超过 60 秒，请检查代理网络后点击刷新';
       this.errorLayer = 'chat-page';
       this.log.warn('ChatGPT 页面加载超时', { host: parseUrl(url)?.hostname || '' });
       this.scheduleTransientRetry(url, 'ERR_TIMED_OUT');
       this.emitState();
     }, timeoutMs);
     this.loadTimer.unref?.();
+  }
+
+  async verifyLoadedDocument(contents) {
+    if (!isChatGptNavigation(contents.getURL()) || authUrl(contents.getURL())) return true;
+    const revision = this.streamDocumentRevision;
+    try {
+      const document = await boundedLoginCheck(contents.executeJavaScript(`({ readyState: document.readyState, hasRoot: Boolean(document.documentElement) })`));
+      if (this.disposed || contents.isDestroyed() || contents !== this.view?.webContents || revision !== this.streamDocumentRevision) return false;
+      if (document?.hasRoot === true) return true;
+      if (document?.readyState === 'complete' && document.hasRoot === false) {
+        const message = 'ChatGPT 页面内容为空，请重新加载原会话';
+        if (this.lastError !== message) this.log.warn(message, { host: parseUrl(contents.getURL())?.hostname || '' });
+        this.lastError = message;
+        this.errorLayer = 'chat-page';
+        this.loading = false;
+        this.emitState();
+      }
+    } catch {}
+    return false;
   }
 
   activeContents() {
