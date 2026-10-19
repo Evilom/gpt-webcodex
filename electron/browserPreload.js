@@ -1,6 +1,13 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('browserAssistant', {
+  imageJobsStatus: () => ipcRenderer.invoke('image-jobs:status'),
+  imageJobsList: () => ipcRenderer.invoke('image-jobs:list'),
+  imageJobsImport: () => ipcRenderer.invoke('image-jobs:import'),
+  imageJobsSelect: (enabled) => ipcRenderer.invoke('image-jobs:select', enabled),
+  imageJobsPreview: (id) => ipcRenderer.invoke('image-jobs:preview', id),
+  imageJobsOpen: (id) => ipcRenderer.invoke('image-jobs:open', id),
+  imageJobsSave: (id) => ipcRenderer.invoke('image-jobs:save', id),
   advisoryStatus: () => ipcRenderer.invoke('advisory:status'),
   advisoryImport: () => ipcRenderer.invoke('advisory:import'),
   advisoryModels: () => ipcRenderer.invoke('advisory:models'),

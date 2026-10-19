@@ -36,6 +36,7 @@ const { PublicMcpGateway } = require('./services/publicMcpGateway');
 const { UpdateService } = require('./services/updateService');
 const { AdvisoryService } = require('./services/advisoryService');
 const { AdvisoryBridge } = require('./services/advisoryBridge');
+const { ImageJobService } = require('./services/imageJobService');
 const { finishShutdown } = require('./services/shutdownService');
 const { autoUpdater } = require('electron-updater');
 const { notificationStateFile, dataRoot, mcpLogFile } = require('./paths');
@@ -75,7 +76,8 @@ let lastDownloadPath = '';
 const settings = new SettingsStore();
 const secrets = new SecretStore();
 const advisoryService = new AdvisoryService({ directory: dataRoot(), secrets });
-const advisoryBridge = new AdvisoryBridge({ service: advisoryService, secrets });
+const imageJobService = new ImageJobService({ directory: dataRoot() });
+const advisoryBridge = new AdvisoryBridge({ service: advisoryService, imageService: imageJobService, secrets });
 const log = new LogService();
 const environment = new EnvironmentService();
 const notificationCheckpoints = new NotificationCheckpointStore(notificationStateFile);
@@ -770,6 +772,29 @@ function registerIpc() {
   }));
   secureHandle('app:lightweight-snapshot', () => invokeSafely(() => orchestrator.lightweightSnapshot()));
   secureHandle('advisory:status', () => invokeSafely(async () => advisoryService.status()));
+  secureHandle('image-jobs:status', () => invokeSafely(async () => imageJobService.status()));
+  secureHandle('image-jobs:list', () => invokeSafely(() => imageJobService.list()));
+  secureHandle('image-jobs:select', (_event, enabled) => invokeSafely(async () => imageJobService.select(enabled)));
+  secureHandle('image-jobs:preview', (_event, id) => invokeSafely(() => imageJobService.preview(id)));
+  secureHandle('image-jobs:open', (_event, id) => invokeSafely(async () => {
+    const target = await imageJobService.assetPath(id);
+    const error = await shell.openPath(target);
+    if (error) throw new Error(error);
+    return { opened: true };
+  }));
+  secureHandle('image-jobs:save', (_event, id) => invokeSafely(async () => {
+    const target = await imageJobService.assetPath(id);
+    const result = await dialog.showSaveDialog(chatWindow, { title: '另存生图原图', defaultPath: `${id}.png`, filters: [{ name: 'PNG 图片', extensions: ['png'] }] });
+    if (result.canceled) return { canceled: true };
+    if (path.resolve(target) !== path.resolve(result.filePath)) await fs.copyFile(target, result.filePath);
+    return { saved: true };
+  }));
+  secureHandle('image-jobs:import', () => invokeSafely(async () => {
+    const result = await dialog.showOpenDialog(chatWindow, { title: '导入本机 CLIProxy 异步生图入口', properties: ['openFile'], filters: [{ name: 'integration.json', extensions: ['json'] }] });
+    if (result.canceled) return imageJobService.status();
+    if ((await fs.stat(result.filePaths[0])).size > 65536) throw new Error('入口配置文件过大。');
+    return imageJobService.importConfiguration(JSON.parse((await fs.readFile(result.filePaths[0], 'utf8')).replace(/^\uFEFF/, '')));
+  }));
   secureHandle('advisory:models', () => invokeSafely(() => advisoryService.catalog()));
   secureHandle('advisory:select', (_event, models) => invokeSafely(async () => advisoryService.select(models)));
   secureHandle('advisory:result', () => invokeSafely(() => advisoryService.result()));

@@ -17,7 +17,7 @@ class AdvisoryTests(unittest.TestCase):
             try:
                 names = [tool["name"] for tool in runtime.list_tools()["tools"]]
                 self.assertIn("consult_advisors", names)
-                self.assertEqual(len(names), 11)
+                self.assertEqual(len(names), 12)
                 self.assertIn("proactively consider consult_advisors", runtime.initialize()["instructions"])
                 payload = runtime.call_tool("consult_advisors", {"action": "status"})["structuredContent"]
                 self.assertFalse(payload["enabled"])

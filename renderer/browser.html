@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="browser-shell.css">
   <link rel="stylesheet" href="ui-theme.css">
   <link rel="stylesheet" href="studio-shell.css">
+  <link rel="stylesheet" href="image-jobs.css">
 </head>
 <body>
   <script src="theme-bootstrap.js"></script>
@@ -120,6 +121,13 @@
         <div class="advisory-actions"><button id="advisoryResult" class="shell-button" type="button" hidden>刷新辅助进度</button></div>
         <div id="advisoryAnswers" class="advisory-answers" aria-live="polite"></div>
       </section>
+      <section id="imageJobsSection"><h2>异步生图</h2>
+        <label class="extension-row"><input id="imageJobsEnabled" type="checkbox" disabled>允许 AI 后台生图<small>通过本机 CLIProxy 生成；提交后主会话继续工作。关闭开关只影响后续提交。</small></label>
+        <div class="advisory-actions"><button id="imageJobsImport" class="shell-button" type="button">导入生图入口</button><button id="imageJobsRefresh" class="shell-button" type="button">查看进度与资产</button></div>
+        <p id="imageJobsStatus" class="shell-muted" role="status">正在读取生图配置…</p>
+        <div id="imageJobsList" class="image-jobs-list"></div>
+        <p id="imageJobsNote" class="shell-muted">任务默认折叠；展开后仅加载小预览。原图保留本地，生成完成不代表内容已审核。</p>
+      </section>
       </div>
 
     </div>
@@ -217,6 +225,7 @@
   <script src="studio-shell.js"></script>
   <script src="browser.js"></script>
   <script src="advisory.js"></script>
+  <script src="image-jobs.js"></script>
   <script src="update-ui.js"></script>
 </body>
 </html>

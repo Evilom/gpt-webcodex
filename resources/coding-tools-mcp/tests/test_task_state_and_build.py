@@ -996,7 +996,7 @@ class ToolModeTests(unittest.TestCase):
                 }):
                     runtime = Runtime(root, permission_mode="dangerous")
                     self.assertEqual(runtime.agent_mode, agent_mode)
-                    self.assertEqual(len(runtime._exposed_tool_names), 11)
+                    self.assertEqual(len(runtime._exposed_tool_names), 12)
                     allowed = runtime.call_tool("workspace_context", {})
                     self.assertFalse(allowed["isError"])
                     blocked = runtime.call_tool("exec_command", {"cmd": "echo should-not-run"})
@@ -1034,8 +1034,8 @@ class ToolModeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp, patch.dict("os.environ", {"CODING_TOOLS_MCP_TOOL_MODE": "smart"}):
             runtime = Runtime(Path(temp))
             tools = set(runtime.exposed_tool_names())
-            self.assertLessEqual(len(tools), 11)
-            self.assertEqual(tools, {"coding_tools_guide", "workspace_context", "agent_workflow", "task_control", "document_workflow", "exec_command", "command_control", "request_permissions", "remember_context", "view_image", "consult_advisors"})
+            self.assertLessEqual(len(tools), 12)
+            self.assertEqual(tools, {"coding_tools_guide", "workspace_context", "agent_workflow", "task_control", "document_workflow", "exec_command", "command_control", "request_permissions", "remember_context", "view_image", "consult_advisors", "image_jobs"})
             self.assertNotIn("document_extract", tools)
 
     def test_workspace_context_is_compact_and_cached(self) -> None:

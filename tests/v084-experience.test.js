@@ -47,15 +47,15 @@ test('0.8.4 startup UI uses an ordered readiness prefix and explicit runtime mil
   }
 });
 
-test('0.9.11 retains model-primary remember_context alongside AI advisory consultation with schema v15', () => {
+test('model-primary remember_context and AI advisory consultation remain available with schema v16', () => {
   const server = read('resources/coding-tools-mcp/coding_tools_mcp/server.py');
   const registry = read('resources/coding-tools-mcp/coding_tools_mcp/tool_registry.py');
   const contract = JSON.parse(read('resources/coding-tools-mcp/schema-contract.json'));
-  assert.match(server, /TOOL_SCHEMA_VERSION = 15/);
+  assert.match(server, /TOOL_SCHEMA_VERSION = 16/);
   assert.match(registry, /"remember_context": ToolSpec/);
   assert.match(server, /def remember_context\(self, args/);
   assert.match(registry, /Automatic page observation is discovery-only/);
-  assert.equal(contract.schema_version, 15);
-  assert.equal(contract.tool_count, 11);
+  assert.equal(contract.schema_version, 16);
+  assert.equal(contract.tool_count, 12);
   assert.equal(contract.runtime_version, JSON.parse(read('package.json')).version);
 });

@@ -96,6 +96,7 @@ function installHandlers() {
       : { items: request.action === 'candidates' ? [] : [{ memory_id: 'theme-memory', title: '工程上下文', category: 'project_context', content: '保留工作区与已确认的工程约束。', source: 'model_summary', updated_at: '2026-10-14T01:38:04Z' }] }),
     'app:lightweight-snapshot': () => ok({ workspace: demoWorkspace, mcpRunning: true, tunnelRunning: true, connectionRunning: true, fullyReady: true }),
     'advisory:status': () => ok({ configured: false, models: [], selected: [], job: null }),
+    'image-jobs:status': () => ok({ configured: false, enabled: false, last_request_id: '' }),
     'chat:status': () => ok({ url: 'https://chatgpt.com/', loading: false }),
     'shell-popover:update': () => ok(false),
     'approval:list': () => ok({ items: [] }),

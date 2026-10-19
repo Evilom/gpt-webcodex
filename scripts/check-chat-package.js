@@ -8,7 +8,7 @@ const asar=require('@electron/asar');
 const root=path.resolve(__dirname,'..'),pkg=require('../package.json');
 const base=process.platform==='darwin'?path.join(root,'dist/mac-arm64',pkg.build.productName+'.app','Contents/Resources'):path.join(root,'dist/win-unpacked/resources');
 const archive=path.join(base,'app.asar');
-const files=['electron/main.js','electron/browserPreload.js','electron/chatViewController.js','electron/chatDomText.js','electron/services/chatLoginPolicy.js','electron/shellPopover.js','renderer/browser.html','renderer/studio-shell.js','renderer/studio-shell.css','renderer/glass-skin.css','THIRD_PARTY_NOTICES.md'];
+const files=['electron/main.js','electron/browserPreload.js','electron/chatViewController.js','electron/chatDomText.js','electron/services/chatLoginPolicy.js','electron/services/imageJobService.js','electron/services/advisoryBridge.js','electron/shellPopover.js','renderer/browser.html','renderer/image-jobs.js','renderer/image-jobs.css','renderer/studio-shell.js','renderer/studio-shell.css','renderer/glass-skin.css','THIRD_PARTY_NOTICES.md'];
 assert.equal(JSON.parse(asar.extractFile(archive,'package.json')).version,pkg.version);
 assert.ok(!asar.listPackage(archive).some(file=>/chat-replica|chatReplica|chat-dist|assistant-ui/.test(file)), 'Removed experiment remains in archive');
 for(const file of files)assert.deepEqual(asar.extractFile(archive,path.normalize(file)),fs.readFileSync(path.join(root,file)),`Packaged file differs: ${file}`);

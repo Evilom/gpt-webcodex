@@ -3,7 +3,7 @@ const http = require('node:http');
 const crypto = require('node:crypto');
 
 class AdvisoryBridge {
-  constructor({ service, secrets, port = 18769 }) { this.service = service; this.secrets = secrets; this.port = port; this.server = null; }
+  constructor({ service, imageService, secrets, port = 18769 }) { this.service = service; this.imageService = imageService; this.secrets = secrets; this.port = port; this.server = null; }
   address() { return this.server ? `http://127.0.0.1:${this.server.address().port}/advisory` : ''; }
   async start() {
     if (this.server) return this.address();
@@ -12,7 +12,8 @@ class AdvisoryBridge {
       const expected = Buffer.from(`Bearer ${this.secrets.get('mcpAuthToken') || ''}`);
       const supplied = Buffer.from(request.headers.authorization || '');
       if (!this.secrets.get('mcpAuthToken') || supplied.length !== expected.length || !crypto.timingSafeEqual(expected, supplied)) return send(401, { error: '本地辅助接口认证失败。' });
-      if (request.method !== 'POST' || request.url !== '/advisory' || request.headers.origin) return send(403, { error: '辅助接口只供本地 MCP 调用。' });
+      const service = request.url === '/advisory' ? this.service : request.url === '/image-jobs' ? this.imageService : null;
+      if (request.method !== 'POST' || !service || request.headers.origin) return send(403, { error: '辅助接口只供本地 MCP 调用。' });
       try {
         const chunks = []; let size = 0;
         for await (const chunk of request) {
@@ -21,9 +22,9 @@ class AdvisoryBridge {
           chunks.push(chunk);
         }
         const args = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-        const result = await this.service.agentCall(args);
+        const result = await service.agentCall(args);
         send(200, result);
-      } catch (error) { send(400, { ok: false, error: error.message, job: this.service.status().job }); }
+      } catch (error) { send(400, { ok: false, error: error.message, job: service.status().job }); }
     });
     server.headersTimeout = 10000;
     server.requestTimeout = 10000;

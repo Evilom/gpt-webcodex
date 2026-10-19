@@ -55,7 +55,7 @@ app.whenReady().then(async () => {
   assert.equal(healthy, true, 'isolated MCP startup');
   const tools = await client.discoverTools();
   assert.ok(tools.some((item) => item.name === 'consult_advisors'));
-  assert.equal(client.schemaIdentity().schemaVersion, 15);
+  assert.equal(client.schemaIdentity().schemaVersion, 16);
   const call = async (args) => {
     const result = await client.callTool('consult_advisors', args);
     assert.equal(result.isError, false, JSON.stringify(result.structuredContent));

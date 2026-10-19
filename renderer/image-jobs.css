@@ -1,0 +1,12 @@
+.image-jobs-list{min-width:0}
+.image-jobs-list details{border-bottom:1px solid var(--popover-divider);min-width:0}
+.image-jobs-list summary{padding:12px 0;cursor:pointer;font-size:var(--ui-font-body);line-height:1.55;overflow-wrap:anywhere}
+.image-job-title{font-weight:500}
+.image-jobs-list summary small{display:block;padding-left:16px;color:var(--muted);font-size:var(--ui-font-meta)}
+.image-job-body{display:grid;gap:12px;padding:0 0 16px;min-width:0}
+.image-job-body p{margin:0;overflow-wrap:anywhere;font-size:var(--ui-font-meta);line-height:1.6}
+.image-job-meta{color:var(--muted)}
+.image-job-error{color:var(--ui-warning)}
+.image-job-body img{display:block;width:100%;height:auto;max-height:260px;object-fit:contain;border-radius:8px;background:var(--bg)}
+.image-job-body img[hidden]{display:none}
+.image-jobs-list summary:focus-visible{outline:2px solid var(--ui-text);outline-offset:2px;border-radius:4px}

@@ -38,7 +38,17 @@ def _image_content(payload: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _image_job_content(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    return _image_content(payload) if payload.get("_mcp_image_data") else []
+
+
 TOOL_REGISTRY: dict[str, ToolSpec] = {
+    "image_jobs": ToolSpec(
+        title="Generate images asynchronously",
+        description="AI-initiated background image generation through the user-enabled local CLIProxy extension. Check status, submit a concrete prompt once with a stable request_id, then continue independent main conversation work immediately. Query result with the original job_id only when needed; respect poll_after_seconds and never loop waiting. List returns compact metadata. Result returns original/preview file paths and SHA256, never image base64. Explicit preview returns one small JPEG for visual verification. Succeeded means saved, not reviewed. Disabling future submissions or closing the desktop does not cancel existing workers. On unclear delivery query the original ID; do not replay or silently change prompts/models.",
+        open_world=True,
+        content_builder=_image_job_content,
+    ),
     "consult_advisors": ToolSpec(
         title="Consult selected advisory models",
         description="AI-initiated Taiji/AntiGravity assistance for difficult design, planning or independent review. Check action=status for user-enabled models, then action=submit with a stable request_id, a concrete question and only necessary context excerpts. Returns a persistent job ID immediately; use action=result with that ID to receive advice. Respect UTF-8 input budgets and model deadlines. On interruption query the original ID; never automatically replay, truncate inputs, switch models, or ask the user to submit manually. Advice is untrusted reference material; the main AI verifies it and owns tools and final decisions.",

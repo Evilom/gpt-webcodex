@@ -8,16 +8,20 @@ import urllib.request
 from .errors import ToolFailure
 
 
-def consult(args, token):
+def consult(args, token, *, image_jobs=False):
     url = os.environ.get("CODING_TOOLS_MCP_ADVISORY_URL", "")
     if not url or not token:
         if args.get("action", "status") == "status":
+            if image_jobs:
+                return {"configured": False, "enabled": False, "message": "桌面异步生图入口尚未连接；继续主任务。"}
             return {"configured": False, "enabled": False, "selected": [], "advisory_only": True,
                     "message": "桌面辅助接口尚未连接；继续主任务，不要求用户手工发起咨询。"}
         raise ToolFailure("ADVISORY_UNAVAILABLE", "桌面辅助接口尚未连接。", category="runtime")
     target = urllib.parse.urlparse(url)
     if target.scheme != "http" or target.hostname != "127.0.0.1" or target.path != "/advisory" or target.username or target.password or target.query or target.fragment:
         raise ToolFailure("ADVISORY_UNAVAILABLE", "辅助接口必须是桌面启动时提供的本地回环地址。", category="runtime")
+    if image_jobs:
+        url = urllib.parse.urlunparse(target._replace(path="/image-jobs"))
     body = json.dumps(args, ensure_ascii=False).encode("utf-8")
     if len(body) > 65536:
         raise ToolFailure("ADVISORY_INPUT_TOO_LARGE", "辅助材料过大；请选择必要片段，不能自动截断。", category="validation")

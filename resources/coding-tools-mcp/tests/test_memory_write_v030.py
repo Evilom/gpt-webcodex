@@ -133,7 +133,7 @@ class MemoryWriteRuntimeTests(unittest.TestCase):
         self.assertIn("健康 Tunnel 不因页面异常重启", str(after["memory_bootstrap"]["items"]))
         prepared = self.runtime.prepare_coding_context({"objective": "页面异常重连"})
         self.assertIn("健康 Tunnel", str(prepared["memory_search"]["items"]))
-        self.assertEqual(len(self.runtime.list_tools()["tools"]), 11)
+        self.assertEqual(len(self.runtime.list_tools()["tools"]), 12)
 
     def test_private_memory_ingest_auto_and_suggest_modes_use_existing_store(self) -> None:
         status, _ = self.post({"action": "set_config", "auto_memory": "auto"})
@@ -156,7 +156,7 @@ class MemoryWriteRuntimeTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(candidate["result"]["status"], "candidate")
         self.assertGreaterEqual(len(self.runtime.memory_candidates.list()), 1)
-        self.assertEqual(len(self.runtime.list_tools()["tools"]), 11)
+        self.assertEqual(len(self.runtime.list_tools()["tools"]), 12)
 
     def test_model_remember_context_creates_updates_deduplicates_and_rejects_unsafe_data(self) -> None:
         tools = {item["name"]: item for item in self.runtime.list_tools()["tools"]}

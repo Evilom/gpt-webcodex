@@ -491,6 +491,25 @@ def _bounded_model_text(value: str, tool_name: str) -> str:
     return preview + suffix
 
 
+def _render_image_jobs(payload: dict[str, Any]) -> str:
+    if "jobs" in payload:
+        lines = [f"生图任务：共 {payload.get('total', 0)} 个，进行中 {payload.get('active_count', 0)} 个。"]
+        lines.extend(f"{job.get('id')}: {job.get('title', '')} · {job.get('status')}" for job in payload["jobs"])
+        return "\n".join(lines)
+    if "enabled" in payload:
+        return f"异步生图：{'已启用' if payload['enabled'] else '未启用'}；模型 gpt-image-2。{payload.get('message', '')}"
+    lines = [f"生图任务 {payload.get('id', '')}：{payload.get('status', 'preview')}。"]
+    if payload.get("error"):
+        lines.append(str(payload["error"]))
+    if payload.get("file"):
+        lines.extend([f"原图：{payload['file']}", f"小预览：{payload.get('preview', '')}", f"SHA256：{payload.get('sha256', '')}"])
+    if payload.get("review_status") == "pending":
+        lines.append("文件已生成，尚未完成内容审核；按需用 preview 查看小预览，不要重复上传原图。")
+    if payload.get("status") not in {"succeeded", "failed", "interrupted"} and payload.get("status"):
+        lines.append(f"提交已返回；继续主任务，在需要资产时查询原编号，间隔至少 {payload.get('poll_after_seconds', 15)} 秒。不要循环等待或重新提交。")
+    return "\n".join(lines)
+
+
 def _render_consult_advisors(payload: dict[str, Any]) -> str:
     if "enabled" in payload:
         limits = payload.get("limits") or {}
@@ -517,6 +536,7 @@ def _render_image(payload: dict[str, Any]) -> str:
 
 
 _RENDERERS = {
+    "image_jobs": _render_image_jobs,
     "consult_advisors": _render_consult_advisors,
     "server_info": _render_server_info,
     "coding_tools_guide": _render_coding_tools_guide,
