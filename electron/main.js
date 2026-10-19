@@ -773,7 +773,7 @@ function registerIpc() {
   secureHandle('app:lightweight-snapshot', () => invokeSafely(() => orchestrator.lightweightSnapshot()));
   secureHandle('advisory:status', () => invokeSafely(async () => advisoryService.status()));
   secureHandle('image-jobs:status', () => invokeSafely(async () => imageJobService.status()));
-  secureHandle('image-jobs:list', () => invokeSafely(() => imageJobService.list()));
+  secureHandle('image-jobs:list', (_event, options) => invokeSafely(() => imageJobService.list(options?.view === 'grid' ? 4 : 5, options)));
   secureHandle('image-jobs:select', (_event, enabled) => invokeSafely(async () => imageJobService.select(enabled)));
   secureHandle('image-jobs:preview', (_event, id) => invokeSafely(() => imageJobService.preview(id)));
   secureHandle('image-jobs:open', (_event, id) => invokeSafely(async () => {

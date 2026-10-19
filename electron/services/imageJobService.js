@@ -85,7 +85,7 @@ class ImageJobService {
     }
     return result;
   }
-  async list(limit = 30) {
+  async list(limit = 30, options = {}) {
     if (!this.status().configured) return { ...this.status(), jobs: [], total: 0, active_count: 0 };
     if (!this.listing) this.listing = this.command(['status']).finally(() => { this.listing = null; });
     const all = await this.listing;
@@ -98,7 +98,14 @@ class ImageJobService {
     const active = presented.filter(job => ['queued', 'running'].includes(job.status));
     const unconfirmed = presented.filter(job => job.status === 'submission_unknown');
     const sorted = presented.sort((a, b) => Number(!TERMINAL.has(b.status)) - Number(!TERMINAL.has(a.status)) || String(b.created_at).localeCompare(String(a.created_at)));
-    return { ...this.status(), jobs: sorted.slice(0, Math.max(1, Math.min(50, limit))), total: images.length, active_count: active.length, unconfirmed_count: unconfirmed.length };
+    // Desktop paging does not change the compact public MCP list contract.
+    const filter = options?.filter;
+    const filtered = sorted.filter(job => filter === 'active' ? !TERMINAL.has(job.status) : filter === 'history' ? TERMINAL.has(job.status) : true);
+    const pageSize = Math.max(1, Math.min(50, limit));
+    const requested = Number.isSafeInteger(options?.offset) ? Math.max(0, options.offset) : 0;
+    const offset = Math.min(requested, Math.max(0, Math.ceil(filtered.length / pageSize) - 1) * pageSize);
+    return { ...this.status(), jobs: filtered.slice(offset, offset + pageSize), total: images.length, active_count: active.length, unconfirmed_count: unconfirmed.length,
+      filtered_total: filtered.length, offset, selected_job: options?.selected_id ? presented.find(job => job.id === options.selected_id) || null : undefined };
   }
   async submit(args) {
     if (!this.status().enabled) throw new Error('异步生图未启用；在扩展辅助中勾选后 AI 才能提交。');

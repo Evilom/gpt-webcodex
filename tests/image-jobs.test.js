@@ -26,6 +26,32 @@ async function fixture(t, run) {
 }
 const brief = { request_id: 'image_job_001', prompt: '一个清楚的资料板', title: '资料板', size: '1536x1024' };
 
+test('desktop paging reaches old assets, isolates active jobs and retains the selected detail across reordering', async t => {
+  const jobs = Array.from({ length: 63 }, (_, index) => ({ id: `history_image_${index}`, kind: 'image', status: index === 62 ? 'running' : 'succeeded', created_at: String(index).padStart(3, '0') }));
+  const { service } = await fixture(t, async (_python, args) => {
+    assert.deepEqual(args.slice(2), ['status'], 'paging only reads existing jobs');
+    return { stdout: JSON.stringify(jobs) };
+  });
+  const first = await service.list(5);
+  assert.equal(first.jobs.length, 5); assert.equal(first.total, 63); assert.equal(first.jobs[0].id, 'history_image_62');
+  const seen = new Set();
+  for (let offset = 0; offset < 63; offset += 5) {
+    const page = await service.list(5, { offset });
+    for (const job of page.jobs) { assert.equal(seen.has(job.id), false); seen.add(job.id); }
+  }
+  assert.equal(seen.size, 63, 'history is not truncated at the old 30/50-task limit');
+  const history = await service.list(5, { filter: 'history', offset: 9999, selected_id: 'history_image_62' });
+  assert.equal(history.offset, 60); assert.equal(history.filtered_total, 62);
+  assert.ok(history.jobs.every(job => job.status === 'succeeded'));
+  assert.equal(history.selected_job.status, 'running', 'selected detail remains addressable outside the current page');
+  const active = await service.list(5, { filter: 'active', offset: 20 });
+  assert.equal(active.offset, 0); assert.equal(active.jobs.length, 1);
+  jobs[62].status = 'succeeded';
+  const completed = await service.list(5, { filter: 'active', selected_id: jobs[62].id });
+  assert.equal(completed.filtered_total, 0); assert.equal(completed.selected_job.status, 'succeeded');
+  assert.equal((await service.list()).jobs.length, 30, 'public MCP defaults remain unchanged');
+});
+
 test('image extension requires an explicit switch, keeps credentials external and bounds UTF-8 input', async t => {
   let calls = 0;
   const { service, config } = await fixture(t, async () => { calls++; });

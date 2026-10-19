@@ -13,6 +13,7 @@
     $('advisoryRefresh').disabled = busy || !state.configured;
     $('advisoryResult').hidden = !state.job;
     $('advisoryResult').disabled = busy;
+    $('advisorySelectionCount').textContent = state.configured ? `已启用 ${state.selected.length} 个` : '未配置';
     const models = state.models;
     $('extensionProviders').replaceChildren();
     const others = document.createElement('details');
@@ -63,6 +64,7 @@
         for (const item of job.responses || []) {
           const model = item.model || item.model_id || item.requested_model || '辅助模型';
           const article = document.createElement('details');
+          article.name = 'advisory-answer';
           article.dataset.model = model;
           article.open = previous.get(model)?.open || false;
           const title = document.createElement('summary');
@@ -99,11 +101,12 @@
       const status = await api.advisoryStatus();
       return status?.data?.configured ? api.advisoryModels() : status;
     });
-    setInterval(async () => {
-      if (busy || document.hidden) return;
+    const timer = setInterval(async () => {
+      if (busy || document.hidden || $('workbench').hidden || $('workbench').inert || $('studioAdvisorsPanel').hidden || $('advisorModelsView').hidden) return;
       await perform(() => api.advisoryStatus());
       if (state.job && (state.job.id !== renderedJobId || !terminal.has(state.job.status))) await perform(() => api.advisoryResult(), true);
     }, 15000);
+    window.addEventListener('pagehide', () => clearInterval(timer), { once: true });
   }
   else { render(); $('advisoryStatus').textContent = '当前运行版本尚未提供扩展接口。'; }
 })();

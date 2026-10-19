@@ -113,20 +113,38 @@
       <section class="workbench-actions"><h2>快捷操作</h2><button id="workbenchConsole" type="button" class="shell-button" ><img class="shell-icon" src="icons/command-line.svg" alt=""><span>控制台</span></button><button id="workbenchHistory" type="button" class="shell-button" ><img class="shell-icon" src="icons/clock.svg" alt=""><span>任务历史</span></button></section>
       </div>
       <div id="studioAdvisorsPanel" role="tabpanel" aria-labelledby="studioAdvisorsTab" data-studio-panel="advisors" hidden>
-      <section><h2>扩展辅助</h2>
+      <div class="advisor-views" role="tablist" aria-label="辅助类型">
+        <button id="advisorModelsTab" type="button" role="tab" aria-selected="true" aria-controls="advisorModelsView">模型辅助</button>
+        <button id="advisorImagesTab" type="button" role="tab" aria-selected="false" aria-controls="imageJobsSection" tabindex="-1">异步生图</button>
+      </div>
+      <section id="advisorModelsView" role="tabpanel" aria-labelledby="advisorModelsTab">
+        <details id="advisorSettings" class="advisor-settings"><summary>模型设置 <small id="advisorySelectionCount"></small></summary>
         <p class="shell-muted">允许主 AI 按需调用勾选的太极 / AntiGravity 模型。由 AI 提交必要材料、查询结果并复核意见；取消勾选只影响后续咨询。</p>
         <div class="advisory-actions"><button id="advisoryImport" class="shell-button" type="button">导入客户端配置</button><button id="advisoryRefresh" class="shell-button" type="button">读取模型</button></div>
-        <p id="advisoryStatus" class="shell-muted" role="status">正在读取服务配置…</p>
         <div id="extensionProviders" class="extension-providers"></div>
+        </details>
+        <p id="advisoryStatus" class="shell-muted" role="status">正在读取服务配置…</p>
         <div class="advisory-actions"><button id="advisoryResult" class="shell-button" type="button" hidden>刷新辅助进度</button></div>
         <div id="advisoryAnswers" class="advisory-answers" aria-live="polite"></div>
       </section>
-      <section id="imageJobsSection"><h2>异步生图</h2>
-        <label class="extension-row"><input id="imageJobsEnabled" type="checkbox" disabled>允许 AI 后台生图<small>通过本机 CLIProxy 生成；提交后主会话继续工作。关闭开关只影响后续提交。</small></label>
-        <div class="advisory-actions"><button id="imageJobsImport" class="shell-button" type="button">导入生图入口</button><button id="imageJobsRefresh" class="shell-button" type="button">查看进度与资产</button></div>
+      <section id="imageJobsSection" role="tabpanel" aria-labelledby="advisorImagesTab" hidden>
+        <details class="advisor-settings"><summary>生图设置</summary>
+          <label class="extension-row"><input id="imageJobsEnabled" type="checkbox" disabled>允许 AI 后台生图<small>提交后主会话继续工作；关闭只影响后续提交。</small></label>
+          <button id="imageJobsImport" class="shell-button" type="button">导入生图入口</button>
+        </details>
         <p id="imageJobsStatus" class="shell-muted" role="status">正在读取生图配置…</p>
+        <div class="image-jobs-toolbar">
+          <select id="imageJobsFilter" aria-label="筛选生图任务"><option value="all">全部任务</option><option value="active">进行中与待确认</option><option value="history">历史任务</option></select>
+          <div class="image-jobs-view-switch" role="group" aria-label="资产浏览方式"><button id="imageJobsListView" class="shell-button" type="button" aria-label="列表视图" title="列表视图" aria-pressed="true"><img class="shell-icon" src="icons/list-bullet.svg" alt=""></button><button id="imageJobsGridView" class="shell-button" type="button" aria-label="缩略图宫格" title="缩略图宫格" aria-pressed="false"><img class="shell-icon" src="icons/squares-2x2.svg" alt=""></button></div>
+          <button id="imageJobsRefresh" class="shell-button" type="button">刷新</button>
+        </div>
+        <button id="imageJobsBack" class="shell-button" type="button" hidden>‹ 返回任务列表</button>
         <div id="imageJobsList" class="image-jobs-list"></div>
-        <p id="imageJobsNote" class="shell-muted">任务默认折叠；展开后仅加载小预览。原图保留本地，生成完成不代表内容已审核。</p>
+        <p id="imageJobsEmpty" class="shell-muted" hidden>暂无任务</p>
+        <nav id="imageJobsPager" class="image-jobs-pager" aria-label="生图任务分页" hidden>
+          <button id="imageJobsPrevious" class="shell-button" type="button" aria-label="上一页生图任务">上一页</button><span id="imageJobsPage" aria-live="polite"></span><button id="imageJobsNext" class="shell-button" type="button" aria-label="下一页生图任务">下一页</button>
+        </nav>
+        <p id="imageJobsNote" class="shell-muted">点选任务查看详情与小预览，原图保留本地。</p>
       </section>
       </div>
 
@@ -224,6 +242,7 @@
   <script src="shellPresentation.js"></script>
   <script src="studio-shell.js"></script>
   <script src="browser.js"></script>
+  <script src="advisor-views.js"></script>
   <script src="advisory.js"></script>
   <script src="image-jobs.js"></script>
   <script src="update-ui.js"></script>
