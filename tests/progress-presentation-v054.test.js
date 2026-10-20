@@ -75,6 +75,19 @@ test('stream recovery polling timeout is shown as recoverable page state, not lo
   assert.equal(result.key, 'waiting');
   assert.match(result.message, /网页回复恢复超时/);
   assert.match(result.detail, /本地任务状态/);
+  assert.match(result.detail, /重试.*可能重新生成/);
+});
+
+test('native message stream errors warn about regeneration without offering an automatic reload', () => {
+  for (const task of [null, { lifecycle_state: 'waiting_model', status: 'waiting' }]) {
+    const result = describe(task, null, { status: 'interrupted', event: 'page-message-stream-error' }, now);
+    assert.match(result.message, /消息流/);
+    assert.match(result.detail, /再次调用工具/);
+    assert.equal(result.action, undefined);
+    assert.equal(result.canStop, false);
+  }
+  const running = describe({ status: 'running', current_command: { status: 'running', command: 'long task' } }, null, { status: 'interrupted', event: 'page-message-stream-error' }, now);
+  assert.notEqual(running.key, 'failed', 'a page error must not mark a running local command failed');
 });
 
 test('DOM silence does not claim that model generation stalled or recommend stopping it', () => {

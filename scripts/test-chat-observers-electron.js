@@ -77,10 +77,21 @@ app.whenReady().then(async () => {
   await until(() => controller.streamState.status === 'interrupted');
   await contents.executeJavaScript(`document.getElementById('native-status').remove();true;`);
   await until(() => controller.streamState.status === 'healthy');
+  await contents.executeJavaScript(`document.querySelector('main').innerHTML='<section data-testid="conversation-turn-2"><div class="text-token-text-error">消息流中的错误</div><button id="retry">重试</button></section>';window.retryClicks=0;document.getElementById('retry').onclick=()=>window.retryClicks++;true;`);
+  await until(() => controller.streamState.event === 'page-message-stream-error');
+  assert.equal(controller.streamState.status, 'interrupted');
+  assert.equal(await contents.executeJavaScript('window.retryClicks'), 0, 'observation must not regenerate a response');
+  await contents.executeJavaScript(`const turn=document.createElement('section');turn.dataset.testid='conversation-turn-3';turn.innerHTML='<button aria-label="停止">停止</button>';document.querySelector('main').append(turn);true;`);
+  await until(() => controller.streamState.status === 'generating');
+  assert.equal(await contents.executeJavaScript('window.retryClicks'), 0, 'an old visible error must not restart the latest turn');
+  await contents.executeJavaScript(`document.querySelector('main').innerHTML='<section data-testid="conversation-turn-4"><div role="alert">Error in message stream</div></section>';true;`);
+  await until(() => controller.streamState.event === 'page-message-stream-error');
+  await contents.executeJavaScript(`document.querySelector('main').innerHTML='<section data-testid="conversation-turn-5"><p>消息流中的错误是什么？</p><pre><code class="error">Error in message stream</code></pre></section>';true;`);
+  await until(() => controller.streamState.status === 'healthy');
   controller.dispose();
   window.destroy();
   fs.mkdirSync(path.dirname(output), { recursive: true });
-  fs.writeFileSync(output, JSON.stringify({ ok: true, generatingMs, stoppedAfterNativeConfirmation: true, quiet415SecondsNotStalled:true, attributeActivity:true, replacementMainObserved:true, oldDocumentIgnored:true, recordingStopIgnored:true, quotedErrorIgnored:true, nativeRecoveryStatusObserved:true }, null, 2));
+  fs.writeFileSync(output, JSON.stringify({ ok: true, generatingMs, stoppedAfterNativeConfirmation: true, quiet415SecondsNotStalled:true, attributeActivity:true, replacementMainObserved:true, oldDocumentIgnored:true, recordingStopIgnored:true, quotedErrorIgnored:true, nativeRecoveryStatusObserved:true, messageStreamErrorObserved:true, oldTurnErrorIgnored:true, noAutomaticRetry:true }, null, 2));
   app.exit(0);
 }).catch(async error => {
   fs.mkdirSync(path.dirname(output), { recursive: true });

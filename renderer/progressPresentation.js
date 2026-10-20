@@ -3,6 +3,7 @@
   const LOCAL_HEARTBEAT_WARN_SECONDS = 45;
   const LOCAL_HEARTBEAT_STALL_SECONDS = 90;
   const CHAT_QUIET_STALL_SECONDS = 45;
+  const STREAM_RETRY_WARNING = '网页“重试”可能重新生成回复并再次调用工具；先核对本地已完成步骤，再在原会话续接，不要盲目重跑。';
   function plain(value, limit = 160) {
     if (typeof value !== 'string') return '';
     const text = value.replace(/\s+/g, ' ').trim();
@@ -63,6 +64,9 @@
     }
     if (lifecycle === 'waiting_model' || (status === 'waiting' && lifecycle !== 'waiting_user')) {
       if (stream === 'interrupted' || stream === 'render_error') {
+        if (String(streamState?.event || '') === 'page-message-stream-error') {
+          return { key: 'waiting', userState: 'waiting_model', message: 'ChatGPT 网页消息流出错，本地步骤已保存', detail: STREAM_RETRY_WARNING, elapsed: '', canStop: false };
+        }
         if (String(streamState?.event || '') === 'page-stream-recovery-timeout') {
           return { key: 'waiting', userState: 'waiting_model', message: 'ChatGPT 网页回复恢复超时，本地步骤已经完成并保存', detail: '可以刷新页面或继续发送消息；不要重复执行已经完成的本地步骤', elapsed: '', action: 'reload-page', actionLabel: '刷新页面', canStop: false };
         }
@@ -96,11 +100,14 @@
       return { key: 'failed', message: 'ChatGPT 页面资源加载失败', detail: streamState?.detail || '请点击“刷新页面”重新加载；本地任务状态不会因此丢失', elapsed: '', action: 'reload-page', actionLabel: '刷新页面' };
     }
     if (stream === 'interrupted' || stream === 'render_error') {
+      if (String(streamState?.event || '') === 'page-message-stream-error') {
+        return { key: 'failed', message: 'ChatGPT 网页提示“消息流中的错误”', detail: STREAM_RETRY_WARNING, elapsed: '', canStop: false };
+      }
       if (String(streamState?.event || '') === 'page-stream-recovery-timeout') {
         return {
           key: 'waiting',
           message: 'ChatGPT 网页回复恢复超时，本地任务状态仍已保存',
-          detail: '本地任务状态未丢失；可以点击网页“重试”，或继续发送消息；不要重复执行已经完成的本地步骤',
+          detail: `本地任务状态未丢失；${STREAM_RETRY_WARNING}`,
           elapsed: '', action: 'reload-page', actionLabel: '刷新页面'
         };
       }

@@ -34,6 +34,9 @@ const CHAT_RENDER_ERROR_MARKERS = [
 const CHAT_STREAM_RECOVERY_ERROR_MARKERS = [
   'ChatGPT stream recovery polling timed out'
 ];
+const CHAT_MESSAGE_STREAM_ERROR_MARKERS = [
+  '消息流中的错误', '消息流出现错误', 'Error in message stream', 'Error in the message stream'
+];
 const CHAT_DYNAMIC_ASSET_ERROR = /(?:failed to fetch dynamically imported module|loading chunk .* failed|chunkloaderror|importing a module script failed)/i;
 
 function parseUrl(value) {
@@ -963,6 +966,7 @@ class ChatViewController {
       const conversationId=()=>(globalThis.location?.pathname||'').match(/(?:^|\\/)c\\/([^/]+)/)?.[1]||'';
       const RENDER_ERROR_MARKERS=${JSON.stringify(CHAT_RENDER_ERROR_MARKERS)};
       const STREAM_RECOVERY_ERROR_MARKERS=${JSON.stringify(CHAT_STREAM_RECOVERY_ERROR_MARKERS)};
+      const MESSAGE_STREAM_ERROR_MARKERS=${JSON.stringify(CHAT_MESSAGE_STREAM_ERROR_MARKERS)};
       const readText=${readBoundedDomText.toString()};
       const normalize=(v)=>String(v||'').replace(/\\s+/g,' ').trim();
       const interrupted=(text)=>{
@@ -976,6 +980,15 @@ class ChatViewController {
         return STREAM_RECOVERY_ERROR_MARKERS.some((marker)=>value.includes(String(marker).toLowerCase()));
       };
       const visible=(node)=>{if(!node)return false;const style=getComputedStyle(node);if(style.display==='none'||style.visibility==='hidden'||Number(style.opacity)===0)return false;const rect=node.getBoundingClientRect();return rect.width>0&&rect.height>0;};
+      const messageStreamError=()=>{
+        const latest=Array.from(document.querySelectorAll('main [data-testid^="conversation-turn-"]')).at(-1);
+        return Array.from(document.querySelectorAll('main [role="alert"],main [role="status"],main [data-testid*="error" i],main [class*="error" i]')).slice(-16).some(node=>{
+          const turn=node.closest?.('[data-testid^="conversation-turn-"]');
+          if(!visible(node)||turn&&turn!==latest||node.closest?.('pre,code'))return false;
+          const value=normalize(readText(node,4096,'pre,code')).toLowerCase();
+          return MESSAGE_STREAM_ERROR_MARKERS.some(marker=>value.startsWith(marker.toLowerCase()));
+        });
+      };
       const renderError=()=>Array.from(document.querySelectorAll('main [role="alert"],main [aria-live="assertive"],main [data-testid*="error" i],main [class*="error" i]')).slice(-8).some((node)=>{if(!visible(node))return false;const value=readText(node,4096,'pre,code').toLowerCase();return RENDER_ERROR_MARKERS.some((marker)=>value.includes(String(marker).toLowerCase()));});
       const report=(status,event,extra={})=>{try{console.info(PREFIX+JSON.stringify({status,event,document_id:DOCUMENT_ID,conversation_id:conversationId(),...extra}));}catch{}};
       const scan=()=>{
@@ -983,6 +996,13 @@ class ChatViewController {
         window.__mcpStreamNextScanAt=0;
         const notices=Array.from(document.querySelectorAll('main [role="alert"],main [role="status"],main [data-testid*="error" i]')).slice(-16).filter(visible);
         const text=notices.map(node=>readText(node,4096,'pre,code')).join(' ');
+        if(messageStreamError()){
+          const changed=window.__mcpStreamStatus!=='interrupted'||window.__mcpStreamErrorKind!=='message-stream';
+          window.__mcpStreamStatus='interrupted';window.__mcpStreamErrorKind='message-stream';
+          if(changed)report('interrupted','page-message-stream-error',{activity_at:window.__mcpStreamLastActivityAt||0,quiet_seconds:0,stalled:false,evidence:'page-dom'});
+          return;
+        }
+        window.__mcpStreamErrorKind='';
         if(renderError()){
           const changed=window.__mcpStreamStatus!=='render_error';
           window.__mcpStreamStatus='render_error';
