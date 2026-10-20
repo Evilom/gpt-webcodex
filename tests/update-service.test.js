@@ -4,6 +4,7 @@ const { EventEmitter } = require('node:events');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const { UpdateService, isNewerVersion } = require('../electron/services/updateService');
+const { ChatTabsController } = require('../electron/chatTabsController');
 
 function fixture(options = {}) {
   const updater = new EventEmitter(), states = [];
@@ -94,11 +95,15 @@ test('periodic checks start after the UI and stop on quit', (t) => {
 test('installation IPC refuses an active answer, task, command or service transition', async () => {
   const source = fs.readFileSync('electron/main.js', 'utf8');
   const registration = source.slice(source.indexOf('function registerIpc()'), source.indexOf('const hasSingleInstanceLock'));
-  for (const scenario of ['answer', 'task', 'waiting', 'command', 'transition', 'idle']) {
+  for (const scenario of ['answer', 'background-answer', 'background-recovery', 'background-loading', 'login', 'task', 'waiting', 'command', 'transition', 'idle']) {
     const handlers = new Map(), scheduled = [];
+    const chatController = new ChatTabsController({});
+    chatController.tabs.set('active', { controller: { streamState: { status: scenario === 'answer' ? 'generating' : 'healthy' }, nativeLogin: { run: scenario === 'login' } } });
+    chatController.tabs.set('background', { controller: { streamState: { status: scenario === 'background-answer' ? 'generating' : scenario === 'background-recovery' ? 'interrupted' : 'healthy' }, loading: scenario === 'background-loading' } });
+    chatController.activeId = 'active';
     vm.runInNewContext(`${registration}\nregisterIpc();`, {
       secureHandle: (name, handler) => handlers.set(name, handler), invokeSafely: (action) => action(),
-      chatController: { streamState: { status: scenario === 'answer' ? 'generating' : 'healthy' } },
+      chatController,
       orchestrator: { busy: scenario === 'transition', native: { status: async () => true } },
       settings: { load: () => ({ workspace: 'fixture', mcpPort: 18765 }) }, secrets: { get: () => 'synthetic-test-only' },
       workspaceStatePaths: () => ({ statePath: 'fixture.json' }), readJson: () => ({ status: scenario === 'task' ? 'running' : scenario === 'waiting' ? 'waiting' : 'completed' }),
