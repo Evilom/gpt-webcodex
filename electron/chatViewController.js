@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { DownloadService } = require('./services/downloadService');
 const { readBoundedDomText } = require('./chatDomText');
+const { installChatTabNavigation } = require('./chatTabNavigation');
 const { normalizeProxyValue, resolveProxy } = require('./services/proxyService');
 const { NativeLoginService, SESSION_CHECK } = require('./services/nativeLoginService');
 const { AUTH_HOSTS, authUrl, readAuthenticatedSession, LOGIN_DOCUMENT_PROBE } = require('./services/chatLoginPolicy');
@@ -152,12 +153,18 @@ function bindChatNetworkDiagnostics(chatSession, log) {
 }
 
 class ChatViewController {
-  constructor({ window, log, settings, nativeLoginRoot, createWebContentsView = (options) => new WebContentsView(options), toolbarHeight = 64, onState = () => {}, onDownload = () => {}, onConversationTurn = () => {}, onNativeFocus = () => {} }) {
+  constructor({ window, log, settings, nativeLoginRoot, createWebContentsView = (options) => new WebContentsView(options), toolbarHeight = 64, onState = () => {}, onDownload = () => {}, onConversationTurn = () => {}, onNativeFocus = () => {}, onRequestNavigation = null, onTabShortcut = null, initialUrl = CHAT_HOME, initializeSession = true, sessionReady = null }) {
     this.window = window;
     this.log = log;
     this.toolbarHeight = toolbarHeight;
     this.onState = onState;
     this.onNativeFocus = onNativeFocus;
+    this.onRequestNavigation = onRequestNavigation;
+    this.onTabShortcut = onTabShortcut;
+    this.initialUrl = initialUrl;
+    this.initializeSession = initializeSession;
+    this.sessionReady = sessionReady;
+    this.visible = true;
     this.settings = settings;
     this.nativeLoginRoot = nativeLoginRoot;
     this.nativeLogin = null;
@@ -302,6 +309,7 @@ class ChatViewController {
   resetStreamDocument() {
     this.streamDocumentRevision++;
     this.updateStreamState({ status: 'unknown', event: 'page-navigation', activityAt: 0, quietSeconds: 0, stalled: false, pageQuiet: false, detail: '' });
+    this.scheduleTabNavigation();
   }
 
   async refreshBrowserNetworkDiagnostics({ force = false } = {}) {
@@ -404,15 +412,18 @@ class ChatViewController {
     // The reference launcher also uses its native identity, not a separately rewritten Chrome UA.
     const browserUserAgent = chatSession.getUserAgent();
     bindChatNetworkDiagnostics(chatSession, this.log);
-    const browserNetworkReady = this.applyBrowserProxyPolicy().catch((error) => {
+    const browserNetworkReady = this.sessionReady || this.applyBrowserProxyPolicy().catch((error) => {
       this.log.warn('ChatGPT 浏览器代理策略应用失败，将继续使用 Chromium 当前网络配置', { error: String(error?.message || error) });
     });
-    new DownloadService({ electronSession: chatSession, settings: this.settings, log: this.log, onState: this.onDownload }).bind();
-    const mayWriteClipboard = (permission, origin) => permission === 'clipboard-sanitized-write' && isAllowedNavigation(origin);
-    chatSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
-      callback(mayWriteClipboard(permission, details.requestingUrl || details.securityOrigin || ''));
-    });
-    chatSession.setPermissionCheckHandler((_webContents, permission, origin) => mayWriteClipboard(permission, origin));
+    this.sessionReady = browserNetworkReady;
+    if (this.initializeSession) {
+      new DownloadService({ electronSession: chatSession, settings: this.settings, log: this.log, onState: this.onDownload }).bind();
+      const mayWriteClipboard = (permission, origin) => permission === 'clipboard-sanitized-write' && isAllowedNavigation(origin);
+      chatSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
+        callback(mayWriteClipboard(permission, details.requestingUrl || details.securityOrigin || ''));
+      });
+      chatSession.setPermissionCheckHandler((_webContents, permission, origin) => mayWriteClipboard(permission, origin));
+    }
 
     this.view = this.createWebContentsView({
       webPreferences: {
@@ -433,7 +444,7 @@ class ChatViewController {
     this.window.on('resize', this.boundResize);
     this.resize();
     this.bindWebContents();
-    browserNetworkReady.then(() => { if (!this.disposed) return this.loadHome(); }).catch(() => {});
+    browserNetworkReady.then(() => { if (!this.disposed) return this.initialUrl === CHAT_HOME ? this.loadHome() : this.openUrl(this.initialUrl); }).catch(() => {});
   }
 
   bindWebContents() {
@@ -443,6 +454,7 @@ class ChatViewController {
       contents.on(name, guarded);
       this.contentBindings.push({ contents, name, guarded });
     };
+    listen('before-input-event', (event, input) => { if (this.onTabShortcut?.(input)) event.preventDefault(); });
     contents.setWindowOpenHandler(({ url }) => {
       if (isChatDownloadUrl(url)) {
         this.startDownload(contents, url);
@@ -472,13 +484,20 @@ class ChatViewController {
         }, createWindow: (options) => this.createDownloadView(options).webContents };
       }
       if (isAllowedNavigation(url) && parseUrl(url)?.hostname.toLowerCase().endsWith('chatgpt.com')) {
-        this.openUrl(url);
+        if (this.onRequestNavigation && isChatGptNavigation(url)) this.onRequestNavigation({ url, separate: true });
+        else this.openUrl(url);
       } else if (/^https?:/i.test(url)) {
         shell.openExternal(url).catch(() => {});
       }
       return { action: 'deny' };
     });
     listen('will-navigate', (event, url) => {
+      if (this.onRequestNavigation && isChatGptNavigation(url) && !authUrl(url) && url !== contents.getURL()
+        && ['generating', 'interrupted'].includes(this.streamState.status)) {
+        event.preventDefault();
+        this.onRequestNavigation({ url });
+        return;
+      }
       if (isAllowedNavigation(url)) return;
       event.preventDefault();
       if (/^https?:/i.test(url)) shell.openExternal(url).catch(() => {});
@@ -538,6 +557,14 @@ class ChatViewController {
     listen('console-message', (_event, level, message) => {
       const memoryPrefix = '[web-mcp-memory] ';
       const raw = String(_event?.message ?? (level && typeof level === 'object' ? level.message : message) ?? '');
+      if (raw.startsWith('[web-mcp-tabs] ')) {
+        if (!this.onRequestNavigation || _event?.frame && contents.mainFrame && _event.frame !== contents.mainFrame) return;
+        try {
+          const payload = JSON.parse(raw.slice('[web-mcp-tabs] '.length));
+          if (payload.document_id === this.streamDocumentRevision && isChatGptNavigation(payload.url)) this.onRequestNavigation(payload);
+        } catch {}
+        return;
+      }
       if (raw.startsWith(memoryPrefix)) {
         contents.executeJavaScript(`(() => { const payload = window.__mcpAutoMemoryQueue || null; window.__mcpAutoMemoryQueue = null; return payload; })()`, true).then((payload) => {
           if (!payload || typeof payload !== 'object') return;
@@ -721,8 +748,13 @@ class ChatViewController {
     // Keep ChatGPT visible underneath them so a transient/blank/destroyed OAuth child can
     // never expose the shell's startup placeholder. Only the shell DOM login prompt needs
     // the primary native view hidden so that the dialog can render above it.
-    if (this.view && !this.view.webContents.isDestroyed()) this.view.setVisible(!this.login.prompt);
-    for (const view of authViews) view.setVisible(!this.login.prompt && !this.login.returning && view === authViews.at(-1));
+    if (this.view && !this.view.webContents.isDestroyed()) this.view.setVisible(this.visible && !this.login.prompt);
+    for (const view of authViews) view.setVisible(this.visible && !this.login.prompt && !this.login.returning && view === authViews.at(-1));
+  }
+
+  setVisible(visible) {
+    this.visible = Boolean(visible);
+    this.syncLoginVisibility();
   }
 
   offerLogin(kind = 'entry', contents = this.activeContents(), force = false) {
@@ -818,7 +850,7 @@ class ChatViewController {
       if (index !== -1) { this.authViews.splice(index, 1); try { this.window.contentView.removeChildView(view); } catch {} this.syncLoginVisibility(); }
     });
     this.startLoginWatch();
-    contents.focus();
+    if (this.visible) contents.focus();
     return view;
   }
 
@@ -854,7 +886,7 @@ class ChatViewController {
           this.closeAuthViews();
           clearInterval(this.loginWatch); this.loginWatch = null;
           this.setLogin({ status: 'success', mode: '', prompt: false, kind: '', returning: false, message: '已登录，已自动返回 ChatGPT。' });
-          this.view.webContents.focus();
+          if (this.visible) this.view.webContents.focus();
         }
       } catch {
         if (revision === this.loginRevision && this.login.mode === 'embedded' && this.login.returning) {
@@ -903,10 +935,18 @@ class ChatViewController {
   scheduleChatUiEnhancements() {
     const contents = this.view?.webContents;
     if (this.disposed || !contents || contents.isDestroyed()) return;
+    this.scheduleTabNavigation();
     void this.applyChatAppearance();
     this.scheduleMemoryObserver();
     this.scheduleStreamObserver();
     this.scheduleContinuousMcpMode();
+  }
+
+  scheduleTabNavigation() {
+    const contents = this.view?.webContents;
+    if (!this.disposed && this.onRequestNavigation && contents && !contents.isDestroyed() && isChatGptNavigation(contents.getURL())) {
+      void contents.executeJavaScript(`(${installChatTabNavigation.toString()})(${this.streamDocumentRevision})`).catch(() => {});
+    }
   }
 
   scheduleMemoryObserver() {
@@ -1395,7 +1435,8 @@ class ChatViewController {
             catch { return false; }
           });
           if (!link) return false;
-          link.click();
+          window.__mcpTabNavigationBypass = link.href;
+          try { link.click(); } finally { window.__mcpTabNavigationBypass = ''; }
           return true;
         })()`, true);
         if (clicked) return true;
@@ -1559,7 +1600,7 @@ class ChatViewController {
           if (this.disposed) return;
           const finished = ['success', 'idle'].includes(state.status);
           this.setLogin({ status: state.status, mode: finished ? '' : 'native', prompt: !finished, message: state.cleanupWarning || state.message });
-          if (state.status === 'success' && !this.window.isDestroyed()) { this.window.show(); this.window.focus(); }
+          if (state.status === 'success' && this.visible && !this.window.isDestroyed()) { this.window.show(); this.window.focus(); }
         },
         verify: async () => {
           const contents = this.view?.webContents;

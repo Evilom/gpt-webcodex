@@ -7,7 +7,7 @@ const { SecretStore } = require('./services/secretStore');
 const { LogService } = require('./services/logService');
 const { EnvironmentService } = require('./services/environmentService');
 const { RuntimeOrchestrator } = require('./services/runtimeOrchestrator');
-const { ChatViewController } = require('./chatViewController');
+const { ChatTabsController } = require('./chatTabsController');
 const { ShellPopover } = require('./shellPopover');
 const { run } = require('./services/commandRunner');
 const { resolveProxy, clearProxyCache } = require('./services/proxyService');
@@ -345,12 +345,23 @@ function createChatWindow() {
   chatWindow.removeMenu();
   chatWindow.loadFile(path.join(__dirname, '..', 'renderer', 'browser.html'), { query: { theme: initialTheme, skin: settings.load().appearanceSkin } });
 
-  chatController = new ChatViewController({
+  chatController = new ChatTabsController({
     window: chatWindow,
     log,
     settings,
     toolbarHeight: 56,
     nativeLoginRoot: path.join(dataRoot(), 'native-login'),
+    confirm: async (kind, state) => {
+      const opening = kind === 'open', closing = kind === 'close';
+      const result = await dialog.showMessageBox(chatWindow, {
+        type: 'question', title: '保留进行中的对话',
+        message: opening ? '当前对话可能仍在生成或恢复连接，要在新标签打开吗？' : closing ? '仍要关闭这个进行中的标签吗？' : '当前对话可能仍在生成，确认继续导航或刷新？',
+        detail: `${String(state.title || '当前对话').slice(0, 100)}\n${opening ? '新标签会保留当前网页、草稿和连接。' : closing ? '关闭会断开这个网页连接；已经启动的本地命令不会因此自动停止。' : '这可能断开当前网页回复；可以取消并使用新标签。'}`,
+        buttons: opening ? ['在新标签打开', '留在当前标签'] : ['取消', closing ? '关闭这个标签' : '继续操作'],
+        defaultId: 0, cancelId: opening ? 1 : 0, noLink: true
+      });
+      return result.response === (opening ? 0 : 1);
+    },
     onState: (payload) => {
       sendWindow(chatWindow, 'chat:state', payload);
       sendManager('chat:state', payload);
@@ -363,6 +374,7 @@ function createChatWindow() {
     onNativeFocus: () => shellPopover?.close('outside')
   });
   chatController.mount();
+  chatWindow.webContents.on('before-input-event', (event, input) => { if (chatController?.handleShortcut(input)) event.preventDefault(); });
   shellPopover = new ShellPopover(chatWindow);
 
   chatWindow.webContents.on('unresponsive', () => {
@@ -752,7 +764,7 @@ function registerIpc() {
   secureHandle('update:check', () => invokeSafely(async () => updateService.check()));
   secureHandle('update:download', () => invokeSafely(async () => updateService.download()));
   secureHandle('update:install', () => invokeSafely(async () => {
-    if (chatController?.streamState.status === 'generating' || chatController?.nativeLogin?.run) throw new Error('请等待当前回答或登录操作完成后再安装更新。');
+    if (chatController?.hasRunningWork()) throw new Error('仍有标签正在加载、生成、恢复连接或登录，请结束后再安装更新。');
     if (orchestrator?.busy) throw new Error('本地服务正在启动或切换，请稍后安装更新。');
     const current = settings.load();
     const currentTask = current.workspace ? readJson(workspaceStatePaths().statePath, null) : null;
@@ -1335,6 +1347,9 @@ function registerIpc() {
     return true;
   }));
   secureHandle('chat:navigate', (_event, action) => invokeSafely(async () => chatController?.navigate(action)));
+  secureHandle('chat:tab-open', () => invokeSafely(async () => chatController?.openTab()));
+  secureHandle('chat:tab-select', (_event, id) => invokeSafely(async () => chatController?.selectTab(String(id))));
+  secureHandle('chat:tab-close', (_event, id) => invokeSafely(async () => chatController?.closeTab(String(id))));
   secureHandle('chat:stop-generation', () => invokeSafely(async () => chatController?.stopGeneration?.() || false));
   secureHandle('chat:open-last-download', () => invokeSafely(async () => {
     const rawWorkspace = String(settings.load().workspace || '').trim();

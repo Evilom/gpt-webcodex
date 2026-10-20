@@ -41,6 +41,11 @@
         </div>
       </div>
     </div>
+    <div class="chat-tabs-bar" id="chatTabsBar" hidden>
+      <div id="chatTabList" class="chat-tab-list" role="tablist" aria-label="对话标签"></div>
+      <button id="newChatTab" type="button" class="shell-button chat-new-tab" aria-label="新建对话标签" title="新建对话标签"><span>＋</span></button>
+      <span id="chatTabNotice" class="chat-tab-notice" role="status" hidden></span>
+    </div>
     <section id="connectionIncident" class="connection-incident" aria-live="polite" hidden>
       <img class="shell-icon" src="icons/exclamation-triangle.svg" alt=""><div class="incident-copy"><b id="incidentMessage"></b><small id="incidentDetail"></small></div>
       <button id="incidentDetailsButton" type="button" class="shell-button" ><span>查看连接详情</span></button>
@@ -103,7 +108,7 @@
         </div></section>
       </div>
       <div id="studioActivityPanel" role="tabpanel" aria-labelledby="studioActivityTab" data-studio-panel="activity">
-      <section><h2>当前任务</h2>
+      <section><h2 title="所有标签共享当前工作区的本地服务和任务记录">当前工作区任务</h2>
         <div class="task-strip idle" id="taskStrip"><i></i><b id="taskStatusLabel">空闲</b><small id="taskTitle">当前没有运行中的本地任务</small><button id="stopTask" type="button" hidden>停止本地任务</button></div>
         <details id="studioTaskPlan" class="studio-task-plan" open hidden><summary><span>执行计划</span><small id="studioPlanCount"></small><img class="shell-icon" src="icons/chevron-down.svg" alt=""></summary><ol id="studioPlanSteps"></ol></details>
         <div id="studioTaskRecap" class="studio-task-recap" hidden><span id="studioRecapLabel">本地进展</span><p id="workbenchTaskDetail" class="shell-muted">暂无运行记录</p><small id="studioTaskNext" hidden></small></div>
@@ -241,6 +246,7 @@
   <script src="assistantState.js"></script>
   <script src="shellPresentation.js"></script>
   <script src="studio-shell.js"></script>
+  <script src="chat-tabs.js"></script>
   <script src="browser.js"></script>
   <script src="advisor-views.js"></script>
   <script src="advisory.js"></script>

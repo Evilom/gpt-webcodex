@@ -59,6 +59,9 @@
   }
   const chat = { url: 'https://chatgpt.com/c/design-preview', canGoBack: false, canGoForward: false, loading: false, streamState: { status: query.get('scenario') === 'interrupted' ? 'interrupted' : 'completed', updatedAt: Date.now() }, login: { status: 'idle', prompt: false }, nativeLogin: { status: 'idle' } };
   chat.appearance = { enabled:query.get('claudeChat')==='1',active:false,message:'使用原生 ChatGPT 外观' };
+  chat.activeTabId = 'preview-1'; chat.maxTabs = 8;
+  chat.tabs = [{ id: 'preview-1', title: '当前对话', url: chat.url, active: true, status: chat.streamState.status },
+    { id: 'preview-2', title: '后台生成中的对话', url: 'https://chatgpt.com/c/background-preview', active: false, status: 'generating', protected: true }];
   function previewAppearance() {
     const frame=document.getElementById('previewChat');
     const apply=frame?.contentWindow?.thinkTankChatAppearance;
@@ -73,6 +76,9 @@
   const models = [{ id: 'anthropic::claude-opus-5-5', name: '太极 · Opus 5.5' }, { id: 'google::gemini-4-argon', name: 'AntiGravity · Gemini Argon 4' }, { id: 'google::gemini-3.8-flash-high', name: 'AntiGravity · Gemini 3.8 Flash High' }];
   window.browserAssistant = new Proxy({
     chatStatus: () => ok(chat),
+    openChatTab: () => { const id='preview-'+(chat.tabs.length+1);chat.tabs.push({id,title:'新对话',url:'https://chatgpt.com/',status:'healthy'});chat.activeTabId=id;listeners.onChatState?.(chat);return ok(chat); },
+    selectChatTab: id => { chat.activeTabId=id;listeners.onChatState?.(chat);return ok(chat); },
+    closeChatTab: id => { chat.tabs=chat.tabs.filter(tab=>tab.id!==id);chat.activeTabId=chat.tabs[0]?.id;listeners.onChatState?.(chat);return ok(chat); },
     setChatAppearance: (enabled) => { chat.appearance.enabled=enabled;return previewAppearance(); },
     onDownload:listener=>{listeners.onDownload=listener;return ()=>{delete listeners.onDownload;};},
     lightweightStatus: () => ok(runtime),
