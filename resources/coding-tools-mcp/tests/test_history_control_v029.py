@@ -22,6 +22,8 @@ class HistoryControlTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.runtime = Runtime(self.root, auth_token="history-token", transport="http", permission_mode="dangerous")
         self.server = RuntimeHTTPServer(("127.0.0.1", 0), MCPHandler, self.runtime, lambda: self.runtime)
+        # Join in-flight request handlers before deleting their workspace.
+        self.server.daemon_threads = False
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.port = int(self.server.server_address[1])
@@ -38,7 +40,9 @@ class HistoryControlTests(unittest.TestCase):
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=5) as response:
+            # This checks persisted resume semantics, not a five-second SLA on
+            # cold Windows CI disks (checkpoint/SQLite writes can exceed it).
+            with urllib.request.urlopen(request, timeout=30) as response:
                 return response.status, json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as error:
             return error.code, json.loads(error.read().decode("utf-8"))
