@@ -108,5 +108,29 @@ app.whenReady().then(async () => {
   assert.equal(requests.length, 1); assert.equal(goalB.status, 'paused');
   assert.ok(await b.view.webContents.executeJavaScript('document.getElementById("prompt-textarea").innerText.length>0'));
   report.pauseCancelsPendingSend = true;
+  const c = await tab('invalid-body');
+  await c.view.webContents.executeJavaScript(`document.querySelector('[role="alert"]').firstChild.textContent='Invalid conversation body';true;`);
+  assert.equal((await c.inspectGoalPage()).error, 'invalid-conversation-body');
+  c.streamState = { status: 'healthy', event: 'page-response-finished' };
+  await service.start(c, { objective: '保留现有成果' });
+  await service.tick(); clock += 3600000; await service.tick();
+  assert.equal(service.stateFor('invalid-body').status, 'paused');
+  assert.equal(requests.length, 1, 'an invalid body must never be retried or continued automatically');
+  assert.equal(await c.view.webContents.executeJavaScript('window.retryClicks'), 0);
+  // The error can also arrive between filling a continuation and clicking Send.
+  await c.view.webContents.executeJavaScript(`document.querySelector('[role="alert"]').remove();true;`);
+  await service.resume(c);
+  const goalC = service.goals.get('invalid-body');
+  const submit = c.submitGoalPrompt.bind(c);
+  c.submitGoalPrompt = async options => {
+    const pending = submit(options);
+    setTimeout(() => c.view.webContents.executeJavaScript(`const notice=document.createElement('div');notice.role='alert';notice.textContent='Invalid conversation body';document.querySelector('main').append(notice);true;`), 100);
+    return pending;
+  };
+  await service.tick(); clock += 16000; await service.tick();
+  assert.equal(goalC.status, 'paused'); assert.equal(requests.length, 1);
+  assert.ok(await c.view.webContents.executeJavaScript('document.getElementById("prompt-textarea").innerText.length>0'));
+  report.invalidConversationBodyPausesWithoutSend = true;
+  report.invalidBodyDuringComposerCancelsSend = true;
   report.ok = true; finish();
 }).catch(finish);

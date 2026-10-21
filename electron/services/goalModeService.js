@@ -109,6 +109,7 @@ class GoalModeService {
         if (goal.status !== 'running' || this.disposed) continue;
         if (page.conversationId !== goal.conversationId || page.documentId !== goal.documentId) { this.pause(goal.conversationId, '网页已导航或重新加载，请核对后恢复'); continue; }
         if (page.manualStops !== goal.manualStops) { this.pause(goal.conversationId, '你已停止生成，目标模式已暂停'); continue; }
+        if (page.error === 'invalid-conversation-body') { this.pause(goal.conversationId, 'ChatGPT 提示对话请求内容无效，请先检查原会话；不会自动重试或续发'); continue; }
         if (page.blocked || page.draft || page.attachments || page.editing) {
           this.candidates.delete(goal.id);
           this.change(goal, { reason: page.blocked || '保留你的草稿、附件或输入，等待你处理' }); continue;

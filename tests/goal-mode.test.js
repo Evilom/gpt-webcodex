@@ -43,6 +43,17 @@ test('local workflow completion alone cannot interrupt a generating page', async
   assert.equal(f.calls.length, 0);
 });
 
+test('invalid conversation bodies pause the goal without sending or claiming completion', async t => {
+  const f = fixture(t), tab = f.tab('invalid-body');
+  tab.page.error = 'invalid-conversation-body';
+  tab.page.done = true;
+  await f.service.start(tab, { objective: '保留成果后继续' });
+  await f.service.tick(); f.advance(3600000); await f.service.tick();
+  assert.equal(f.calls.length, 0);
+  assert.equal(f.service.stateFor('invalid-body').status, 'paused');
+  assert.match(f.service.stateFor('invalid-body').reason, /对话请求内容无效/);
+});
+
 test('unknown, busy and queued local work or offline transport cannot trigger a new message', async t => {
   const f = fixture(t), tab = f.tab('busy');
   await f.service.start(tab, { objective: '交付' }); await f.service.tick(); f.advance();

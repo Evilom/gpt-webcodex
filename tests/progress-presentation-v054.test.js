@@ -90,6 +90,18 @@ test('native message stream errors warn about regeneration without offering an a
   assert.notEqual(running.key, 'failed', 'a page error must not mark a running local command failed');
 });
 
+test('invalid conversation body is distinguished from transport failure and never offers reload', () => {
+  for (const task of [null, { status: 'completed' }, { lifecycle_state: 'waiting_model', status: 'waiting' }]) {
+    const result = describe(task, null, { status: 'interrupted', event: 'page-invalid-conversation-body' }, now);
+    assert.match(result.message, /对话请求内容无效/);
+    assert.match(result.detail, /Invalid conversation body/);
+    assert.equal(result.action, undefined);
+    assert.equal(result.canStop, false);
+  }
+  const running = describe({ status: 'running', current_command: { status: 'running' } }, null, { status: 'interrupted', event: 'page-invalid-conversation-body' }, now);
+  assert.equal(running.key, 'active', 'local execution remains independent of the native request error');
+});
+
 test('DOM silence does not claim that model generation stalled or recommend stopping it', () => {
   const result = describe(null, null, {
     status: 'generating', stalled: true, quietSeconds: 61, updatedAt: now - 61000

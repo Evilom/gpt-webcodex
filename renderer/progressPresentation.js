@@ -28,6 +28,10 @@
     return plain(lines.at(-1) || '', 120);
   }
 
+  function invalidConversation() {
+    return { key: 'waiting', userState: 'waiting_user', message: 'ChatGPT 网页提示对话请求内容无效', detail: 'Invalid conversation body；请先检查原会话与已保存成果，避免连续重试。目标模式会暂停，本地执行状态可独立查看', elapsed: '', canStop: false };
+  }
+
   function describe(task, operation, streamState, now = Date.now(), available = true, activity = null, stale = false, runtimeLayers = null) {
     const stream = String(streamState?.status || '');
     const lifecycle = String(task?.lifecycle_state || '');
@@ -64,6 +68,7 @@
     }
     if (lifecycle === 'waiting_model' || (status === 'waiting' && lifecycle !== 'waiting_user')) {
       if (stream === 'interrupted' || stream === 'render_error') {
+        if (String(streamState?.event || '') === 'page-invalid-conversation-body') return invalidConversation();
         if (String(streamState?.event || '') === 'page-message-stream-error') {
           return { key: 'waiting', userState: 'waiting_model', message: 'ChatGPT 网页消息流出错，本地步骤已保存', detail: STREAM_RETRY_WARNING, elapsed: '', canStop: false };
         }
@@ -100,6 +105,7 @@
       return { key: 'failed', message: 'ChatGPT 页面资源加载失败', detail: streamState?.detail || '请点击“刷新页面”重新加载；本地任务状态不会因此丢失', elapsed: '', action: 'reload-page', actionLabel: '刷新页面' };
     }
     if (stream === 'interrupted' || stream === 'render_error') {
+      if (String(streamState?.event || '') === 'page-invalid-conversation-body') return invalidConversation();
       if (String(streamState?.event || '') === 'page-message-stream-error') {
         return { key: 'failed', message: 'ChatGPT 网页提示“消息流中的错误”', detail: STREAM_RETRY_WARNING, elapsed: '', canStop: false };
       }
