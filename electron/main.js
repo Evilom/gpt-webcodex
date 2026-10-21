@@ -37,6 +37,7 @@ const { UpdateService } = require('./services/updateService');
 const { AdvisoryService } = require('./services/advisoryService');
 const { AdvisoryBridge } = require('./services/advisoryBridge');
 const { ImageJobService } = require('./services/imageJobService');
+const { GoalModeService } = require('./services/goalModeService');
 const { finishShutdown } = require('./services/shutdownService');
 const { autoUpdater } = require('electron-updater');
 const { notificationStateFile, dataRoot, mcpLogFile } = require('./paths');
@@ -68,6 +69,7 @@ let healthService;
 let doctorService;
 let taskNotificationService;
 let superviseTimer = null;
+let goalTimer = null;
 let sharedLocalMcpClient = null;
 const contextUsageTracker = new ContextUsageTracker();
 let autoMemoryService;
@@ -83,6 +85,25 @@ const environment = new EnvironmentService();
 const notificationCheckpoints = new NotificationCheckpointStore(notificationStateFile);
 const approvalService = new ApprovalService(settings);
 const workspaceManager = new WorkspaceManager(settings);
+const goalModeService = new GoalModeService({
+  file: path.join(dataRoot(), 'goal-mode.json'),
+  controllers: () => [...(chatController?.tabs.values() || [])].map(tab => tab.controller),
+  workspace: () => settings.load().workspace,
+  localState: async () => {
+    const root = workspaceStatePaths().root;
+    const read = async (name, fallback) => {
+      try { return JSON.parse(await fs.readFile(path.join(root, '.coding-tools', name), 'utf8')); }
+      catch (error) { if (error.code === 'ENOENT') return fallback; throw error; }
+    };
+    const [health, task, operations] = await Promise.all([localMcpClient().healthStatus(), read('task-state.json', null), read('operations.json', [])]);
+    return { health, task, operations };
+  },
+  connectionReady: async () => {
+    const state = await orchestrator.lightweightSnapshot();
+    return state.fullyReady && !state.busy && !state.recovering && !state.manuallyStopped;
+  },
+  onChange: () => chatController?.emitState(), log
+});
 
 function themeBackground(mode = settings.load().theme) {
   const dark = mode === 'dark' || mode === 'black' || (mode === 'system' && nativeTheme.shouldUseDarkColors);
@@ -111,6 +132,8 @@ function requestQuit({ stopServices = false, installUpdate = false } = {}) {
   forceQuit = true;
   clearTimeout(superviseTimer);
   superviseTimer = null;
+  clearInterval(goalTimer);
+  goalModeService.dispose();
   taskNotificationService?.stop();
   updateService?.stop();
   const loginCleanup = chatController?.cancelNativeLogin();
@@ -351,6 +374,7 @@ function createChatWindow() {
     settings,
     toolbarHeight: 56,
     nativeLoginRoot: path.join(dataRoot(), 'native-login'),
+    getGoalState: key => goalModeService.stateFor(key),
     confirm: async (kind, state) => {
       const opening = kind === 'open', closing = kind === 'close';
       const result = await dialog.showMessageBox(chatWindow, {
@@ -764,7 +788,7 @@ function registerIpc() {
   secureHandle('update:check', () => invokeSafely(async () => updateService.check()));
   secureHandle('update:download', () => invokeSafely(async () => updateService.download()));
   secureHandle('update:install', () => invokeSafely(async () => {
-    if (chatController?.hasRunningWork()) throw new Error('仍有标签正在加载、生成、恢复连接或登录，请结束后再安装更新。');
+    if (chatController?.hasRunningWork()) throw new Error('仍有标签或目标模式正在运行，请暂停目标并结束加载、生成、恢复连接或登录后再安装更新。');
     if (orchestrator?.busy) throw new Error('本地服务正在启动或切换，请稍后安装更新。');
     const current = settings.load();
     const currentTask = current.workspace ? readJson(workspaceStatePaths().statePath, null) : null;
@@ -902,6 +926,7 @@ function registerIpc() {
     return true;
   }));
   secureHandle('task-state:pause', () => invokeSafely(async () => {
+    goalModeService.pauseAll('你已暂停本地任务，目标模式已暂停');
     // Runtime is the sole authority for task execution state. Do not rewrite task-state.json.
     const result = await callLocalMcpTool('task_control', {
       action: 'pause',
@@ -921,6 +946,7 @@ function registerIpc() {
     return state;
   }));
   secureHandle('task-state:stop', () => invokeSafely(async () => {
+    goalModeService.pauseAll('你已停止本地任务，目标模式已暂停');
     const result = await callLocalMcpTool('task_control', {
       action: 'stop',
       reason: '用户从助手停止任务',
@@ -1135,6 +1161,7 @@ function registerIpc() {
     return true;
   }));
   secureHandle('task:kill-active-command', () => invokeSafely(async () => {
+    goalModeService.pauseAll('你已停止本地命令，目标模式已暂停');
     let sessionId = '';
     let sessionSource = '';
     try {
@@ -1350,7 +1377,20 @@ function registerIpc() {
   secureHandle('chat:tab-open', () => invokeSafely(async () => chatController?.openTab()));
   secureHandle('chat:tab-select', (_event, id) => invokeSafely(async () => chatController?.selectTab(String(id))));
   secureHandle('chat:tab-close', (_event, id) => invokeSafely(async () => chatController?.closeTab(String(id))));
-  secureHandle('chat:stop-generation', () => invokeSafely(async () => chatController?.stopGeneration?.() || false));
+  secureHandle('chat:stop-generation', () => invokeSafely(async () => {
+    goalModeService.pause(chatController?.active?.streamConversationId(), '你已停止生成，目标模式已暂停');
+    return chatController?.stopGeneration?.() || false;
+  }));
+  secureHandle('goal:control', (_event, action, options = {}) => invokeSafely(async () => {
+    const controller = chatController?.active;
+    if (!controller || options.tabId !== chatController.activeId) throw new Error('当前标签已变化，请重新选择目标。');
+    const key = controller.streamConversationId();
+    if (action === 'start') return goalModeService.start(controller, options);
+    if (action === 'resume') return goalModeService.resume(controller);
+    if (action === 'pause') return goalModeService.pause(key);
+    if (action === 'stop') return goalModeService.stop(key);
+    throw new Error('不支持的目标操作。');
+  }));
   secureHandle('chat:open-last-download', () => invokeSafely(async () => {
     const rawWorkspace = String(settings.load().workspace || '').trim();
     if (!rawWorkspace || !lastDownloadPath) throw new Error('暂无可打开的附件。');
@@ -1731,7 +1771,7 @@ function registerIpc() {
     return secrets.status();
   }));
   secureHandle('runtime:start', () => invokeSafely(async () => { const result = await orchestrator.start(); invalidateLocalMcpDiscovery(); return result; }));
-  secureHandle('runtime:stop', () => invokeSafely(async () => { const result = await orchestrator.stop(); invalidateLocalMcpDiscovery(); return result; }));
+  secureHandle('runtime:stop', () => invokeSafely(async () => { goalModeService.pauseAll('你已停止服务，目标模式已暂停'); const result = await orchestrator.stop(); invalidateLocalMcpDiscovery(); return result; }));
   secureHandle('runtime:restart', () => invokeSafely(async () => { const result = await orchestrator.restart(); invalidateLocalMcpDiscovery(); return result; }));
   secureHandle('logs:read', () => invokeSafely(async () => log.read()));
   secureHandle('logs:clear', () => invokeSafely(async () => { log.clear(); return true; }));
@@ -1911,6 +1951,8 @@ if (!hasSingleInstanceLock) {
       superviseTimer.unref?.();
     };
     scheduleSupervise(5000);
+    goalTimer = setInterval(() => { void goalModeService.tick(); }, 2500);
+    goalTimer.unref?.();
     log.info('超级智囊团已启动');
     nativeTheme.on('updated', () => {
       if (settings.load().theme === 'system') broadcastTheme('system');

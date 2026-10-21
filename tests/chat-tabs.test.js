@@ -118,3 +118,12 @@ test('shared login cleanup is blocked by hidden generation and removes stale idl
   first.emit('healthy'); await tabs.clearSession();
   assert.equal(tabs.tabs.size, 1); assert.equal(first.disposed, true); assert.equal(tabs.active.cleared, true);
 });
+
+test('an idle page with an enabled goal still protects update and shared-session cleanup', async t => {
+  const { tabs } = fixture(t);
+  tabs.options.getGoalState = () => ({ status: 'running' });
+  assert.equal(tabs.hasRunningWork(), true);
+  await assert.rejects(() => tabs.clearSession(), /标签/);
+  tabs.options.getGoalState = () => ({ status: 'paused' });
+  assert.equal(tabs.hasRunningWork(), false);
+});

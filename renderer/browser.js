@@ -347,6 +347,7 @@ function renderChatState(state) {
   const previousTabId = lastChatState.activeTabId;
   lastChatState = state;
   window.chatTabsView?.render(state);
+  window.goalModeView?.render(state);
   $('#chatAppearanceToggle').checked = Boolean(state.appearance?.enabled);
   $('#chatAppearanceStatus').textContent = state.appearance?.message || '默认关闭；直接使用原网页数据，关闭后恢复原生外观和导航。';
   const rawConversationKey = chatConversationKey(state.url);

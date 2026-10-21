@@ -33,7 +33,7 @@ class ChatTabsController {
   get streamState() { return this.active?.streamState || { status: 'unknown' }; }
   get nativeLogin() { return this.active?.nativeLogin; }
   get toolbarHeight() { return this.active?.toolbarHeight ?? this.options.toolbarHeight; }
-  hasRunningWork() { return this.prompting || [...this.tabs.values()].some(tab => protectedTab(tab.controller)); }
+  hasRunningWork() { return this.prompting || [...this.tabs.values()].some(tab => protectedTab(tab.controller) || this.options.getGoalState?.(tabKey(tab))?.status === 'running'); }
 
   mount() { if (!this.tabs.size) this.openTab(); }
 
@@ -177,10 +177,10 @@ class ChatTabsController {
   }
 
   getState() {
-    return { ...this.active?.getState(), activeTabId: this.activeId, maxTabs: MAX_TABS, tabs: [...this.tabs.values()].map(tab => {
+    return { ...this.active?.getState(), goal: this.options.getGoalState?.(conversationKey(this.active?.getState().url)), activeTabId: this.activeId, maxTabs: MAX_TABS, tabs: [...this.tabs.values()].map(tab => {
       const state = tab.controller.getState();
       return { id: tab.id, title: state.title || '新对话', url: state.url, active: tab.id === this.activeId,
-        loading: state.loading, status: state.streamState?.status || 'unknown', unread: tab.unread,
+        loading: state.loading, status: state.streamState?.status || 'unknown', unread: tab.unread, goal: this.options.getGoalState?.(conversationKey(state.url)),
         protected: protectedTab(tab.controller) };
     }) };
   }

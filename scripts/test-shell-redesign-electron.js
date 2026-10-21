@@ -86,12 +86,21 @@ app.whenReady().then(async () => {
     { name: 'light-workbench', width: 1440, height: 1024, theme: 'light', scenario: 'ready', open: true },
     { name: 'black-workbench', width: 1440, height: 1024, theme: 'black', scenario: 'ready', open: true },
     { name: 'narrow-960', width: 960, height: 640, theme: 'dark', scenario: 'interrupted', open: true },
-    { name: 'narrow-640', width: 640, height: 600, theme: 'dark', scenario: 'interrupted', open: true }
+    { name: 'narrow-640', width: 640, height: 600, theme: 'dark', scenario: 'interrupted', open: true },
+    { name: 'dark-goal', width: 1440, height: 1024, theme: 'dark', scenario: 'ready', open: true, goal: true },
+    { name: 'light-goal', width: 1440, height: 1024, theme: 'light', scenario: 'ready', open: true, goal: true },
+    { name: 'black-goal', width: 960, height: 720, theme: 'black', scenario: 'ready', open: true, goal: true }
   ]) {
     stage = item.name;
     window.setContentSize(item.width, item.height);
     await window.loadURL(`${previewUrl}/?theme=${item.theme}&scenario=${item.scenario}&workbench=${item.open ? '1' : '0'}`);
     await settleLayout(window);
+    if (item.goal) {
+      await window.webContents.executeJavaScript(`document.getElementById('goalModeButton').click();document.getElementById('goalObjective').value='核对已有成果，完成剩余步骤并提供验证记录';document.getElementById('goalStart').click();true;`);
+      await settleLayout(window);
+      const enabled = await window.webContents.executeJavaScript(`({open:document.getElementById('goalModeDetails').open,badge:document.getElementById('goalModeBadge').textContent,locked:document.getElementById('goalObjective').disabled,overflow:document.getElementById('goalModePanel').scrollWidth>document.getElementById('goalModePanel').clientWidth})`);
+      assert.equal(enabled.open, true); assert.match(enabled.badge, /进行中/); assert.equal(enabled.locked, true); assert.equal(enabled.overflow, false);
+    }
     const geometry = await window.webContents.executeJavaScript(`(() => {
       const rect = (id) => { const r = document.querySelector(id).getBoundingClientRect(); return { x:r.x,y:r.y,width:r.width,height:r.height,right:r.right,bottom:r.bottom }; };
       const ids = Array.from(document.querySelectorAll('[id]'), el => el.id);
@@ -112,6 +121,20 @@ app.whenReady().then(async () => {
     assert.ok(Math.abs(geometry.frame.bottom - geometry.footer.y) <= 1);
     if (item.open) assert.ok(Math.abs(geometry.frame.right - geometry.panel.x) <= 1, `${item.name}: ${JSON.stringify(geometry)}`);
     fs.writeFileSync(path.join(output, `${item.name}.png`), (await captureFixture(window)).toPNG());
+    if (item.goal) {
+      const controls = await window.webContents.executeJavaScript(`(async () => {
+        async function action(id, expected) {
+          for(let index=0;index<40&&document.getElementById(id).disabled;index++)await new Promise(resolve=>setTimeout(resolve,10));
+          document.getElementById(id).click();
+          for(let index=0;index<40;index++){if(document.getElementById('goalModeBadge').textContent.includes(expected))return;await new Promise(resolve=>setTimeout(resolve,10));}
+          throw new Error('目标控制没有更新到 '+expected);
+        }
+        await action('goalPause','已暂停'); await action('goalResume','进行中'); await action('goalStop','已结束');
+        window.goalModeView.render({...lastChatState,url:'https://chatgpt.com/c/another-goal-fixture',goal:null});
+        return {cleared:document.getElementById('goalObjective').value==='',startVisible:!document.getElementById('goalStart').hidden};
+      })()`);
+      assert.equal(controls.cleared, true); assert.equal(controls.startVisible, true);
+    }
     results.push({ ...item, geometry });
   }
   const expandedSidebars=[];

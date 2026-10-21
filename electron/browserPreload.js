@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('browserAssistant', {
+  goalControl: (action, options) => ipcRenderer.invoke('goal:control', action, options),
   imageJobsStatus: () => ipcRenderer.invoke('image-jobs:status'),
   imageJobsList: (options) => ipcRenderer.invoke('image-jobs:list', options),
   imageJobsImport: () => ipcRenderer.invoke('image-jobs:import'),

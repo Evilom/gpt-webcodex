@@ -4,6 +4,7 @@ const path = require('node:path');
 const { DownloadService } = require('./services/downloadService');
 const { readBoundedDomText } = require('./chatDomText');
 const { installChatTabNavigation } = require('./chatTabNavigation');
+const { inspectGoalPage, submitGoalPrompt, goalDeadline } = require('./chatGoalPage');
 const { normalizeProxyValue, resolveProxy } = require('./services/proxyService');
 const { NativeLoginService, SESSION_CHECK } = require('./services/nativeLoginService');
 const { AUTH_HOSTS, authUrl, readAuthenticatedSession, LOGIN_DOCUMENT_PROBE } = require('./services/chatLoginPolicy');
@@ -307,6 +308,7 @@ class ChatViewController {
   }
 
   resetStreamDocument() {
+    if (this.goalModeId) this.cancelGoalSend();
     this.streamDocumentRevision++;
     this.updateStreamState({ status: 'unknown', event: 'page-navigation', activityAt: 0, quietSeconds: 0, stalled: false, pageQuiet: false, detail: '' });
     this.scheduleTabNavigation();
@@ -1477,6 +1479,31 @@ class ChatViewController {
     return true;
   }
 
+  armGoal(id) { this.goalModeId = id; }
+
+  cancelGoalSend() {
+    if (!this.goalModeId) return;
+    this.goalModeId = '';
+    const contents = this.view?.webContents;
+    if (contents && !contents.isDestroyed()) void contents.executeJavaScript('window.__thinktankGoalSendId="";true;').catch(() => {});
+  }
+
+  async inspectGoalPage(options = {}) {
+    const contents = this.view?.webContents;
+    if (!contents || contents.isDestroyed() || this.disposed) throw new Error('目标会话不可用');
+    const revision = this.streamDocumentRevision;
+    const result = await goalDeadline(contents.executeJavaScript(`(${inspectGoalPage.toString()})(${JSON.stringify(options)})`), 3000);
+    if (revision !== this.streamDocumentRevision) throw new Error('目标会话已导航');
+    return { ...result, documentId: revision };
+  }
+
+  async submitGoalPrompt(options) {
+    const contents = this.view?.webContents;
+    if (!contents || contents.isDestroyed() || this.disposed || this.goalModeId !== options.goalId || options.documentId !== this.streamDocumentRevision) return { sent: false, reason: '目标已暂停或网页已变化' };
+    const sendId = `${options.goalId}:${options.sendTag}`;
+    return goalDeadline(contents.executeJavaScript(`window.__thinktankGoalSendId=${JSON.stringify(sendId)};(${submitGoalPrompt.toString()})({...${JSON.stringify({ ...options, sendId })},inspect:(${inspectGoalPage.toString()})})`, true), 6000, () => this.cancelGoalSend());
+  }
+
   async injectPrompt(text, autoSend = false) {
     const contents = this.view?.webContents;
     if (!contents || contents.isDestroyed()) return false;
@@ -1564,6 +1591,7 @@ class ChatViewController {
 
   dispose() {
     if (this.disposed) return;
+    this.cancelGoalSend();
     this.disposed = true;
     this.chatAppearanceAbort.abort();
     this.loginRevision++;

@@ -75,6 +75,11 @@
   let advisory = { configured: true, baseUrl: 'https://demo.invalid', selected: design ? ['anthropic::claude-opus-5-5','google::gemini-4-argon'] : [], models: [], job: null };
   const models = [{ id: 'anthropic::claude-opus-5-5', name: '太极 · Opus 5.5' }, { id: 'google::gemini-4-argon', name: 'AntiGravity · Gemini Argon 4' }, { id: 'google::gemini-3.8-flash-high', name: 'AntiGravity · Gemini 3.8 Flash High' }];
   window.browserAssistant = new Proxy({
+    goalControl: (action, options) => {
+      if (action === 'start') chat.goal = { id: 'preview-goal', objective: options.objective, maxRounds: options.maxRounds, rounds: 0, status: 'running', reason: '目标已开启，等待当前回复结束后核对' };
+      else if (chat.goal) Object.assign(chat.goal, { status: { pause: 'paused', resume: 'running', stop: 'stopped' }[action], reason: { pause: '目标已暂停', resume: '目标已恢复', stop: '目标已结束，已有任务和成果保留' }[action] });
+      listeners.onChatState?.(chat); return ok(chat.goal);
+    },
     chatStatus: () => ok(chat),
     openChatTab: () => { const id='preview-'+(chat.tabs.length+1);chat.tabs.push({id,title:'新对话',url:'https://chatgpt.com/',status:'healthy'});chat.activeTabId=id;listeners.onChatState?.(chat);return ok(chat); },
     selectChatTab: id => { chat.activeTabId=id;listeners.onChatState?.(chat);return ok(chat); },
