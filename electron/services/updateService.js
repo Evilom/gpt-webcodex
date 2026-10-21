@@ -60,9 +60,16 @@ class UpdateService {
         if (response.status === 404) { this.set({ stage: 'unpublished', checkedAt: Date.now() }); return; }
         let release;
         if ([403, 429].includes(response.status)) {
-          // CoS update.ts: GitHub's public latest redirect survives API rate limits.
-          const page = await this.fetch(RELEASE_PAGE, { method: 'HEAD', signal: AbortSignal.timeout(15000) });
-          const landed = new URL(page.url);
+          // Electron's session.fetch can omit Response.url after a redirect.
+          // GitHub's own page metadata also identifies the final release.
+          const page = await this.fetch(RELEASE_PAGE, { signal: AbortSignal.timeout(15000) });
+          let landedUrl = page.url;
+          if (page.ok && !landedUrl) {
+            const head = (await page.text()).split(/<\/head>/i, 1)[0];
+            const meta = head.match(/<meta\b[^>]*\bproperty=["']og:url["'][^>]*>/i)?.[0] || '';
+            landedUrl = meta.match(/\bcontent=["']([^"']+)["']/i)?.[1];
+          }
+          const landed = new URL(landedUrl || '', RELEASE_PAGE);
           const prefix = `/${REPOSITORY}/releases/tag/`;
           if (!page.ok || landed.origin !== 'https://github.com' || !landed.pathname.startsWith(prefix)) throw new Error('无法从我们的 Release 页面读取新版');
           release = { tag_name: decodeURIComponent(landed.pathname.slice(prefix.length)) };

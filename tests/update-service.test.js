@@ -83,6 +83,29 @@ test('API rate limits fall back only to our public release page', async () => {
   assert.equal((await bad.service.check()).stage, 'error');
 });
 
+test('real Electron empty redirect URL uses GitHub release metadata under API rate limits', async () => {
+  for (const status of [403, 429]) {
+    const f = fixture({ platform: 'darwin', fetch: async url => url.includes('api.github') ? { status } : {
+      ok: true, url: '', text: async () => '<html><head><meta property="og:url" content="/Evilom/gpt-webcodex/releases/tag/v0.9.7" /></head></html>'
+    } });
+    const state = await f.service.check();
+    assert.equal(state.stage, 'available', state.error); assert.equal(state.latest, '0.9.7');
+  }
+});
+
+test('release metadata rejects missing, foreign, body-injected and prerelease URLs', async () => {
+  for (const html of [
+    '<head></head>',
+    '<head><meta property="og:url" content="https://evil.example/Evilom/gpt-webcodex/releases/tag/v99.0.0"></head>',
+    '<head><meta content="/other/project/releases/tag/v99.0.0" property="og:url"></head>',
+    '<head></head><body><meta property="og:url" content="/Evilom/gpt-webcodex/releases/tag/v99.0.0"></body>',
+    '<head><meta property="og:url" content="/Evilom/gpt-webcodex/releases/tag/v0.9.7-beta"></head>'
+  ]) {
+    const f = fixture({ platform: 'darwin', fetch: async url => url.includes('api.github') ? { status: 403 } : { ok: true, url: '', text: async () => html } });
+    assert.equal((await f.service.check()).stage, 'error');
+  }
+});
+
 test('periodic checks start after the UI and stop on quit', (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
   const f = fixture(); let calls = 0; f.service.check = () => { calls++; };

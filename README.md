@@ -11,14 +11,16 @@
 
 | 组件 | 版本 |
 | --- | --- |
-| 超级智囊团 Desktop | **v0.9.31** |
-| Coding Tools MCP Runtime | **v0.9.31** |
+| 超级智囊团 Desktop | **v0.9.32** |
+| Coding Tools MCP Runtime | **v0.9.32** |
 | MCP Tool Schema | **v16 / 12 tools** |
 | Schema Hash | `e9d422f7d3ef37ed68547c3f04d352bc5429d4d1aef942a3f42b63dd7f6fb111` |
 | Electron | **43.2.0** |
 | 平台 | **Windows / Apple Silicon Mac** |
 
 ## 能做什么
+
+0.9.32 修复 GitHub API 限流时 Mac 更新检查报 `Invalid URL` 的问题：Electron 未提供重定向后的 URL 时，读取我们公开 Release 页的版本元数据，并继续校验仓库和稳定版本。包含下述目标模式与原生网页错误识别修复。
 
 0.9.31 增加默认关闭、按会话开启的目标模式：在顶部“目标”中填写目标与接续轮数，回复结束后核对已有成果并推进剩余步骤；明确的消息流异常在本地执行空闲、连接正常时按退避策略续接。保留草稿、附件及网页权限确认，手动停止、导航、重启和发送结果不明时暂停。`Invalid conversation body` 单独提示并暂停接续，避免连续重发无效请求。模型报告完成不等于独立验收，仍需查看原会话的交付和验证结果。
 
