@@ -222,6 +222,13 @@ class RepoIndex:
         self.manifest_path = self.index_dir / "manifest.json"
         self.version_path = self.index_dir / "index-version.json"
 
+    def background_enabled(self) -> bool:
+        try:
+            policy = json.loads((self.index_dir.parent / "index-policy.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return True
+        return not isinstance(policy, dict) or policy.get("background_enabled") is not False
+
     def _connect(self) -> sqlite3.Connection:
         self.index_dir.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(self.db_path, timeout=10.0)
@@ -238,6 +245,20 @@ class RepoIndex:
                 "CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5("
                 "path UNINDEXED, content, tokenize='unicode61')"
             )
+            mapped = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE name='file_fts_rows' AND type='table'"
+            ).fetchone()
+            if mapped is None:
+                # The table and its backfill must commit together. Recheck after
+                # acquiring the writer lock in case another connection migrated it.
+                connection.execute("BEGIN IMMEDIATE")
+                mapped = connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE name='file_fts_rows' AND type='table'"
+                ).fetchone()
+                if mapped is None:
+                    connection.execute("CREATE TABLE file_fts_rows(path TEXT PRIMARY KEY, fts_rowid INTEGER NOT NULL)")
+                    connection.execute("INSERT INTO file_fts_rows SELECT path, rowid FROM files_fts")
+                connection.commit()
             connection.execute(
                 "CREATE TABLE IF NOT EXISTS symbols ("
                 "path TEXT NOT NULL, name TEXT NOT NULL, kind TEXT NOT NULL, line INTEGER NOT NULL, signature TEXT NOT NULL)"
@@ -253,6 +274,14 @@ class RepoIndex:
         except Exception:
             connection.close()
             raise
+
+    @staticmethod
+    def _delete_fts(connection: sqlite3.Connection, relative: str) -> None:
+        # FTS5 cannot index its UNINDEXED path column. Resolve through a B-tree.
+        row = connection.execute("SELECT fts_rowid FROM file_fts_rows WHERE path=?", (relative,)).fetchone()
+        if row is not None:
+            connection.execute("DELETE FROM files_fts WHERE rowid=?", (row[0],))
+            connection.execute("DELETE FROM file_fts_rows WHERE path=?", (relative,))
 
     def _load_manifest(self) -> dict[str, dict[str, Any]]:
         try:
@@ -385,8 +414,9 @@ class RepoIndex:
                     "mtime_ns=excluded.mtime_ns, language=excluded.language",
                     (relative, digest, stat_result.st_size, stat_result.st_mtime_ns, language),
                 )
-                connection.execute("DELETE FROM files_fts WHERE path = ?", (relative,))
-                connection.execute("INSERT INTO files_fts(path, content) VALUES(?,?)", (relative, text))
+                self._delete_fts(connection, relative)
+                cursor = connection.execute("INSERT INTO files_fts(path, content) VALUES(?,?)", (relative, text))
+                connection.execute("INSERT INTO file_fts_rows VALUES(?,?)", (relative, cursor.lastrowid))
                 connection.execute("DELETE FROM symbols WHERE path = ?", (relative,))
                 connection.execute("DELETE FROM imports WHERE path = ?", (relative,))
                 symbols, imports = extract_structure(text, language)
@@ -402,12 +432,19 @@ class RepoIndex:
                     updated += 1
                 else:
                     indexed += 1
-            removed_paths = sorted(set(previous) - set(current))
-            for relative in removed_paths:
+                if (indexed + updated) % 128 == 0:
+                    connection.commit()
+            # A previous batch may have committed before its manifest was saved.
+            # Reconcile persisted rows too, including files deleted since then.
+            stored_paths = {str(row[0]) for row in connection.execute("SELECT path FROM files")}
+            removed_paths = sorted((stored_paths | set(previous)) - set(current))
+            for removed_count, relative in enumerate(removed_paths, 1):
                 connection.execute("DELETE FROM files WHERE path = ?", (relative,))
-                connection.execute("DELETE FROM files_fts WHERE path = ?", (relative,))
+                self._delete_fts(connection, relative)
                 connection.execute("DELETE FROM symbols WHERE path = ?", (relative,))
                 connection.execute("DELETE FROM imports WHERE path = ?", (relative,))
+                if (indexed + updated + removed_count) % 128 == 0:
+                    connection.commit()
             connection.commit()
 
         now = _utc_timestamp()

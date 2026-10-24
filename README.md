@@ -11,14 +11,16 @@
 
 | 组件 | 版本 |
 | --- | --- |
-| 超级智囊团 Desktop | **v0.9.32** |
-| Coding Tools MCP Runtime | **v0.9.32** |
+| 超级智囊团 Desktop | **v0.9.33** |
+| Coding Tools MCP Runtime | **v0.9.33** |
 | MCP Tool Schema | **v16 / 12 tools** |
 | Schema Hash | `e9d422f7d3ef37ed68547c3f04d352bc5429d4d1aef942a3f42b63dd7f6fb111` |
 | Electron | **43.2.0** |
 | 平台 | **Windows / Apple Silicon Mac** |
 
 ## 能做什么
+
+0.9.33 合入仓库索引高读写修复：使用路径到 FTS rowid 的索引映射，按每 128 项变更分批提交，保留旧索引并支持迁移、批次中断后的恢复。上下文请求触发刷新的过期阈值改为 300 秒，并遵守每个工作区的后台索引策略。
 
 0.9.32 修复 GitHub API 限流时 Mac 更新检查报 `Invalid URL` 的问题：Electron 未提供重定向后的 URL 时，读取我们公开 Release 页的版本元数据，并继续校验仓库和稳定版本。包含下述目标模式与原生网页错误识别修复。
 

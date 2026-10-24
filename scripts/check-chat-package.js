@@ -15,6 +15,7 @@ assert.ok(!asar.listPackage(archive).some(file=>/chat-replica|chatReplica|chat-d
 for(const file of files)assert.deepEqual(asar.extractFile(archive,path.normalize(file)),fs.readFileSync(path.join(root,file)),`Packaged file differs: ${file}`);
 const runtime=path.join(base,'resources/coding-tools-mcp');
 assert.equal(JSON.parse(fs.readFileSync(path.join(runtime,'schema-contract.json'),'utf8')).runtime_version,pkg.version);
+for(const file of ['coding_tools_mcp/repo_index.py','coding_tools_mcp/server.py'])assert.deepEqual(fs.readFileSync(path.join(runtime,file)),fs.readFileSync(path.join(root,'resources/coding-tools-mcp',file)),`Packaged Runtime file differs: ${file}`);
 const python=path.join(base,process.platform==='darwin'?'resources/native-python/bin/python3':'resources/native-python/python.exe');
 const result=spawnSync(python,['-B','-c','from coding_tools_mcp import __version__; print(__version__)'],{encoding:'utf8',windowsHide:true,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1',PYTHONPATH:runtime}});
 assert.equal(result.status,0,result.stderr);assert.equal(result.stdout.trim(),pkg.version);

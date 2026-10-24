@@ -845,6 +845,8 @@ _REPO_INDEX_CACHE_KEYS: dict[str, dict[str, str]] = {}
 
 
 def _start_repo_index_refresh(root: Path, cache_key: str, detail: str) -> bool:
+    if not RepoIndex(root).background_enabled():
+        return False
     key = str(root.resolve())
     with _REPO_INDEX_SYNC_LOCK:
         _REPO_INDEX_CACHE_KEYS.setdefault(key, {})[cache_key] = detail
@@ -895,6 +897,12 @@ def _repo_map_snapshot(root: Path, detail: str) -> dict[str, Any]:
     file_limit = 12 if detail != "full" else 24
     try:
         index = RepoIndex(root)
+        if not index.background_enabled():
+            return {
+                "index_status": {"status": "disabled", "ready": False, "refreshing": False},
+                "architecture_map": {}, "relevant_files": [], "important_symbols": [],
+                "dependency_hints": [], "_refresh_needed": False,
+            }
         status = index.status()
         key = str(root.resolve())
         with _REPO_INDEX_SYNC_LOCK:
@@ -908,7 +916,7 @@ def _repo_map_snapshot(root: Path, detail: str) -> dict[str, Any]:
                 pass
         with _REPO_INDEX_SYNC_LOCK:
             refreshing = bool(_REPO_INDEX_SYNC_THREADS.get(key) and _REPO_INDEX_SYNC_THREADS[key].is_alive())
-        refresh_needed = not ready or manifest_age >= 30.0
+        refresh_needed = not ready or manifest_age >= 300.0
         index_status = {
             "status": "ready" if ready else "building",
             "ready": ready,
