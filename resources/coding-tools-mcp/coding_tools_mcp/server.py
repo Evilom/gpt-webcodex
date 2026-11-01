@@ -71,12 +71,19 @@ from .processes import (
     terminate_process_group,
 )
 from .protocol import (
+    MODERN_ERA,
+    MODERN_PROTOCOL_VERSIONS,
+    HEADER_MISMATCH,
+    KNOWN_PROTOCOL_VERSIONS,
     PROTOCOL_VERSION,
-    SUPPORTED_PROTOCOL_VERSIONS,
     dispatch_rpc,
     jsonrpc_error,
-    protocol_version_is_supported,
+    modern_rpc_status,
+    protocol_version_is_known,
+    request_era,
     response_id,
+    validate_mirror_headers,
+    validate_modern_meta,
     validate_rpc_envelope,
 )
 from .project_context import ProjectContext, load_project_context
@@ -2303,6 +2310,23 @@ class Runtime:
                 tools, tool_mode=self.tool_mode, schema_version=TOOL_SCHEMA_VERSION, workspace=str(self.workspace.root)
             ),
             "feedback_capabilities": self.feedback_capabilities_payload(),
+        }
+
+    def server_identity(self) -> dict[str, Any]:
+        return {"name": SERVER_NAME, "title": SERVER_TITLE, "version": __version__}
+
+    def discover_payload(self) -> dict[str, Any]:
+        """Answer a modern (2026-07-28) ``server/discover`` probe.
+
+        Only modern versions are listed: naming a legacy one would invite the
+        client to put it in ``_meta``. Stateless clients cannot receive
+        list-changed notifications, so ``listChanged`` is false here.
+        """
+
+        return {
+            "supportedVersions": list(MODERN_PROTOCOL_VERSIONS),
+            "capabilities": {"tools": {"listChanged": False}},
+            "instructions": self.project_context.server_instructions(),
         }
 
     def feedback_capabilities_payload(self) -> dict[str, Any]:
@@ -9834,11 +9858,11 @@ class MCPHandler(http.server.BaseHTTPRequestHandler):
             self.send_rpc_error(-32600, "Content-Type must be application/json", status=415)
             return
         protocol_version = self.headers.get("MCP-Protocol-Version")
-        if protocol_version and not protocol_version_is_supported(protocol_version):
+        if protocol_version and not protocol_version_is_known(protocol_version):
             self.send_rpc_error(
                 -32600,
                 "Unsupported MCP protocol version",
-                data={"supported": list(SUPPORTED_PROTOCOL_VERSIONS), "received": protocol_version},
+                data={"supported": list(KNOWN_PROTOCOL_VERSIONS), "received": protocol_version},
             )
             return
         raw_length = self.headers.get("Content-Length")
@@ -9882,6 +9906,17 @@ class MCPHandler(http.server.BaseHTTPRequestHandler):
             )
             return
         method = request.get("method")
+        raw_params = request.get("params")
+        params_for_era = raw_params if isinstance(raw_params, dict) else {}
+        era = request_era(str(method), params_for_era)
+        if era == MODERN_ERA:
+            self.handle_modern_rpc(request, str(method), params_for_era, protocol_version)
+            return
+        try:
+            validate_mirror_headers(era, str(method), params_for_era, version_header=protocol_version, method_header=None, name_header=None)
+        except JsonRpcError as exc:
+            self.send_rpc_error(exc.code, exc.message, request_id=response_id(request), data=exc.data)
+            return
         session_id = self.headers.get("Mcp-Session-Id")
         created_session = False
         if method == "initialize":
@@ -9942,12 +9977,27 @@ class MCPHandler(http.server.BaseHTTPRequestHandler):
         else:
             self.send_rpc_error(-32002, "Server not initialized", request_id=request.get("id"))
             return
+        response = self.traced_rpc(request, str(method), str(session_id or self.runtime.http_session_id))
+        if created_session and response is not None and "error" in response:
+            self.server.sessions.delete(self.runtime.http_session_id)  # type: ignore[attr-defined]
+            self._send_session_header = False
+        if response is None:
+            self.send_response(202)
+            if getattr(self, "_send_session_header", False):
+                self.send_header("Mcp-Session-Id", self.runtime.http_session_id)
+            self.send_cors_headers()
+            self.end_headers()
+            return
+        self.send_json(response)
+
+    def traced_rpc(self, request: dict[str, Any], method: str, session_key: str) -> dict[str, Any] | None:
+        """Dispatch one request and record its receive/ready trace events."""
         params = request.get("params") if isinstance(request.get("params"), dict) else {}
         arguments = params.get("arguments") if isinstance(params.get("arguments"), dict) else {}
         self._rpc_trace_context = {
             "transport_id": secrets.token_hex(16), "rpc_id": trace_id(request.get("id")),
             "runtime_instance_id": self.runtime.server_instance_id,
-            "session_hash": hashlib.sha256(str(session_id or self.runtime.http_session_id).encode()).hexdigest()[:16],
+            "session_hash": hashlib.sha256(session_key.encode()).hexdigest()[:16],
             "origin": "desktop" if self.headers.get("X-Coding-Tools-Origin") == "desktop" else "external",
             "method": trace_id(method),
         }
@@ -9966,17 +10016,48 @@ class MCPHandler(http.server.BaseHTTPRequestHandler):
         if operation.get("operation_id"):
             self._rpc_trace_context["operation_id"] = trace_id(operation["operation_id"])
         self.runtime.rpc_trace.record("rpc.response_ready", **self._rpc_trace_context, result_available=not operation or "result" in operation, status=str(operation.get("status") or ("error" if isinstance(response, dict) and "error" in response else "completed")))
-        if created_session and response is not None and "error" in response:
-            self.server.sessions.delete(self.runtime.http_session_id)  # type: ignore[attr-defined]
-            self._send_session_header = False
+        return response
+
+    def handle_modern_rpc(self, request: dict[str, Any], method: str, params: dict[str, Any], protocol_version: str | None) -> None:
+        """Serve a stateless MCP 2026-07-28 request on the shared runtime.
+
+        No Mcp-Session-Id is issued or required. The body's own contract is
+        checked before the mirror headers, so a wrong version in ``_meta`` is
+        reported as such even when the headers faithfully repeat it.
+        """
+
+        for header in ("MCP-Protocol-Version", "Mcp-Method", "Mcp-Name"):
+            if len(self.headers.get_all(header) or ()) > 1:
+                self.send_rpc_error(
+                    HEADER_MISMATCH,
+                    f"{header} must appear exactly once",
+                    request_id=response_id(request),
+                    data={"header": header, "reason": "duplicate"},
+                )
+                return
+        try:
+            if "id" in request:
+                validate_modern_meta(params)
+            validate_mirror_headers(
+                MODERN_ERA,
+                method,
+                params,
+                version_header=protocol_version,
+                method_header=self.headers.get("Mcp-Method"),
+                name_header=self.headers.get("Mcp-Name"),
+            )
+        except JsonRpcError as exc:
+            error = jsonrpc_error(response_id(request), exc.code, exc.message, exc.data)
+            self.send_json(error, status=modern_rpc_status(error))
+            return
+        self._runtime = self.server.control_runtime  # type: ignore[attr-defined]
+        response = self.traced_rpc(request, method, "modern-stateless")
         if response is None:
             self.send_response(202)
-            if getattr(self, "_send_session_header", False):
-                self.send_header("Mcp-Session-Id", self.runtime.http_session_id)
             self.send_cors_headers()
             self.end_headers()
             return
-        self.send_json(response)
+        self.send_json(response, status=modern_rpc_status(response))
 
     def handle_rpc(self, request: dict[str, Any]) -> dict[str, Any] | None:
         raw_origin = str(self.headers.get("X-Coding-Tools-Origin") or "").strip().lower()
@@ -10362,7 +10443,7 @@ class MCPHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Methods", "GET, HEAD, POST, DELETE, OPTIONS")
             self.send_header(
                 "Access-Control-Allow-Headers",
-                "Accept, Authorization, Content-Type, MCP-Protocol-Version, Mcp-Session-Id",
+                "Accept, Authorization, Content-Type, MCP-Protocol-Version, Mcp-Session-Id, Mcp-Method, Mcp-Name",
             )
 
     def send_json(
