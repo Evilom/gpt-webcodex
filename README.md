@@ -11,14 +11,16 @@
 
 | 组件 | 版本 |
 | --- | --- |
-| 超级智囊团 Desktop | **v0.9.34** |
-| Coding Tools MCP Runtime | **v0.9.34** |
+| 超级智囊团 Desktop | **v0.9.35** |
+| Coding Tools MCP Runtime | **v0.9.35** |
 | MCP Tool Schema | **v16 / 12 tools** |
 | Schema Hash | `e9d422f7d3ef37ed68547c3f04d352bc5429d4d1aef942a3f42b63dd7f6fb111` |
 | Electron | **43.2.0** |
 | 平台 | **Windows / Apple Silicon Mac** |
 
 ## 能做什么
+
+0.9.35 包含下述协议与索引修复，并使用线程同步信号修复后台交接测试的时序竞争，解除 Mac 发行阻断。详见 [0.9.35 发布说明](docs/RELEASE_NOTES_0.9.35.md)。
 
 0.9.34 支持 OpenAI tunnel-client 0.0.16 使用的 MCP 2026-07-28 无状态请求，修复新协议 discovery 返回 HTTP 400 后退回旧握手的问题；补齐请求镜像头校验与现代响应字段，保留桌面内部 discovery 和旧版 Session 行为。
 
@@ -121,7 +123,7 @@ Mac 打包参考 [Chat On Steroids 的 macOS 封装与签名校验](https://gith
 
 本地构建的 Windows 安装包：
 
-`dist/web-mcp-assistant-setup-0.9.34.exe`
+`dist/web-mcp-assistant-setup-0.9.35.exe`
 
 安装后：
 

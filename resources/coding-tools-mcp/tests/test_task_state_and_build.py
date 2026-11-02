@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -625,30 +626,38 @@ class BackgroundOperationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             runtime = Runtime(Path(temp))
 
+            release = threading.Event()
+
             def slow_result(name, arguments, request_id=None):
                 del name, arguments, request_id
-                time.sleep(0.05)
+                self.assertTrue(release.wait(10), "background workflow was not released")
                 return {"done": True}
 
-            with patch.object(server_module, "LONG_TOOL_HANDOFF_SECONDS", 0.01), patch.object(
-                runtime, "_call_tool_sync", side_effect=slow_result
-            ):
-                first = runtime.call_tool("agent_workflow", {"phase": "run"})
-                structured = first["structuredContent"]
-                self.assertEqual(structured["status"], "running")
-                self.assertTrue(structured["requires_progress_report"])
-                operation_id = structured["background_operation"]["operation_id"]
-                execution_id = structured["background_operation"]["execution"]["execution_id"]
-                self.assertTrue(structured["background_operation"]["task_id"])
-                self.assertTrue(structured["background_operation"]["run_id"])
-                self.assertTrue(structured["background_operation"]["heartbeat_at"])
-                polled = runtime.task_control({"action": "operation", "operation_id": operation_id, "wait_ms": 1000})
-                self.assertEqual(polled["background_operation"]["status"], "completed")
-                self.assertEqual(polled["background_operation"]["execution"]["execution_id"], execution_id)
-                self.assertEqual(polled["background_operation"]["execution"]["lifecycle_state"], "completed")
-                self.assertEqual(polled["background_operation"]["result"], {"done": True})
-                self.assertEqual(runtime.task_state.operation_records()[-1]["status"], "completed")
-            runtime.close()
+            try:
+                with patch.object(server_module, "LONG_TOOL_HANDOFF_SECONDS", 0.01), patch.object(
+                    runtime, "_call_tool_sync", side_effect=slow_result
+                ):
+                    first = runtime.call_tool("agent_workflow", {"phase": "run"})
+                    structured = first["structuredContent"]
+                    self.assertEqual(structured["status"], "running")
+                    self.assertTrue(structured["requires_progress_report"])
+                    operation_id = structured["background_operation"]["operation_id"]
+                    execution_id = structured["background_operation"]["execution"]["execution_id"]
+                    self.assertTrue(structured["background_operation"]["task_id"])
+                    self.assertTrue(structured["background_operation"]["run_id"])
+                    self.assertTrue(structured["background_operation"]["heartbeat_at"])
+                    release.set()
+                    polled = runtime.task_control({"action": "operation", "operation_id": operation_id, "wait_ms": 1000})
+                    self.assertEqual(polled["background_operation"]["status"], "completed")
+                    self.assertEqual(polled["background_operation"]["execution"]["execution_id"], execution_id)
+                    self.assertEqual(polled["background_operation"]["execution"]["lifecycle_state"], "completed")
+                    self.assertEqual(polled["background_operation"]["result"], {"done": True})
+                    self.assertEqual(runtime.task_state.operation_records()[-1]["status"], "completed")
+            finally:
+                release.set()
+                for operation in runtime.background_operations.values():
+                    operation["event"].wait(10)
+                runtime.close()
 
     def test_duplicate_background_workflow_reuses_same_operation(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
