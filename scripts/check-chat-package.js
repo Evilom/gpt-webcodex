@@ -13,9 +13,17 @@ assert.equal(JSON.parse(asar.extractFile(archive,'package.json')).version,pkg.ve
 files.push('electron/chatGoalPage.js','electron/services/goalModeService.js','renderer/goal-mode.js','renderer/icons/flag.svg');
 assert.ok(!asar.listPackage(archive).some(file=>/chat-replica|chatReplica|chat-dist|assistant-ui/.test(file)), 'Removed experiment remains in archive');
 for(const file of files)assert.deepEqual(asar.extractFile(archive,path.normalize(file)),fs.readFileSync(path.join(root,file)),`Packaged file differs: ${file}`);
+function checkPythonCaches(directory){
+  for(const entry of fs.readdirSync(directory,{withFileTypes:true})){
+    const file=path.join(directory,entry.name);
+    assert.ok(entry.name!=='__pycache__'&&!entry.name.endsWith('.pyc'),`Python cache remains in package: ${file}`);
+    if(entry.isDirectory())checkPythonCaches(file);
+  }
+}
+checkPythonCaches(path.join(base,'resources'));
 const runtime=path.join(base,'resources/coding-tools-mcp');
 assert.equal(JSON.parse(fs.readFileSync(path.join(runtime,'schema-contract.json'),'utf8')).runtime_version,pkg.version);
-for(const file of ['coding_tools_mcp/repo_index.py','coding_tools_mcp/server.py'])assert.deepEqual(fs.readFileSync(path.join(runtime,file)),fs.readFileSync(path.join(root,'resources/coding-tools-mcp',file)),`Packaged Runtime file differs: ${file}`);
+for(const file of ['schema-contract.json','coding_tools_mcp/protocol.py','coding_tools_mcp/repo_index.py','coding_tools_mcp/server.py'])assert.deepEqual(fs.readFileSync(path.join(runtime,file)),fs.readFileSync(path.join(root,'resources/coding-tools-mcp',file)),`Packaged Runtime file differs: ${file}`);
 const python=path.join(base,process.platform==='darwin'?'resources/native-python/bin/python3':'resources/native-python/python.exe');
 const result=spawnSync(python,['-B','-c','from coding_tools_mcp import __version__; print(__version__)'],{encoding:'utf8',windowsHide:true,env:{...process.env,PYTHONDONTWRITEBYTECODE:'1',PYTHONPATH:runtime}});
 assert.equal(result.status,0,result.stderr);assert.equal(result.stdout.trim(),pkg.version);

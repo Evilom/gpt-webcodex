@@ -11,14 +11,16 @@
 
 | 组件 | 版本 |
 | --- | --- |
-| 超级智囊团 Desktop | **v0.9.33** |
-| Coding Tools MCP Runtime | **v0.9.33** |
+| 超级智囊团 Desktop | **v0.9.34** |
+| Coding Tools MCP Runtime | **v0.9.34** |
 | MCP Tool Schema | **v16 / 12 tools** |
 | Schema Hash | `e9d422f7d3ef37ed68547c3f04d352bc5429d4d1aef942a3f42b63dd7f6fb111` |
 | Electron | **43.2.0** |
 | 平台 | **Windows / Apple Silicon Mac** |
 
 ## 能做什么
+
+0.9.34 支持 OpenAI tunnel-client 0.0.16 使用的 MCP 2026-07-28 无状态请求，修复新协议 discovery 返回 HTTP 400 后退回旧握手的问题；补齐请求镜像头校验与现代响应字段，保留桌面内部 discovery 和旧版 Session 行为。
 
 0.9.33 合入仓库索引高读写修复：使用路径到 FTS rowid 的索引映射，按每 128 项变更分批提交，保留旧索引并支持迁移、批次中断后的恢复。上下文请求触发刷新的过期阈值改为 300 秒，并遵守每个工作区的后台索引策略。
 
@@ -115,11 +117,11 @@ Mac 打包参考 [Chat On Steroids 的 macOS 封装与签名校验](https://gith
 
 ## 安装
 
-推荐直接从 GitHub Releases 下载最新版。
+推荐从 [GitHub Releases](https://github.com/Evilom/gpt-webcodex/releases/latest) 下载最新版。
 
-本地正式安装包：
+本地构建的 Windows 安装包：
 
-`dist/web-mcp-assistant-setup-0.9.4.exe`
+`dist/web-mcp-assistant-setup-0.9.34.exe`
 
 安装后：
 

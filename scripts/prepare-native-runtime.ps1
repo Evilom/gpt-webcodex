@@ -32,7 +32,7 @@ Invoke-WebRequest -UseBasicParsing -Uri "https://bootstrap.pypa.io/get-pip.py" -
 if ($LASTEXITCODE -ne 0) { throw "pip bootstrap failed." }
 $SitePackages = Join-Path $Target "Lib\site-packages"
 $BundledSource = Join-Path $ProjectRoot "resources\coding-tools-mcp"
-& (Join-Path $Target "python.exe") -m pip install --no-warn-script-location --target $SitePackages "PyJWT>=2.8,<3"
+& (Join-Path $Target "python.exe") -m pip install --no-compile --no-warn-script-location --target $SitePackages "PyJWT>=2.8,<3"
 if ($LASTEXITCODE -ne 0) { throw "PyJWT installation failed." }
 
 # pip is only needed while assembling the portable runtime. Removing it keeps

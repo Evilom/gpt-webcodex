@@ -1,6 +1,6 @@
 {
   "name": "web-mcp-assistant",
-  "version": "0.9.33",
+  "version": "0.9.34",
   "description": "超级智囊团：ChatGPT 工作台、Coding Tools MCP 与太极 / AntiGravity 扩展辅助",
   "author": "3169657175",
   "license": "MIT",
@@ -72,8 +72,8 @@
         "to": "resources",
         "filter": [
           "**/*",
-          "!coding-tools-mcp/**/__pycache__/**",
-          "!coding-tools-mcp/**/*.pyc"
+          "!**/__pycache__/**",
+          "!**/*.pyc"
         ]
       }
     ],
